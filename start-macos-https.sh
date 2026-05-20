@@ -9,7 +9,14 @@ if [[ ! -d ".venv" ]]; then
   exit 1
 fi
 if [[ ! -f ".env" ]]; then
-  cp .env.example .env
+  if [[ -f ".env.example" ]]; then
+    cp .env.example .env
+  elif [[ -f "env.example" ]]; then
+    cp env.example .env
+  else
+    echo "Could not find .env.example or env.example. Re-download Church Cap and try again." >&2
+    exit 1
+  fi
 fi
 if [[ ! -f certs/church-cap.pem ]] || [[ ! -f certs/church-cap-key.pem ]]; then
   echo "Missing HTTPS certificate. Run one of:"

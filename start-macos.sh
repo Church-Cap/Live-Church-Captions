@@ -10,7 +10,14 @@ if [[ ! -d ".venv" ]]; then
 fi
 
 if [[ ! -f ".env" ]]; then
-  cp .env.example .env
+  if [[ -f ".env.example" ]]; then
+    cp .env.example .env
+  elif [[ -f "env.example" ]]; then
+    cp env.example .env
+  else
+    echo "Could not find .env.example or env.example. Re-download Church Cap and try again." >&2
+    exit 1
+  fi
 fi
 
 VIEWER_PORT="${VIEWER_PORT:-8080}"

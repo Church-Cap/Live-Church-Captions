@@ -11,6 +11,25 @@ function Step($Message) {
     Write-Host "==> $Message"
 }
 
+function Ensure-EnvFile {
+    if (Test-Path ".env") {
+        Write-Host ".env already exists; keeping your current settings."
+        return
+    }
+    if (Test-Path ".env.example") {
+        Copy-Item ".env.example" ".env"
+        Write-Host "Created .env from .env.example"
+        return
+    }
+    if (Test-Path "env.example") {
+        Copy-Item "env.example" ".env"
+        Write-Host "Created .env from env.example"
+        return
+    }
+    Write-Host "Could not find .env.example or env.example. Re-download Church Cap and try again."
+    exit 1
+}
+
 Write-Host ""
 Write-Host "====================================================="
 Write-Host " Church Cap first-time setup for Windows"
@@ -116,12 +135,7 @@ Step "3/6 Installing Python packages inside .venv only"
 
 Step "4/6 Creating local folders and .env"
 New-Item -ItemType Directory -Force -Path data, logs, certs | Out-Null
-if (-not (Test-Path ".env")) {
-    Copy-Item ".env.example" ".env"
-    Write-Host "Created .env from .env.example"
-} else {
-    Write-Host ".env already exists; keeping your current settings."
-}
+Ensure-EnvFile
 
 Step "5/6 Checking CUDA/GPU support"
 & $VenvPython scripts\check-gpu.py

@@ -9,7 +9,14 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 
 if (-not (Test-Path ".env")) {
-    Copy-Item ".env.example" ".env"
+    if (Test-Path ".env.example") {
+        Copy-Item ".env.example" ".env"
+    } elseif (Test-Path "env.example") {
+        Copy-Item "env.example" ".env"
+    } else {
+        Write-Host "Could not find .env.example or env.example. Re-download Church Cap and try again."
+        exit 1
+    }
 }
 
 $ViewerPort = if ($env:VIEWER_PORT) { $env:VIEWER_PORT } else { "8080" }

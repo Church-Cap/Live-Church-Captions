@@ -71,6 +71,25 @@ esac
 
 step() { echo ""; echo "==> $1"; }
 
+create_env_if_missing() {
+  if [[ -f ".env" ]]; then
+    echo ".env already exists; keeping your current settings."
+    return
+  fi
+  if [[ -f ".env.example" ]]; then
+    cp .env.example .env
+    echo "Created .env from .env.example"
+    return
+  fi
+  if [[ -f "env.example" ]]; then
+    cp env.example .env
+    echo "Created .env from env.example"
+    return
+  fi
+  echo "Could not find .env.example or env.example. Re-download Church Cap and try again." >&2
+  exit 1
+}
+
 step "1/7 Checking Homebrew"
 if ! command -v brew >/dev/null 2>&1; then
   if [[ -x "$BREW_BIN" ]]; then
@@ -144,12 +163,7 @@ step "4/7 Installing Python packages inside .venv only"
 
 step "5/7 Creating local folders and .env"
 mkdir -p data logs certs
-if [[ ! -f ".env" ]]; then
-  cp .env.example .env
-  echo "Created .env from .env.example"
-else
-  echo ".env already exists; keeping your current settings."
-fi
+create_env_if_missing
 
 step "6/7 Bonjour/mDNS hostname"
 CURRENT_LOCALHOST="$(scutil --get LocalHostName 2>/dev/null || true)"

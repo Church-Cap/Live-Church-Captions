@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.so
+
+# Local config / secrets
+.env
+.env.local
+data/
+certs/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Build / logs
+*.log
+dist/
+build/

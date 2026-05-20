@@ -5,7 +5,7 @@ Docker support is mainly for development and Linux-style testing. Native macOS r
 From the project root:
 
 ```bash
-cp .env.example .env
+cp env.example .env
 docker compose -f docker/docker-compose.yml up --build
 ```
 

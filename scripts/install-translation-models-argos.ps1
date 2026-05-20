@@ -56,7 +56,8 @@ import os
 
 env_path = Path('.env')
 if not env_path.exists():
-    env_path.write_text(Path('.env.example').read_text(encoding='utf-8'), encoding='utf-8')
+    template = Path('.env.example') if Path('.env.example').exists() else Path('env.example')
+    env_path.write_text(template.read_text(encoding='utf-8'), encoding='utf-8')
 
 values = {
     'TRANSLATION_ENABLED': '$enableValue',

@@ -28,8 +28,16 @@ python -m pip install --upgrade pip "setuptools<82" wheel
 python -m pip install -r requirements.txt
 
 if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example"
+  if [ -f .env.example ]; then
+    cp .env.example .env
+    echo "Created .env from .env.example"
+  elif [ -f env.example ]; then
+    cp env.example .env
+    echo "Created .env from env.example"
+  else
+    echo "Could not find .env.example or env.example." >&2
+    exit 1
+  fi
 fi
 
 mkdir -p data logs

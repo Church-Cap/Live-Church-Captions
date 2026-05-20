@@ -3,7 +3,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ ! -f .env ]; then
-  cp .env.example .env
+  if [ -f .env.example ]; then
+    cp .env.example .env
+  elif [ -f env.example ]; then
+    cp env.example .env
+  else
+    echo "Could not find .env.example or env.example." >&2
+    exit 1
+  fi
 fi
 
 if [ -x ".venv/bin/python" ]; then

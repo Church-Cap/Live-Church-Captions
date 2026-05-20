@@ -320,7 +320,7 @@ On Windows:
 Docker is useful for the web app, but audio capture can be awkward on macOS. For Linux or server-style testing:
 
 ```bash
-cp .env.example .env
+cp env.example .env
 docker compose -f docker/docker-compose.yml up --build
 ```
 
@@ -333,7 +333,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-cp .env.example .env
+cp env.example .env
 ./scripts/run-dev.sh
 ```
 
