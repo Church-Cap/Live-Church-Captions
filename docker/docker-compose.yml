@@ -1,0 +1,15 @@
+services:
+  caption-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../.env
+    volumes:
+      - ../config:/app/config
+      - ../data:/app/data
+    # Linux audio example. On macOS, native running is easier for audio capture.
+    devices:
+      - "/dev/snd:/dev/snd"

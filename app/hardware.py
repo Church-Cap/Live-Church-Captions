@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import platform
+import shutil
+import subprocess
+import os
+import site
+import sys
+from dataclasses import asdict, dataclass
+from functools import lru_cache
+from pathlib import Path
+
+
+_DLL_DIRECTORY_HANDLES = []
+
+
+@dataclass(frozen=True)
+class HardwareAccelerationStatus:
+    platform: str
+    cuda_available: bool
+    cuda_device_count: int
+    cuda_runtime_ready: bool
+    missing_cuda_libraries: list[str]
+    nvidia_smi_available: bool
+    message: str
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def _ctranslate2_cuda_device_count() -> tuple[int, str | None]:
+    try:
+        import ctranslate2  # type: ignore
+    except Exception as exc:
+        return 0, f"CTranslate2 is not available: {exc}"
+
+    detector = getattr(ctranslate2, "get_cuda_device_count", None)
+    if detector is None:
+        return 0, "This CTranslate2 build does not expose CUDA detection."
+
+    try:
+        return max(0, int(detector())), None
+    except Exception as exc:
+        return 0, f"CTranslate2 CUDA detection failed: {exc}"
+
+
+def _has_nvidia_smi() -> bool:
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return False
+    try:
+        subprocess.run(
+            [nvidia_smi, "--query-gpu=name", "--format=csv,noheader"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _dll_exists_on_path(name: str) -> bool:
+    for item in _python_cuda_dll_dirs():
+        try:
+            if (item / name).exists():
+                return True
+        except OSError:
+            continue
+    for item in os.environ.get("PATH", "").split(os.pathsep):
+        if not item:
+            continue
+        try:
+            if (os.path.exists(os.path.join(item, name))):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+@lru_cache(maxsize=1)
+def _python_cuda_dll_dirs() -> tuple[Path, ...]:
+    if platform.system() != "Windows":
+        return ()
+
+    roots: list[Path] = []
+    try:
+        roots.extend(Path(p) for p in site.getsitepackages())
+    except Exception:
+        pass
+    try:
+        roots.append(Path(site.getusersitepackages()))
+    except Exception:
+        pass
+    roots.append(Path(sys.prefix) / "Lib" / "site-packages")
+
+    dirs: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        nvidia_root = root / "nvidia"
+        if not nvidia_root.exists():
+            continue
+        for candidate in nvidia_root.glob("**/*"):
+            if not candidate.is_dir() or candidate.name.lower() not in {"bin", "lib"}:
+                continue
+            key = str(candidate.resolve()).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            dirs.append(candidate)
+    return tuple(dirs)
+
+
+def prepare_python_cuda_dll_dirs() -> tuple[str, ...]:
+    """Expose venv-installed NVIDIA CUDA wheel DLLs to Windows loaders."""
+    dirs = _python_cuda_dll_dirs()
+    if platform.system() != "Windows":
+        return tuple(str(path) for path in dirs)
+
+    existing_path = os.environ.get("PATH", "")
+    path_parts = existing_path.split(os.pathsep) if existing_path else []
+    added: list[str] = []
+    for path in dirs:
+        path_str = str(path)
+        if path_str not in path_parts:
+            path_parts.insert(0, path_str)
+            added.append(path_str)
+        add_dll_directory = getattr(os, "add_dll_directory", None)
+        if add_dll_directory is not None:
+            try:
+                _DLL_DIRECTORY_HANDLES.append(add_dll_directory(path_str))
+            except OSError:
+                pass
+    if added:
+        os.environ["PATH"] = os.pathsep.join(path_parts)
+    return tuple(str(path) for path in dirs)
+
+
+def _cuda_runtime_status(system_name: str) -> tuple[bool, list[str]]:
+    if system_name != "Windows":
+        return True, []
+
+    # CTranslate2's Windows CUDA backend needs NVIDIA runtime DLLs available
+    # on PATH. Without cublas64_12.dll, model loading fails with a caption error.
+    required = ["cublas64_12.dll"]
+    missing = [name for name in required if not _dll_exists_on_path(name)]
+    return not missing, missing
+
+
+@lru_cache(maxsize=1)
+def detect_hardware_acceleration() -> HardwareAccelerationStatus:
+    system_name = platform.system()
+    prepare_python_cuda_dll_dirs()
+    cuda_count, cuda_message = _ctranslate2_cuda_device_count()
+    nvidia_smi_available = _has_nvidia_smi()
+    cuda_runtime_ready, missing_cuda_libraries = _cuda_runtime_status(system_name)
+    cuda_ready = cuda_count > 0 and cuda_runtime_ready
+
+    if cuda_ready:
+        message = f"CUDA is available for faster-whisper ({cuda_count} device(s))."
+    elif cuda_count > 0 and not cuda_runtime_ready:
+        missing = ", ".join(missing_cuda_libraries)
+        message = (
+            f"An NVIDIA CUDA device is visible, but required CUDA runtime library files are missing: {missing}. "
+            "Church Cap will use CPU until the NVIDIA CUDA runtime is installed and available on PATH."
+        )
+    elif nvidia_smi_available:
+        message = (
+            "An NVIDIA GPU is visible, but the installed CTranslate2 runtime "
+            "does not currently expose CUDA to faster-whisper."
+        )
+        if cuda_message:
+            message = f"{message} {cuda_message}"
+    else:
+        message = cuda_message or "No CUDA-capable GPU was detected."
+
+    return HardwareAccelerationStatus(
+        platform=system_name,
+        cuda_available=cuda_ready,
+        cuda_device_count=cuda_count,
+        cuda_runtime_ready=cuda_runtime_ready,
+        missing_cuda_libraries=missing_cuda_libraries,
+        nvidia_smi_available=nvidia_smi_available,
+        message=message,
+    )
+
+
+def resolve_whisper_runtime(
+    requested_device: str,
+    requested_compute_type: str,
+    status: HardwareAccelerationStatus | None = None,
+) -> tuple[str, str]:
+    """Resolve user-friendly auto settings into explicit faster-whisper values."""
+    status = status or detect_hardware_acceleration()
+    device = (requested_device or "auto").strip().lower()
+    compute_type = (requested_compute_type or "auto").strip().lower()
+
+    if device == "auto":
+        device = "cuda" if status.cuda_available else "cpu"
+
+    if compute_type == "auto":
+        compute_type = "float16" if device == "cuda" else "int8"
+
+    return device, compute_type

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Church Cap · Operator account</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-page glass-page">
+  <main class="auth-shell">
+    <section class="auth-card glass-card">
+      <div class="auth-brand">
+        <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
+        <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
+      </div>
+      <p class="eyebrow">Local-first live captions for church</p>
+      <h1>Operator account</h1>
+      <p class="muted">Change the Church Cap control-station password. Changing the password signs out existing operator sessions.</p>
+      {% if error %}<p class="error-banner">{{ error }}</p>{% endif %}
+      {% if success %}<p class="success-banner">{{ success }}</p>{% endif %}
+      <form method="post" action="/account/password" class="stacked-form">
+        <label for="current_password">Current password</label>
+        <input id="current_password" name="current_password" type="password" required autocomplete="current-password">
+        <label for="new_password">New password</label>
+        <input id="new_password" name="new_password" type="password" minlength="8" required autocomplete="new-password">
+        <label for="confirm_password">Confirm new password</label>
+        <input id="confirm_password" name="confirm_password" type="password" minlength="8" required autocomplete="new-password">
+        <button type="submit" class="primary-button full-width">Change password</button>
+      </form>
+      <p class="auth-footer"><a href="/operator">← Back to operator controls</a></p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Church Cap · Operator</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="operator-page glass-page">
+  <script>
+    (function () {
+      const saved = localStorage.getItem('operatorTheme') || 'dark';
+      if (saved === 'light') document.body.classList.add('light-mode');
+      if (localStorage.getItem('operatorSidebarCollapsed') === 'true') document.body.classList.add('operator-sidebar-collapsed');
+    })();
+  </script>
+
+  <main class="operator-app-shell premium-operator-shell glass-shell">
+    <aside class="operator-sidebar premium-sidebar glass-card" aria-label="Operator sections">
+      <div class="sidebar-topline">
+        <div class="sidebar-brand">
+          <div class="brand-copy">
+            <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark brand-wordmark">
+            <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light brand-wordmark">
+          </div>
+        </div>
+        <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Collapse side menu" aria-expanded="true">☰</button>
+      </div>
+
+      <nav class="operator-nav premium-nav">
+        <p class="nav-category">Run service</p>
+        <button type="button" class="nav-button active" data-section="dashboard"><span class="nav-icon">●</span><span class="nav-label">Dashboard</span></button>
+        <button type="button" class="nav-button" data-section="languages"><span class="nav-icon">◐</span><span class="nav-label">Languages</span><span class="beta-pill mini">Beta</span></button>
+        <button type="button" class="nav-button" data-section="audience"><span class="nav-icon">▣</span><span class="nav-label">Audience & OBS</span></button>
+        <button type="button" class="nav-button" data-section="privacy"><span class="nav-icon">◆</span><span class="nav-label">Privacy & Security</span></button>
+
+        <p class="nav-category">Guides</p>
+        <a class="nav-button nav-link" href="/setup/network"><span class="nav-icon">⌘</span><span class="nav-label">Network setup</span></a>
+        <a class="nav-button nav-link" href="/obs/help"><span class="nav-icon">▤</span><span class="nav-label">OBS setup</span></a>
+        <a class="nav-button nav-link" href="/docs/privacy"><span class="nav-icon">◈</span><span class="nav-label">Privacy statement</span></a>
+        <a class="nav-button nav-link" href="/docs/church-notice"><span class="nav-icon">✦</span><span class="nav-label">Church notice text</span></a>
+        <a class="nav-button nav-link" href="/docs/disclaimer"><span class="nav-icon">!</span><span class="nav-label">Disclaimers</span></a>
+        <a class="nav-button nav-link" href="/feedback"><span class="nav-icon">@</span><span class="nav-label">Feedback</span></a>
+      </nav>
+
+      <div class="sidebar-footer premium-sidebar-footer">
+        <button type="button" id="operatorThemeToggle" class="secondary-button full-width" onclick="toggleOperatorTheme()">Light mode</button>
+        <a class="secondary-button link-as-button full-width" href="/account">Account / password</a>
+        <form method="post" action="/logout">
+          <button type="submit" class="secondary-button full-width">Log out</button>
+        </form>
+      </div>
+    </aside>
+
+    <section class="operator-main-panel premium-main-panel">
+      <header class="operator-header-row compact-operator-header glass-card premium-header-card">
+        <div>
+          <p class="eyebrow" id="operatorSectionEyebrow">Dashboard</p>
+          <h1>Church Cap operator</h1>
+          <p class="muted" id="operatorSectionDescription">Start captions, choose audio input, monitor the microphone, and manage sensitive moments.</p>
+        </div>
+        <div class="operator-quick-status">
+          <span id="connection" class="status-pill">Connecting</span>
+          <span class="status-pill">Viewers: <strong id="viewerCount">0</strong></span>
+          <span class="status-pill">Mode: <strong id="sensitiveStatus">Normal</strong></span>
+        </div>
+      </header>
+
+      {% if operator_password_is_default or session_secret_is_default %}
+      <section class="warning-panel glass-card">
+        <strong>Security setup needed:</strong>
+        change <code>OPERATOR_PASSWORD</code> and <code>SESSION_SECRET</code> in <code>.env</code> before using this at church.
+      </section>
+      {% endif %}
+
+      <section class="operator-section active" id="operator-section-dashboard" data-title="Dashboard" data-description="Start captions, choose audio input, monitor the microphone, and manage sensitive moments.">
+        <div class="dashboard-grid">
+          <article class="operator-panel glass-card dashboard-hero-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Live service</p>
+                <h2>Caption controls</h2>
+              </div>
+              <span id="serviceStatus" class="status-pill">Stopped</span>
+            </div>
+            <div class="button-row primary-actions spacious-actions">
+              <button onclick="api('/api/start')">Start captions</button>
+              <button onclick="api('/api/stop')" class="secondary-button">Stop</button>
+              <button onclick="api('/api/test-caption')" class="secondary-button">Send test</button>
+            </div>
+            <p id="apiResult" class="muted small-result"></p>
+          </article>
+
+          <article class="operator-panel glass-card sensitive-panel premium-sensitive-panel">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Pastoral care</p>
+                <h2>Sensitive moment mode</h2>
+              </div>
+            </div>
+            <p class="muted">Blank captions during private prayer, pastoral details, testimony, safeguarding, or anything that should not be displayed or saved.</p>
+            <div class="button-row spacious-actions">
+              <button class="danger-button" onclick="api('/api/sensitive-on')">Blank / pause</button>
+              <button onclick="api('/api/sensitive-off')">Resume</button>
+            </div>
+          </article>
+
+          
+
+          <article class="operator-panel glass-card wide-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Audio input</p>
+                <h2>Microphone / audio interface</h2>
+              </div>
+              <span class="status-pill" id="selectedInputPill">System default</span>
+            </div>
+            <div class="inline-control-grid">
+              <div>
+                <label for="audioDevice">Input device</label>
+                <select id="audioDevice">
+                  <option value="">Loading audio devices…</option>
+                </select>
+              </div>
+              <div class="button-stack-inline">
+                <button onclick="saveAudioDevice()">Save input</button>
+                <button onclick="loadAudioDevices()" class="secondary-button">Refresh</button>
+              </div>
+            </div>
+            <p class="muted">Use the church mixer or USB audio interface for best accuracy. Restart captions after changing input.</p>
+            <p id="audioResult" class="muted small-result"></p>
+          </article>
+
+          <article class="operator-panel glass-card meter-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Monitor</p>
+                <h2>Microphone level</h2>
+              </div>
+              <span id="audioPercent" class="status-pill">0%</span>
+            </div>
+            <div class="large-meter"><div id="audioMeter" class="meter-fill"></div></div>
+            <dl class="status-list compact-status-list">
+              <div><dt>Model</dt><dd id="modelStatus">Loading…</dd></div>
+              <div><dt>Latency</dt><dd id="transcriptionLatency">—</dd></div>
+            </dl>
+          </article>
+
+          <article class="operator-panel glass-card english-caption-card wide-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Source captions</p>
+                <h2>English live feed</h2>
+              </div>
+              <span class="status-pill">Source language</span>
+            </div>
+            <div id="currentCaption" class="operator-caption premium-caption-preview">Waiting for captions…</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="operator-section" id="operator-section-languages" data-title="Languages" data-description="Experimental UI language and translated-caption controls.">
+        <div class="operator-grid two-card-grid">
+          <article class="operator-panel glass-card translation-panel">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Experimental</p>
+                <h2>Multilingual captions <span class="beta-pill">Beta</span></h2>
+              </div>
+              <span class="status-pill">Provider: <strong>{{ translation_provider }}</strong></span>
+            </div>
+            <p class="muted"><strong>Important:</strong> phone UI translation and caption translation are separate. Whisper/faster-whisper transcribes speech. Translated captions require an extra translation provider such as local Argos Translate models.</p>
+            <div class="warning-panel slim-warning glass-card">
+              <strong>Performance safeguard:</strong> each active translated language uses extra CPU/RAM. Only the most-used selected languages are translated up to the limit below. Others receive the source captions to protect the Mac from overload.
+            </div>
+            <div class="warning-panel slim-warning glass-card">
+              <strong>Accuracy warning:</strong> translated captions are experimental and not verified. Scripture, names, theology, safeguarding, and pastoral details should be checked by the church team or a human interpreter.
+            </div>
+            <label class="toggle-row premium-toggle-row">
+              <input id="translationEnabled" type="checkbox" {% if runtime.translation_enabled %}checked{% endif %}>
+              <span class="toggle-slider" aria-hidden="true"></span>
+              <span class="toggle-copy"><strong>Enable experimental translated captions</strong><small>Keep this off until models are installed and the operator is ready to monitor accuracy and performance.</small></span>
+            </label>
+            <label for="translationMax">Maximum active translated languages</label>
+            <select id="translationMax">
+              {% for n in [1,2,3,4] %}
+              <option value="{{ n }}" {% if runtime.translation_max_active_languages == n %}selected{% endif %}>{{ n }}</option>
+              {% endfor %}
+            </select>
+            <fieldset class="language-fieldset premium-language-fieldset">
+              <legend>Allowed client languages</legend>
+              {% for lang in languages %}
+              <label class="language-toggle premium-language-toggle">
+                <input type="checkbox" name="translationLang" value="{{ lang.code }}" {% if lang.code in runtime.translation_allowed_languages %}checked{% endif %} {% if lang.code == 'en' %}disabled checked{% endif %}>
+                <span class="toggle-slider small" aria-hidden="true"></span>
+                <span class="language-toggle-label"><span class="language-flag">{{ lang.flag }}</span><span>{{ lang.native }}</span></span>
+              </label>
+              {% endfor %}
+            </fieldset>
+            <div class="button-row">
+              <button onclick="saveTranslationSettings()">Save language settings</button>
+            </div>
+            <p class="muted">Use <code>TRANSLATION_PROVIDER=demo</code> only to test routing. Use <code>TRANSLATION_PROVIDER=argos</code> for local translation after installing Argos Translate and the language models.</p>
+            <p id="translationProviderStatus" class="muted small-result">Provider status will appear here.</p>
+            <p id="translationResult" class="muted small-result"></p>
+          </article>
+
+          <article class="operator-panel glass-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Audience</p>
+                <h2>Viewer language activity</h2>
+              </div>
+              <span class="status-pill">Viewers: <strong id="languageViewerCount">0</strong></span>
+            </div>
+            <table class="premium-table" aria-label="Viewer language activity">
+              <thead>
+                <tr><th>Language</th><th>Viewers</th><th>Status</th></tr>
+              </thead>
+              <tbody id="viewerLanguageRows">
+                <tr><td colspan="3" class="muted">No viewer language data yet.</td></tr>
+              </tbody>
+            </table>
+            <p class="muted">The phone UI language switch works locally. Translated captions appear only when the operator enables translation and a provider is configured.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="operator-section" id="operator-section-audience" data-title="Audience & OBS" data-description="Show QR codes, local links, and livestream overlay information.">
+        <div class="operator-grid two-card-grid">
+          <article class="operator-panel glass-card qr-panel premium-qr-panel">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Room access</p>
+                <h2>Audience QR codes</h2>
+              </div>
+            </div>
+            <div class="qr-duo-grid">
+              <div class="qr-mini-card">
+                <p class="tiny-label">Preferred</p>
+                <img src="/qr.png" alt="QR code for live captions using local hostname">
+                <p class="address-line"><span class="tiny-label">Hostname</span><code>{{ detected_hostname }}</code></p>
+                <p><a href="{{ caption_url }}">{{ caption_url }}</a></p>
+              </div>
+              <div class="qr-mini-card">
+                <p class="tiny-label">Android / guest Wi‑Fi fallback</p>
+                <img src="/qr-ip.png" alt="Fallback QR code for live captions using IP address">
+                <p class="address-line"><span class="tiny-label">Direct IP</span><code>{{ caption_ip_url }}</code></p>
+                <p><a href="{{ caption_ip_url }}">{{ caption_ip_url }}</a></p>
+              </div>
+            </div>
+            <p class="muted">Use the hostname QR first. If some Android phones cannot open <code>.local</code>, use the IP fallback QR or configure router DNS/mDNS forwarding.</p>
+          </article>
+          <article class="operator-panel glass-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Outputs</p>
+                <h2>Display and OBS links</h2>
+              </div>
+            </div>
+            <p class="muted">Use these for a side screen, confidence monitor, or livestream overlay.</p>
+            <p class="muted">Display URL: <a href="{{ display_url }}">{{ display_url }}</a></p>
+            <p class="muted">OBS overlay: <a href="{{ obs_url }}">{{ obs_url }}</a></p>
+            <div class="button-row">
+              <a class="button-link" href="/obs/help">OBS setup guide</a>
+              <a class="button-link secondary" href="/obs" target="_blank">Open overlay</a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="operator-section" id="operator-section-privacy" data-title="Privacy" data-description="Control transcript storage and remove content when needed.">
+        <div class="operator-grid two-card-grid">
+<article class="operator-panel glass-card security-status-card ">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Security</p>
+                <h2>Local access status</h2>
+              </div>
+              <span class="status-pill">{{ security.security_mode|replace("_", " ") }}</span>
+            </div>
+            <p class="muted">Church Cap can run with separate public viewer and operator ports. For best offline security, use the operator dashboard on this machine via localhost.</p>
+            <div class="security-status-grid">
+              <div class="security-status-item"><span>Viewer URL</span><strong>{{ security.viewer_url }}</strong></div>
+              <div class="security-status-item"><span>Operator URL</span><strong>{{ security.operator_url }}</strong></div>
+              <div class="security-status-item"><span>Viewer port</span><strong>{{ security.viewer_port }}</strong></div>
+              <div class="security-status-item"><span>Operator port</span><strong>{{ security.operator_port }}</strong></div>
+              <div class="security-status-item"><span>Operator localhost lock</span><strong>{{ "On" if security.lock_operator_to_localhost else "Off" }}</strong></div>
+              <div class="security-status-item"><span>Dual-port mode</span><strong>{{ "On" if security.dual_port_mode else "Off" }}</strong></div>
+            </div>
+            <div class="warning-panel slim-warning glass-card">
+              <strong>Offline HTTPS note:</strong> {{ security.offline_https_note }}
+            </div>
+          </article>
+
+          <article class="operator-panel glass-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Retention</p>
+                <h2>Transcript controls</h2>
+              </div>
+            </div>
+            <label class="toggle-row premium-toggle-row">
+              <input id="transcriptSaving" type="checkbox" {% if runtime.transcript_saving_enabled %}checked{% endif %}>
+              <span class="toggle-slider" aria-hidden="true"></span>
+              <span class="toggle-copy"><strong>Save transcript during this session</strong><small>Turn off for services or meetings where transcript retention is not appropriate.</small></span>
+            </label>
+            <label for="retentionMinutes">Keep transcript history for</label>
+            <select id="retentionMinutes">
+              <option value="0" {% if runtime.transcript_retention_minutes == 0 %}selected{% endif %}>Do not retain history</option>
+              <option value="30" {% if runtime.transcript_retention_minutes == 30 %}selected{% endif %}>30 minutes</option>
+              <option value="120" {% if runtime.transcript_retention_minutes == 120 %}selected{% endif %}>2 hours</option>
+              <option value="1440" {% if runtime.transcript_retention_minutes == 1440 %}selected{% endif %}>1 day</option>
+              <option value="10080" {% if runtime.transcript_retention_minutes == 10080 %}selected{% endif %}>7 days</option>
+            </select>
+            <div class="button-row">
+              <button onclick="savePrivacySettings()">Save privacy settings</button>
+              <button onclick="api('/api/clear')" class="danger-button">Delete current transcript</button>
+            </div>
+            <p id="privacyResult" class="muted small-result"></p>
+          </article>
+
+          <article class="operator-panel glass-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Caption safety</p>
+                <h2>Word censor</h2>
+              </div>
+              <span class="status-pill" id="profanityFilterStatus">{{ "On" if runtime.profanity_filter_enabled else "Off" }}</span>
+            </div>
+            <p class="muted">Mask likely profanity before captions are shown, translated, stored, or exported. This helps when speech-to-text mishears an innocent phrase as a bad word.</p>
+            <label class="toggle-row premium-toggle-row">
+              <input id="profanityFilterEnabled" type="checkbox" {% if runtime.profanity_filter_enabled %}checked{% endif %}>
+              <span class="toggle-slider" aria-hidden="true"></span>
+              <span class="toggle-copy"><strong>Enable bad-word censor</strong><small>Developers can review the built-in list in <code>app/profanity_filter.py</code> and add local terms in <code>config/profanity_filter.txt</code>.</small></span>
+            </label>
+            <div class="button-row">
+              <button onclick="saveProfanityFilterSettings()">Save censor settings</button>
+            </div>
+            <p id="profanityFilterResult" class="muted small-result"></p>
+          </article>
+
+          <article class="operator-panel glass-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Guidance</p>
+                <h2>Privacy and notices</h2>
+              </div>
+            </div>
+            <p class="muted">Use clear signage and keep the service local unless the church intentionally enables streaming or remote access.</p>
+            <div class="stacked-links">
+              <a class="button-link secondary" href="/docs/privacy">Privacy statement</a>
+              <a class="button-link secondary" href="/docs/church-notice">Church notice wording</a>
+              <a class="button-link secondary" href="/docs/disclaimer">AI caption disclaimer</a>
+            </div>
+          </article>
+        </div>
+      </section>
+    </section>
+
+      <footer class="subtle-product-footer operator-product-footer">
+        <a href="https://www.churchcap.org" target="_blank" rel="noopener noreferrer">www.churchcap.org</a>
+        <span>Version {{ app_version }}</span>
+      </footer>
+  </main>
+
+  <script>
+    const sectionCopy = {};
+    document.querySelectorAll('.operator-section').forEach((section) => {
+      const key = section.id.replace('operator-section-', '');
+      sectionCopy[key] = {
+        title: section.dataset.title || key,
+        description: section.dataset.description || ''
+      };
+    });
+
+    function setSidebarCollapsed(collapsed) {
+      document.body.classList.toggle('operator-sidebar-collapsed', collapsed);
+      localStorage.setItem('operatorSidebarCollapsed', String(collapsed));
+      const toggle = document.getElementById('sidebarToggle');
+      if (toggle) toggle.setAttribute('aria-expanded', String(!collapsed));
+    }
+
+    function showOperatorSection(sectionName) {
+      if (!sectionCopy[sectionName]) sectionName = 'dashboard';
+      document.querySelectorAll('.operator-section').forEach((section) => {
+        section.classList.toggle('active', section.id === `operator-section-${sectionName}`);
+      });
+      document.querySelectorAll('.nav-button[data-section]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.section === sectionName);
+      });
+      const copy = sectionCopy[sectionName] || sectionCopy.dashboard;
+      const eyebrow = document.getElementById('operatorSectionEyebrow');
+      const description = document.getElementById('operatorSectionDescription');
+      if (eyebrow) eyebrow.textContent = copy.title;
+      if (description) description.textContent = copy.description;
+      localStorage.setItem('operatorSection', sectionName);
+    }
+
+    function applyOperatorTheme(mode) {
+      document.body.classList.toggle('light-mode', mode === 'light');
+      localStorage.setItem('operatorTheme', mode);
+      const toggle = document.getElementById('operatorThemeToggle');
+      if (toggle) toggle.textContent = mode === 'light' ? 'Dark mode' : 'Light mode';
+    }
+
+    function toggleOperatorTheme() {
+      const current = localStorage.getItem('operatorTheme') || 'dark';
+      applyOperatorTheme(current === 'light' ? 'dark' : 'light');
+    }
+
+    async function api(path) {
+      const result = document.getElementById('apiResult');
+      const res = await fetch(path, { method: 'POST' });
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (result) result.textContent = JSON.stringify(data);
+      refreshStatus();
+    }
+
+    async function loadAudioDevices() {
+      const select = document.getElementById('audioDevice');
+      const result = document.getElementById('audioResult');
+      if (!select) return;
+      select.innerHTML = '<option value="">Loading audio devices…</option>';
+      const res = await fetch('/api/audio-devices');
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      select.innerHTML = '';
+      if (!data.ok) {
+        select.innerHTML = '<option value="">No audio devices found</option>';
+        if (result) result.textContent = data.error || 'Unable to load audio devices.';
+        return;
+      }
+      const systemOption = document.createElement('option');
+      systemOption.value = '';
+      systemOption.textContent = 'System default input';
+      select.appendChild(systemOption);
+      for (const device of data.devices) {
+        const option = document.createElement('option');
+        option.value = String(device.id);
+        option.textContent = device.label;
+        if (String(data.selected) === String(device.id) || data.selected === device.name) option.selected = true;
+        select.appendChild(option);
+      }
+      if (result) result.textContent = data.devices.length ? 'Audio device list loaded.' : 'No input devices found.';
+    }
+
+    async function saveAudioDevice() {
+      const select = document.getElementById('audioDevice');
+      const result = document.getElementById('audioResult');
+      const res = await fetch('/api/audio-device', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({audio_device: select.value})
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Unable to save that audio input.';
+        return;
+      }
+      if (result) result.textContent = `Saved audio device: ${data.audio_device || 'system default'}. Restart captions to use it.`;
+      refreshStatus();
+    }
+
+    async function saveTranslationSettings() {
+      const result = document.getElementById('translationResult');
+      const selected = Array.from(document.querySelectorAll('input[name="translationLang"]:checked')).map(x => x.value);
+      if (!selected.includes('en')) selected.push('en');
+      const res = await fetch('/api/translation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          translation_enabled: document.getElementById('translationEnabled').checked,
+          translation_allowed_languages: selected,
+          translation_max_active_languages: Number(document.getElementById('translationMax').value)
+        })
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (result) result.textContent = `Saved. Enabled: ${data.enabled}. Provider: ${data.provider}. Max active languages: ${data.max_active_languages}. ${data.provider_status?.message || ''}`;
+      refreshStatus();
+    }
+
+    async function savePrivacySettings() {
+      const result = document.getElementById('privacyResult');
+      const res = await fetch('/api/privacy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          transcript_saving_enabled: document.getElementById('transcriptSaving').checked,
+          transcript_retention_minutes: Number(document.getElementById('retentionMinutes').value)
+        })
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (result) result.textContent = `Saved. Transcript saving: ${data.transcript_saving_enabled}. Retention: ${data.transcript_retention_minutes} minute(s).`;
+    }
+
+    async function saveProfanityFilterSettings() {
+      const result = document.getElementById('profanityFilterResult');
+      const enabled = document.getElementById('profanityFilterEnabled').checked;
+      const res = await fetch('/api/profanity-filter', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({profanity_filter_enabled: enabled})
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      const status = document.getElementById('profanityFilterStatus');
+      if (status) status.textContent = data.profanity_filter_enabled ? 'On' : 'Off';
+      if (result) result.textContent = `Saved. Bad-word censor: ${data.profanity_filter_enabled ? 'on' : 'off'}.`;
+    }
+
+    function languageName(code) {
+      const names = {en: 'English', es: 'Spanish', fr: 'French', pt: 'Portuguese', pl: 'Polish', uk: 'Ukrainian', ar: 'Arabic', fa: 'Farsi'};
+      return names[code] || code.toUpperCase();
+    }
+
+    function renderViewerLanguageTable(translationState) {
+      const tbody = document.getElementById('viewerLanguageRows');
+      if (!tbody) return;
+      const counts = translationState?.viewer_languages || {};
+      const active = new Set(translationState?.active_translated_languages || []);
+      const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      tbody.innerHTML = '';
+      if (!entries.length) {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td colspan="3" class="muted">No viewer language data yet.</td>';
+        tbody.appendChild(row);
+        return;
+      }
+      for (const [code, count] of entries) {
+        const row = document.createElement('tr');
+        const status = code === 'en' ? 'Source captions' : (active.has(code) ? 'Translated' : 'Source / waiting');
+        row.innerHTML = `<td>${languageName(code)} <span class="muted">${code}</span></td><td>${count}</td><td>${status}</td>`;
+        tbody.appendChild(row);
+      }
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (res.status === 401) { location.href = '/login'; return; }
+        const data = await res.json();
+        const viewerCount = data.viewers ?? 0;
+        document.getElementById('viewerCount').textContent = viewerCount;
+        const languageViewerCount = document.getElementById('languageViewerCount');
+        if (languageViewerCount) languageViewerCount.textContent = viewerCount;
+        const serviceStatus = document.getElementById('serviceStatus');
+        if (serviceStatus) serviceStatus.textContent = data.status || 'stopped';
+        const sensitiveStatus = document.getElementById('sensitiveStatus');
+        if (sensitiveStatus) sensitiveStatus.textContent = data.sensitive_mode ? 'Blanked' : 'Normal';
+        const connection = document.getElementById('connection');
+        if (connection) { connection.textContent = data.status || 'Connected'; connection.classList.toggle('ok', data.status === 'listening'); }
+        const activeLangs = data.translation?.active_translated_languages || [];
+        const activeText = activeLangs.length ? activeLangs.join(', ') : 'none';
+        const activeTranslationLanguages = document.getElementById('activeTranslationLanguages');
+        if (activeTranslationLanguages) activeTranslationLanguages.textContent = activeText;
+        renderViewerLanguageTable(data.translation);
+        const providerStatus = document.getElementById('translationProviderStatus');
+        if (providerStatus && data.translation?.provider_status) providerStatus.textContent = data.translation.provider_status.message || '';
+        const rms = Number(data.metrics?.audio_rms || 0);
+        const pct = Math.max(0, Math.min(100, Math.round((rms / 0.06) * 100)));
+        document.getElementById('audioMeter').style.width = pct + '%';
+        document.getElementById('audioPercent').textContent = pct + '%';
+        const runtime = data.settings?.resolved_whisper_runtime || {};
+        const runtimeDevice = data.metrics?.model_device || runtime.device || data.settings?.device || 'auto';
+        const runtimeCompute = data.metrics?.model_compute_type || runtime.compute_type || data.settings?.compute_type || 'auto';
+        const runtimeText = `${runtimeDevice} / ${runtimeCompute}`;
+        document.getElementById('modelStatus').textContent = `${data.settings?.model || '—'} · ${data.metrics?.model_loaded ? 'loaded' : 'not loaded'} · ${runtimeText}`;
+        const latency = data.metrics?.last_transcription_seconds;
+        document.getElementById('transcriptionLatency').textContent = latency == null ? '—' : `${latency.toFixed(2)}s`;
+        const inputText = data.settings?.audio_device ?? 'system default';
+        document.getElementById('selectedInputPill').textContent = inputText;
+        const profanityFilterStatus = document.getElementById('profanityFilterStatus');
+        if (profanityFilterStatus) profanityFilterStatus.textContent = data.profanity_filter_enabled ? 'On' : 'Off';
+        const profanityFilterEnabled = document.getElementById('profanityFilterEnabled');
+        if (profanityFilterEnabled) profanityFilterEnabled.checked = !!data.profanity_filter_enabled;
+      } catch (_) {}
+    }
+
+    document.querySelectorAll('.nav-button[data-section]').forEach((button) => {
+      button.addEventListener('click', () => showOperatorSection(button.dataset.section));
+    });
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    if (sidebarToggle) sidebarToggle.addEventListener('click', () => setSidebarCollapsed(!document.body.classList.contains('operator-sidebar-collapsed')));
+
+    applyOperatorTheme(localStorage.getItem('operatorTheme') || 'dark');
+    setSidebarCollapsed(localStorage.getItem('operatorSidebarCollapsed') === 'true');
+    showOperatorSection(localStorage.getItem('operatorSection') || 'dashboard');
+    loadAudioDevices();
+    refreshStatus();
+    setInterval(refreshStatus, 1500);
+  </script>
+  <script src="/static/client.js"></script>
+</body>
+</html>

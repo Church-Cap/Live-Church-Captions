@@ -1,0 +1,246 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 2187 >>
+stream
+BT
+/F1 10.5 Tf
+14 TL
+1 0 0 1 54.0 738.0 Tm (CHURCH CAP QUICK START GUIDE) Tj
+1 0 0 1 54.0 690.0 Tm (Version: 0.1.0 public preview) Tj
+1 0 0 1 54.0 659.0 Tm (This guide is for the person setting up Church Cap for a church service.) Tj
+1 0 0 1 54.0 628.0 Tm (What Church Cap Does) Tj
+1 0 0 1 54.0 580.0 Tm (Church Cap listens to one audio input from the church sound desk or USB audio interface.) Tj
+1 0 0 1 54.0 566.0 Tm (It creates live captions locally on the Mac and shares them over the church Wi-Fi.) Tj
+1 0 0 1 54.0 535.0 Tm (Visitors do not install an app. They scan a QR code and read captions in their browser.) Tj
+1 0 0 1 54.0 504.0 Tm (What You Need) Tj
+1 0 0 1 54.0 456.0 Tm (- An Apple Silicon Mac, or a Windows 10/11 computer. On Windows, setup can offer to) Tj
+1 0 0 1 54.0 442.0 Tm (install Python 3.12 if Windows Package Manager is available.) Tj
+1 0 0 1 54.0 428.0 Tm (- Church Cap downloaded or copied to the Mac.) Tj
+1 0 0 1 54.0 414.0 Tm (- Internet access for first setup.) Tj
+1 0 0 1 54.0 400.0 Tm (- A USB audio interface or mixer input from the sound desk.) Tj
+1 0 0 1 54.0 386.0 Tm (- The Mac and audience phones on a network where phones can reach the caption Mac.) Tj
+1 0 0 1 54.0 355.0 Tm (First-Time Setup On Mac) Tj
+1 0 0 1 54.0 307.0 Tm (1. Open Terminal.) Tj
+1 0 0 1 54.0 293.0 Tm (2. Go to the Church Cap folder. This example assumes the folder has been moved into) Tj
+1 0 0 1 54.0 279.0 Tm (Documents.) Tj
+1 0 0 1 54.0 248.0 Tm (cd "$HOME/Documents/church_cap_v0.1.0") Tj
+1 0 0 1 54.0 217.0 Tm (3. Run setup. Use `bash` for this first command because the setup script may not be) Tj
+1 0 0 1 54.0 203.0 Tm (executable yet. The setup script repairs permissions for the other Church Cap scripts) Tj
+1 0 0 1 54.0 189.0 Tm (automatically.) Tj
+1 0 0 1 54.0 158.0 Tm (bash setup-macos.sh) Tj
+1 0 0 1 54.0 127.0 Tm (4. Wait for setup to finish, then continue to **Start Church Cap** below.) Tj
+1 0 0 1 54.0 96.0 Tm (The setup script installs the local Python environment, audio dependencies, and Argos) Tj
+1 0 0 1 54.0 82.0 Tm (translation support/models. It only installs Python packages inside the Church Cap) Tj
+1 0 0 1 54.0 68.0 Tm (folder's `.venv`.) Tj
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 14 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>
+endobj
+4 0 obj
+<< /Length 2167 >>
+stream
+BT
+/F1 10.5 Tf
+14 TL
+1 0 0 1 54.0 738.0 Tm (If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes if this) Tj
+1 0 0 1 54.0 724.0 Tm (Mac will normally run captions.) Tj
+1 0 0 1 54.0 693.0 Tm (First-Time Setup On Windows) Tj
+1 0 0 1 54.0 645.0 Tm (1. Open PowerShell.) Tj
+1 0 0 1 54.0 631.0 Tm (2. Go to the Church Cap folder. This example assumes the folder has been moved into) Tj
+1 0 0 1 54.0 617.0 Tm (Documents.) Tj
+1 0 0 1 54.0 586.0 Tm (cd "$HOME\\Documents\\church_cap_v0.1.0") Tj
+1 0 0 1 54.0 555.0 Tm (3. Run setup.) Tj
+1 0 0 1 54.0 524.0 Tm (.\\setup-windows.cmd) Tj
+1 0 0 1 54.0 493.0 Tm (4. Wait for setup to finish, then continue to **Start Church Cap** below.) Tj
+1 0 0 1 54.0 462.0 Tm (The setup script installs the local Python environment, app dependencies, Argos) Tj
+1 0 0 1 54.0 448.0 Tm (translation support/models, and checks CUDA/GPU support. If Python is missing and) Tj
+1 0 0 1 54.0 434.0 Tm (Windows Package Manager is available, setup can offer to install Python 3.12 first. If) Tj
+1 0 0 1 54.0 420.0 Tm (an NVIDIA GPU is visible but CUDA runtime files are missing, setup can offer to install) Tj
+1 0 0 1 54.0 406.0 Tm (local CUDA 12 runtime packages into Church Cap's `.venv`. If CUDA is not ready, Church) Tj
+1 0 0 1 54.0 392.0 Tm (Cap falls back to CPU.) Tj
+1 0 0 1 54.0 361.0 Tm (You can also run the optional GPU runtime installer later:) Tj
+1 0 0 1 54.0 330.0 Tm (.\\install-cuda-runtime-windows.cmd) Tj
+1 0 0 1 54.0 299.0 Tm (If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came from) Tj
+1 0 0 1 54.0 285.0 Tm (another computer, use `setup-windows.cmd`. If it is still blocked, right-click the) Tj
+1 0 0 1 54.0 271.0 Tm (downloaded zip or Church Cap folder, choose **Properties**, tick **Unblock** if shown,) Tj
+1 0 0 1 54.0 257.0 Tm (then try again.) Tj
+1 0 0 1 54.0 226.0 Tm (Start Church Cap) Tj
+1 0 0 1 54.0 178.0 Tm (For normal use after setup:) Tj
+1 0 0 1 54.0 147.0 Tm (./start-macos.sh) Tj
+1 0 0 1 54.0 116.0 Tm (On Windows:) Tj
+1 0 0 1 54.0 85.0 Tm (.\\start-windows.cmd) Tj
+1 0 0 1 54.0 54.0 Tm (Wait while the app starts. The operator page should open automatically:) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 14 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 1764 >>
+stream
+BT
+/F1 10.5 Tf
+14 TL
+1 0 0 1 54.0 721.0 Tm (http://localhost:9090/operator) Tj
+1 0 0 1 54.0 690.0 Tm (On first Windows setup, Church Cap may open the password setup page first:) Tj
+1 0 0 1 54.0 659.0 Tm (http://localhost:9090/setup) Tj
+1 0 0 1 54.0 628.0 Tm (The first time, create an operator password. Public caption viewers do not need this) Tj
+1 0 0 1 54.0 614.0 Tm (password.) Tj
+1 0 0 1 54.0 583.0 Tm (Know The Two Ports) Tj
+1 0 0 1 54.0 535.0 Tm (Church Cap normally uses two local ports:) Tj
+1 0 0 1 54.0 504.0 Tm (Operator controls: http://localhost:9090/operator) Tj
+1 0 0 1 54.0 490.0 Tm (Audience captions: http://church-cap.local:8080/) Tj
+1 0 0 1 54.0 459.0 Tm (If you accidentally open `localhost:8080/operator`, use `localhost:9090/operator`) Tj
+1 0 0 1 54.0 445.0 Tm (instead.) Tj
+1 0 0 1 54.0 414.0 Tm (On Windows, audience phones usually use the IP address shown by `start-windows.cmd` or) Tj
+1 0 0 1 54.0 400.0 Tm (the QR code on the operator page.) Tj
+1 0 0 1 54.0 369.0 Tm (Select The Audio Input) Tj
+1 0 0 1 54.0 321.0 Tm (In the operator page:) Tj
+1 0 0 1 54.0 290.0 Tm (1. Stop captions if they are running.) Tj
+1 0 0 1 54.0 276.0 Tm (2. Find **Microphone / audio interface**.) Tj
+1 0 0 1 54.0 262.0 Tm (3. Choose the USB audio interface or mixer input.) Tj
+1 0 0 1 54.0 248.0 Tm (4. Click **Save input**.) Tj
+1 0 0 1 54.0 234.0 Tm (5. Click **Start captions**.) Tj
+1 0 0 1 54.0 203.0 Tm (Recommended audio route:) Tj
+1 0 0 1 54.0 172.0 Tm (Church microphones -> sound desk -> USB audio interface -> Church Cap Mac) Tj
+1 0 0 1 54.0 141.0 Tm (Avoid using the built-in Mac microphone for a church service.) Tj
+1 0 0 1 54.0 110.0 Tm (Share Captions With Visitors) Tj
+1 0 0 1 54.0 62.0 Tm (In the operator page, open **Audience & OBS**.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 14 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 1865 >>
+stream
+BT
+/F1 10.5 Tf
+14 TL
+1 0 0 1 54.0 721.0 Tm (Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local`) Tj
+1 0 0 1 54.0 707.0 Tm (address, use the Android/IP fallback QR code.) Tj
+1 0 0 1 54.0 676.0 Tm (During A Service) Tj
+1 0 0 1 54.0 628.0 Tm (- Use **Start captions** when ready.) Tj
+1 0 0 1 54.0 614.0 Tm (- Use **Stop** when captions should stop.) Tj
+1 0 0 1 54.0 600.0 Tm (- Use **Blank / pause** before private prayer, pastoral details, testimony,) Tj
+1 0 0 1 54.0 586.0 Tm (safeguarding, or anything sensitive.) Tj
+1 0 0 1 54.0 572.0 Tm (- Use **Resume** when public captions should continue.) Tj
+1 0 0 1 54.0 558.0 Tm (- Watch the microphone level meter to confirm audio is coming in.) Tj
+1 0 0 1 54.0 527.0 Tm (Translation) Tj
+1 0 0 1 54.0 479.0 Tm (Argos Translate support is installed during setup, but translated captions stay off) Tj
+1 0 0 1 54.0 465.0 Tm (until the operator enables them.) Tj
+1 0 0 1 54.0 434.0 Tm (Translation is experimental and may be inaccurate. Keep the active translated language) Tj
+1 0 0 1 54.0 420.0 Tm (limit low at first. Use a qualified human interpreter where accuracy matters.) Tj
+1 0 0 1 54.0 389.0 Tm (Passwords) Tj
+1 0 0 1 54.0 341.0 Tm (The operator password is stored outside the Church Cap folder in:) Tj
+1 0 0 1 54.0 310.0 Tm (~/Library/Application Support/Church Cap/data/) Tj
+1 0 0 1 54.0 279.0 Tm (On Windows, it is stored in:) Tj
+1 0 0 1 54.0 248.0 Tm (%APPDATA%\\Church Cap\\data\\) Tj
+1 0 0 1 54.0 217.0 Tm (It should survive Terminal restarts, Mac restarts, and app folder updates.) Tj
+1 0 0 1 54.0 186.0 Tm (If the operator is locked out:) Tj
+1 0 0 1 54.0 155.0 Tm (./reset-operator-password.sh) Tj
+1 0 0 1 54.0 124.0 Tm (On Windows:) Tj
+1 0 0 1 54.0 93.0 Tm (.\\reset-operator-password.cmd) Tj
+1 0 0 1 54.0 62.0 Tm (Then restart Church Cap and create a new password.) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 14 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 1858 >>
+stream
+BT
+/F1 10.5 Tf
+14 TL
+1 0 0 1 54.0 721.0 Tm (Common Problems) Tj
+1 0 0 1 54.0 673.0 Tm (The operator page does not open) Tj
+1 0 0 1 54.0 642.0 Tm (Use:) Tj
+1 0 0 1 54.0 611.0 Tm (http://localhost:9090/operator) Tj
+1 0 0 1 54.0 580.0 Tm (Wait a few seconds after running `./start-macos.sh`.) Tj
+1 0 0 1 54.0 549.0 Tm (The audience QR code does not open on a phone) Tj
+1 0 0 1 54.0 518.0 Tm (Use the Android/IP fallback QR code on the operator page. Also check that the phone is) Tj
+1 0 0 1 54.0 504.0 Tm (on the same network and that guest Wi-Fi is allowed to reach the caption Mac.) Tj
+1 0 0 1 54.0 473.0 Tm (No audio devices appear) Tj
+1 0 0 1 54.0 442.0 Tm (- Check the USB audio interface is connected.) Tj
+1 0 0 1 54.0 428.0 Tm (- Check macOS microphone permissions.) Tj
+1 0 0 1 54.0 414.0 Tm (- Run setup again if PortAudio was not installed.) Tj
+1 0 0 1 54.0 383.0 Tm (Captions are inaccurate) Tj
+1 0 0 1 54.0 352.0 Tm (- Use a direct feed from the sound desk rather than the built-in microphone.) Tj
+1 0 0 1 54.0 338.0 Tm (- Check audio level.) Tj
+1 0 0 1 54.0 324.0 Tm (- Add common corrections to `config/glossary.csv`.) Tj
+1 0 0 1 54.0 310.0 Tm (- Use the bad-word censor for likely speech-to-text mistakes.) Tj
+1 0 0 1 54.0 279.0 Tm (You need to stop Church Cap) Tj
+1 0 0 1 54.0 248.0 Tm (Press `Ctrl+C` in the Terminal window running Church Cap.) Tj
+1 0 0 1 54.0 217.0 Tm (Privacy Reminder) Tj
+1 0 0 1 54.0 169.0 Tm (AI-generated captions can contain mistakes. Use the sensitive blank/pause mode for) Tj
+1 0 0 1 54.0 155.0 Tm (private or pastoral moments. Churches should use clear notices and follow their own) Tj
+1 0 0 1 54.0 141.0 Tm (safeguarding, privacy, and data protection policies.) Tj
+1 0 0 1 54.0 110.0 Tm (Feedback) Tj
+1 0 0 1 54.0 62.0 Tm (The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 14 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Length 803 >>
+stream
+BT
+/F1 10.5 Tf
+14 TL
+1 0 0 1 54.0 738.0 Tm (confusion, accessibility feedback, and caption or translation notes. Please include the) Tj
+1 0 0 1 54.0 724.0 Tm (Church Cap version number and any useful computer, operating system, audio interface, or) Tj
+1 0 0 1 54.0 710.0 Tm (error details.) Tj
+1 0 0 1 54.0 679.0 Tm (Updating Church Cap) Tj
+1 0 0 1 54.0 631.0 Tm (Mac:) Tj
+1 0 0 1 54.0 600.0 Tm (./update-macos.sh) Tj
+1 0 0 1 54.0 569.0 Tm (Windows:) Tj
+1 0 0 1 54.0 538.0 Tm (.\\update-windows.cmd) Tj
+1 0 0 1 54.0 507.0 Tm (The updater downloads the latest GitHub source into a new folder and keeps the current) Tj
+1 0 0 1 54.0 493.0 Tm (folder untouched. It copies `.env`, `config/glossary.csv`, and) Tj
+1 0 0 1 54.0 479.0 Tm (`config/profanity_filter.txt` into the update folder when present.) Tj
+ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 14 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 12 0 R >>
+endobj
+14 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R 9 0 R 11 0 R 13 0 R] /Count 6 >>
+endobj
+15 0 obj
+<< /Type /Catalog /Pages 14 0 R >>
+endobj
+xref
+0 16
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000002318 00000 n 
+0000002445 00000 n 
+0000004664 00000 n 
+0000004791 00000 n 
+0000006607 00000 n 
+0000006734 00000 n 
+0000008651 00000 n 
+0000008778 00000 n 
+0000010689 00000 n 
+0000010818 00000 n 
+0000011673 00000 n 
+0000011802 00000 n 
+0000011892 00000 n 
+trailer
+<< /Size 16 /Root 15 0 R >>
+startxref
+11943
+%%EOF

@@ -1,0 +1,4 @@
+# Local Argos translation support.
+# Keep this separate from requirements.txt because the installer also downloads
+# Argos language packages and updates translation runtime settings.
+argostranslate==1.9.6

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Church Cap · Set operator password</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-page glass-page">
+  <main class="auth-shell">
+    <section class="auth-card glass-card">
+      <div class="auth-brand">
+        <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
+        <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
+      </div>
+      <p class="eyebrow">Local-first live captions for church</p>
+      <h1>Set operator password</h1>
+      <p class="muted">Create the password used to access the Church Cap control station. Public caption viewers will not need this password.</p>
+      {% if error %}<p class="error-banner">{{ error }}</p>{% endif %}
+      <form method="post" action="/setup" class="stacked-form">
+        <label for="password">New password</label>
+        <input id="password" name="password" type="password" minlength="8" required autofocus autocomplete="new-password">
+        <label for="confirm_password">Confirm password</label>
+        <input id="confirm_password" name="confirm_password" type="password" minlength="8" required autocomplete="new-password">
+
+        <fieldset class="security-mode-fieldset">
+          <legend>Choose first-run security mode</legend>
+
+          <label class="setup-choice-card">
+            <input type="radio" name="security_mode" value="easy_offline">
+            <span>
+              <strong>Easy offline mode</strong>
+              <small>Viewer and operator pages are available on the local network. Easiest for testing, but less isolated.</small>
+            </span>
+          </label>
+
+          <label class="setup-choice-card recommended">
+            <input type="radio" name="security_mode" value="secure_operator" checked>
+            <span>
+              <strong>Secure operator mode</strong>
+              <small>Recommended. Viewer page uses the local network, while operator controls are intended for localhost on the Church Cap machine.</small>
+            </span>
+          </label>
+
+          <label class="setup-choice-card">
+            <input type="radio" name="security_mode" value="managed_https">
+            <span>
+              <strong>Managed-device HTTPS mode</strong>
+              <small>For church-owned devices where a local certificate authority can be installed and trusted in advance.</small>
+            </span>
+          </label>
+        </fieldset>
+
+        <p class="warning-panel slim-warning">
+          Fully offline trusted HTTPS on visitor phones is not possible unless their device already trusts the certificate.
+        </p>
+
+        <button type="submit" class="primary-button full-width">Save operator password</button>
+      </form>
+      <p class="fine-print">Use a password shared only with trusted operators and AV volunteers.</p>
+      <p class="auth-footer">Version {{ app_version }}</p>
+    </section>
+  </main>
+</body>
+</html>

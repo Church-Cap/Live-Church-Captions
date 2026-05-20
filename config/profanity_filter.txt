@@ -1,0 +1,8 @@
+# CONTENT WARNING FOR DEVELOPERS:
+# Add one extra word or phrase per line to mask it in live captions.
+# This file may contain profanity or other sensitive terms because it is used by
+# the local caption safety filter. Lines beginning with # are ignored.
+#
+# The built-in defaults already cover common English profanities. Use this file
+# for church-specific additions, names, or words Whisper often mishears in your
+# setting. Keep entries specific to reduce false positives.

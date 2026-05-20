@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local network setup - {{ church_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="operator-page glass-page">
+  <main class="operator-shell docs-shell">
+    <p><a href="/operator">← Back to operator controls</a></p>
+    <p class="eyebrow">{{ church_name }}</p>
+    <h1>Local hostname, HTTPS, and Wi-Fi setup</h1>
+    <p class="muted">Current app URL detected as <code>{{ base_url }}</code>. By default the app now prefers the Mac's Bonjour/mDNS hostname instead of an IP address. For a church install, use a stable hostname or reserved IP so the QR code does not change.</p>
+
+    <section class="operator-panel glass-card">
+      <h2>Friendly local hostname</h2>
+      <p>On macOS, you can use Bonjour/mDNS so phones can open <code>church-cap.local</code>:</p>
+      <pre class="code-block">sudo scutil --set ComputerName "Church Cap"
+sudo scutil --set LocalHostName "church-cap"
+sudo scutil --set HostName "church-cap.local"</pre>
+      <p class="muted">The first-time setup script can offer to set this for you on Apple Silicon Macs. If guest Wi-Fi blocks mDNS/Bonjour, use a router DNS entry or a reserved IP instead.</p>
+      <p>Then set this in <code>.env</code>:</p>
+      <pre class="code-block">PUBLIC_BASE_URL=http://church-cap.local:8080</pre>
+    </section>
+
+    <section class="operator-panel glass-card">
+      <h2>HTTPS options</h2>
+      <p class="muted">Local HTTPS has an important browser-security limitation: the caption box cannot silently install a trusted certificate on visitors' phones. Self-signed certificates will warn unless each device trusts the certificate authority. For no-warning HTTPS, use a real domain plus a DNS-01 certificate, or install a local CA on managed church devices.</p>
+      <pre class="code-block">./scripts/generate-local-cert.sh
+./scripts/run-dev-https.sh</pre>
+      <p class="muted">For trusted testing on your own Mac, install <code>mkcert</code> and run <code>./scripts/generate-trusted-local-cert-macos.sh</code>. Visitors' phones will still need the mkcert root CA installed to avoid warnings.</p>
+    </section>
+
+    <section class="operator-panel glass-card">
+      <h2>Guest Wi-Fi rules</h2>
+      <p>Recommended rule:</p>
+      <pre class="code-block">Guest Wi-Fi → allow access only to caption computer port 8080/8443
+Guest Wi-Fi → block access to other LAN devices
+Operator page → password protected</pre>
+      <p class="muted">If <code>.local</code> does not work, the Wi-Fi may block mDNS/Bonjour. Use a reserved IP or router DNS entry instead.</p>
+    </section>
+  </main>
+</body>
+</html>

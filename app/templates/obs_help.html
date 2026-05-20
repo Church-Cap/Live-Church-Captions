@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBS setup - {{ church_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="operator-page glass-page">
+  <main class="operator-shell docs-shell">
+    <p><a href="/operator">← Back to operator controls</a></p>
+    <p class="eyebrow">{{ church_name }}</p>
+    <h1>OBS browser-source setup</h1>
+    <p class="muted">This is not a native OBS plugin yet. It is a browser-source overlay, which is simpler, local-first, and works well for livestream captions.</p>
+
+    <section class="operator-panel glass-card">
+      <h2>Browser source URL</h2>
+      <p>Use this URL in OBS:</p>
+      <pre class="code-block">{{ obs_url }}</pre>
+      <div class="button-row">
+        <a class="button-link" href="{{ obs_url }}" target="_blank">Open overlay</a>
+      </div>
+    </section>
+
+    <section class="operator-panel glass-card">
+      <h2>Recommended OBS settings</h2>
+      <ol class="steps-list">
+        <li>In OBS, click <strong>Sources → + → Browser</strong>.</li>
+        <li>Name it <strong>Live Captions</strong>.</li>
+        <li>Set the URL to the browser source URL above.</li>
+        <li>Set width to <strong>1920</strong> and height to <strong>300</strong> for a lower-third layout.</li>
+        <li>Place it near the bottom of the stream canvas.</li>
+        <li>Tick <strong>Refresh browser when scene becomes active</strong> if you want captions to reconnect each time.</li>
+      </ol>
+    </section>
+
+    <section class="operator-panel glass-card">
+      <h2>Notes</h2>
+      <p class="muted">The overlay has a transparent background and only displays the current caption. It uses the same local WebSocket broadcast as the phone and display pages.</p>
+      <p class="muted">For public livestreams, remember that AI captions may be inaccurate and may capture copyrighted worship lyrics or sensitive pastoral content. Use blank/pause mode when needed.</p>
+    </section>
+  </main>
+</body>
+</html>

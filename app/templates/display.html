@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ church_name }} Caption Display</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="display-page glass-page">
+  <main class="display-shell">
+    <p class="display-label">{{ church_name }} · Live captions</p>
+    <div id="currentCaption" class="display-caption">Waiting for captions…</div>
+    <div id="connection" class="display-status">Connecting</div>
+    <div id="history" class="display-history"></div>
+  </main>
+  <script src="/static/client.js"></script>
+</body>
+</html>

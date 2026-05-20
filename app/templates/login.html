@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Church Cap · Operator login</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-page glass-page">
+  <main class="auth-shell">
+    <section class="auth-card glass-card">
+      <div class="auth-brand">
+        <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
+        <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
+      </div>
+      <p class="eyebrow">Local-first live captions for church</p>
+      <h1>Operator login</h1>
+      <p class="muted">The public caption page does not need a login. Operator controls are protected.</p>
+      <form method="post" action="/login" class="stacked-form">
+        <label for="password">Operator password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+        {% if error %}<p class="error-text">{{ error }}</p>{% endif %}
+        <button type="submit" class="primary-button full-width">Log in</button>
+      </form>
+      <p class="fine-print">First run? Open <a href="/setup">password setup</a>. Locked out? Stop Church Cap, run <code>reset-operator-password.cmd</code> on Windows or <code>./reset-operator-password.sh</code> on Mac, then start Church Cap again.</p>
+      <p class="auth-footer">Version {{ app_version }}</p>
+    </section>
+  </main>
+</body>
+</html>

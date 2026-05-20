@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Feedback - {{ church_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-page glass-page">
+  <main class="auth-shell docs-shell">
+    <section class="auth-card glass-card docs-card feedback-card">
+      <p class="eyebrow">Church Cap feedback</p>
+      <h1>Share feedback, features, and issues</h1>
+      <p class="muted">Please email the Church Cap team with anything that would make the app easier, clearer, safer, or more useful for churches.</p>
+
+      <section class="feedback-panel">
+        <h2>Helpful things to include</h2>
+        <ul class="simple-list">
+          <li>Church Cap version: <strong>{{ app_version }}</strong></li>
+          <li>Computer type, such as Mac mini, MacBook, or Windows laptop.</li>
+          <li>Operating system version.</li>
+          <li>Whether you were using CPU, NVIDIA GPU/CUDA, or Apple Silicon.</li>
+          <li>What you expected to happen and what actually happened.</li>
+          <li>Any error text shown in the terminal, operator page, or caption box.</li>
+          <li>Feature ideas, setup confusion, accessibility feedback, or translation/caption accuracy notes.</li>
+        </ul>
+      </section>
+
+      <section class="feedback-panel">
+        <h2>Email address</h2>
+        <p class="feedback-email"><a href="mailto:{{ feedback_email }}">{{ feedback_email }}</a></p>
+        <div class="button-row">
+          <a class="button-link primary-button" href="mailto:{{ feedback_email }}?subject=Church%20Cap%20feedback%20v{{ app_version }}&body=Church%20Cap%20version%3A%20{{ app_version }}%0AComputer%2FOS%3A%20%0AAudio%20interface%3A%20%0AWhat%20happened%3A%20%0AWhat%20I%20expected%3A%20%0AOther%20notes%3A%20">Email feedback</a>
+          <a class="button-link secondary" href="/operator">Back to operator</a>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
