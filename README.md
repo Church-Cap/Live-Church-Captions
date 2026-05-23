@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **0.1.0 public preview**
+Version: **0.2.0 public preview**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -29,17 +29,17 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 
 - Local FastAPI web server.
 - QR codes for audience access, including hostname and IP fallback links.
-- Mobile caption page with font size, theme, comfort/compact, pause, and local clear controls.
+- Mobile caption page with a left-to-right, bottom-to-top caption stream, optional server-backed scrollable session transcript with newest captions first, timestamps, font size, automatic system light/dark theme with local override, comfort/compact, pause, and local clear controls.
 - Operator login, first-run password setup, and account/password page.
 - Operator feedback page with version-aware email link.
 - Secure dual-port mode: public viewer port and localhost-focused operator port.
 - Audio input selection from the operator page.
-- Local `faster-whisper` transcription with rolling partial/final captions.
-- Windows CUDA detection for faster-whisper, with automatic CPU fallback.
+- Local OpenAI Whisper transcription with rolling partial/final captions tuned for accuracy-first readable live subtitle pacing.
+- Optional `faster-whisper` backend for installs that need lower latency.
 - Glossary correction for church-specific words.
 - Bad-word censor for likely speech-to-text mistakes.
 - Sensitive blank/pause mode for private or pastoral moments.
-- Transcript retention controls and transcript export as `.txt`, `.vtt`, `.srt`, and `.json`.
+- Transcript retention controls, encrypted local transcript cache, and operator-only current-session transcript export as `.txt`, `.vtt`, `.srt`, and `.json` with a privacy warning.
 - OBS browser-source overlay and setup guide.
 - Local Argos Translate support for experimental translated captions.
 - Local HTTPS helper scripts for testing and managed-device deployments.
@@ -100,7 +100,7 @@ Audience viewers normally use the IP address shown in the terminal or QR code, f
 http://192.168.1.50:8080/
 ```
 
-If a CUDA-capable NVIDIA GPU and the required NVIDIA CUDA runtime DLLs are available to the installed `faster-whisper`/CTranslate2 runtime, `WHISPER_DEVICE=auto` uses `cuda` with `float16`. Otherwise it falls back to CPU with `int8`. If `cublas64_12.dll` is missing, setup can offer to install local NVIDIA CUDA 12 runtime packages inside `.venv`, or you can run `.\install-cuda-runtime-windows.cmd` later. Argos Translate remains local and experimental; it may still run on CPU even when Whisper uses CUDA.
+The default `TRANSCRIBER_MODE=whisper` uses the standard local OpenAI Whisper package. It favours accuracy and consistency over raw speed and uses `WHISPER_BEAM_SIZE=5` by default. If you need lower latency, set `TRANSCRIBER_MODE=faster_whisper`; on Windows, that optional backend can use CUDA through CTranslate2 when the GPU, drivers, and required CUDA runtime DLLs are available. If `cublas64_12.dll` is missing, setup can offer to install local NVIDIA CUDA 12 runtime packages inside `.venv`, or you can run `.\install-cuda-runtime-windows.cmd` later. Argos Translate remains local and experimental.
 
 The local CUDA runtime installer is usually easier than installing the full NVIDIA CUDA Toolkit. Advanced users can instead install CUDA 12.x and cuDNN system-wide from NVIDIA, then rerun `.\start-windows.cmd`.
 
@@ -197,17 +197,17 @@ System Settings -> Privacy & Security -> Microphone
 /qr.png            hostname QR code
 /qr-ip.png         LAN IP fallback QR code
 /health            basic health check
-/transcript.txt    transcript export, login required
-/transcript.vtt    WebVTT export, login required
-/transcript.srt    SRT export, login required
-/transcript.json   JSON export, login required
+/transcript.txt    current-session transcript export, operator login required
+/transcript.vtt    current-session WebVTT export, operator login required
+/transcript.srt    current-session SRT export, operator login required
+/transcript.json   current-session JSON export, operator login required
 ```
 
 ## Translation
 
 Phone UI language selection is local and lightweight. Translated captions are separate, experimental, and resource-heavy.
 
-Whisper/faster-whisper performs speech-to-text. It does not translate one English caption stream into every viewer language by itself. Real translated captions require a translation provider such as Argos Translate.
+Whisper performs speech-to-text. It does not translate one English caption stream into every viewer language by itself. Real translated captions require a translation provider such as Argos Translate.
 
 The first-time macOS setup script installs Argos Translate support and available English-to-target models. To rerun that translation setup later:
 
@@ -249,7 +249,7 @@ Recommended church setup:
 - Use the default dual-port start script.
 - Keep operator access on localhost where possible.
 - Use sensitive blank/pause mode for private prayer, testimony, safeguarding, or pastoral details.
-- Set transcript retention appropriately for the service.
+- Set transcript retention appropriately for the service. Retained caption text is cached in the per-user Church Cap data folder and is deleted when the transcript is cleared or the retention window expires.
 - Use clear notices so people know AI captions are being generated.
 
 Read:

@@ -1,4 +1,7 @@
 import asyncio
+import os
+import platform
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,9 +22,9 @@ from app.profanity_filter import ProfanityFilter
 from app.settings import get_settings
 from app.networking import default_base_url, detected_local_hostname, local_ip
 from app.runtime_config import load_runtime_config, set_audio_device, set_privacy_config, set_profanity_filter_config, set_translation_config, set_security_config
-from app.transcription.faster_whisper_live import FasterWhisperTranscriber
 from app.i18n import SUPPORTED_LANGUAGES, get_client_ui_strings, normalise_language
 from app.paths import app_support_dir
+from app.transcript_store import TranscriptStore
 
 try:
     import sounddevice as sd
@@ -80,6 +83,34 @@ def ip_base_url(request: Request | None = None) -> str:
     return f"{scheme}://{local_ip()}:{port}"
 
 
+def _transcript_storage_paths() -> tuple[Path, Path]:
+    store = TranscriptStore()
+    folder = store.encrypted_path.parent
+    if store.encrypted_path.exists():
+        return folder, store.encrypted_path
+    if store.plaintext_fallback_path.exists():
+        return folder, store.plaintext_fallback_path
+    return folder, store.encrypted_path if store.encryption_available else store.plaintext_fallback_path
+
+
+def _reveal_transcript_path(folder: Path, file_path: Path) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    system = platform.system()
+    if system == "Darwin":
+        if file_path.exists():
+            subprocess.Popen(["open", "-R", str(file_path)])
+        else:
+            subprocess.Popen(["open", str(folder)])
+        return
+    if system == "Windows":
+        if file_path.exists():
+            subprocess.Popen(["explorer", f"/select,{file_path}"])
+        else:
+            os.startfile(str(folder))  # type: ignore[attr-defined]
+        return
+    subprocess.Popen(["xdg-open", str(folder)])
+
+
 def selected_audio_device():
     runtime = load_runtime_config()
     return runtime.get("audio_device") if runtime.get("audio_device") is not None else settings.audio_device
@@ -97,6 +128,7 @@ def base_template_context(request: Request | None = None) -> dict:
     context = {
         "church_name": settings.church_name,
         "app_version": settings.app_version,
+        "app_version_label": settings.app_version_label,
         "feedback_email": settings.feedback_email,
     }
     if request is not None:
@@ -152,16 +184,9 @@ def security_state(request: Request | None = None) -> dict:
 
 def create_transcriber():
     mode = settings.transcriber_mode.lower().strip()
-    if mode != "faster_whisper":
-        raise RuntimeError(
-            "Demo/mock captions have been disabled. "
-            "Set TRANSCRIBER_MODE=faster_whisper in .env to use the selected audio input."
-        )
-
-    return FasterWhisperTranscriber(
+    common = dict(
         model_name=settings.whisper_model,
         device=settings.whisper_device,
-        compute_type=settings.whisper_compute_type,
         language=settings.language,
         audio_device=selected_audio_device(),
         sample_rate=settings.sample_rate,
@@ -171,6 +196,17 @@ def create_transcriber():
         stream_silence_finalise_seconds=settings.stream_silence_finalise_seconds,
         stream_min_rms=settings.stream_min_rms,
         stream_stability_passes=settings.stream_stability_passes,
+        initial_prompt=settings.whisper_initial_prompt,
+    )
+    if mode in {"whisper", "openai_whisper", "openai-whisper"}:
+        from app.transcription.whisper_live import WhisperLiveTranscriber
+        return WhisperLiveTranscriber(**common, beam_size=settings.whisper_beam_size)
+    if mode == "faster_whisper":
+        from app.transcription.faster_whisper_live import FasterWhisperTranscriber
+        return FasterWhisperTranscriber(**common, compute_type=settings.whisper_compute_type)
+    raise RuntimeError(
+        "Demo/mock captions have been disabled. "
+        "Set TRANSCRIBER_MODE=whisper for accuracy-first local Whisper, or faster_whisper for the faster backend."
     )
 
 
@@ -263,8 +299,7 @@ async def index(request: Request):
     return templates.TemplateResponse(
         "captions.html",
         {
-            "request": request,
-            "church_name": settings.church_name,
+            **base_template_context(request),
             "dnd_reminder": settings.dnd_reminder,
             "languages": SUPPORTED_LANGUAGES,
             "ui_strings": get_client_ui_strings(),
@@ -545,25 +580,29 @@ async def set_audio_device_api(request: Request, _: None = Depends(require_opera
     return {"status": "saved", "audio_device": cfg.get("audio_device")}
 
 
+def _download_headers(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+
 @app.get("/transcript.txt", response_class=PlainTextResponse)
 async def transcript(_: None = Depends(require_operator)):
     lines = [seg.text for seg in hub.final_segments()]
-    return "\n".join(lines)
+    return PlainTextResponse("\n".join(lines), headers=_download_headers("church-cap-current-session-transcript.txt"))
 
 
 @app.get("/transcript.srt", response_class=PlainTextResponse)
 async def transcript_srt(_: None = Depends(require_operator)):
-    return PlainTextResponse(segments_to_srt(hub.final_segments()), media_type="application/x-subrip")
+    return PlainTextResponse(segments_to_srt(hub.final_segments()), media_type="application/x-subrip", headers=_download_headers("church-cap-current-session-transcript.srt"))
 
 
 @app.get("/transcript.vtt", response_class=PlainTextResponse)
 async def transcript_vtt(_: None = Depends(require_operator)):
-    return PlainTextResponse(segments_to_vtt(hub.final_segments()), media_type="text/vtt")
+    return PlainTextResponse(segments_to_vtt(hub.final_segments()), media_type="text/vtt", headers=_download_headers("church-cap-current-session-transcript.vtt"))
 
 
 @app.get("/transcript.json")
 async def transcript_json(_: None = Depends(require_operator)):
-    return Response(segments_to_json(hub.final_segments()), media_type="application/json")
+    return Response(segments_to_json(hub.final_segments()), media_type="application/json", headers=_download_headers("church-cap-current-session-transcript.json"))
 
 
 @app.get("/api/status")
@@ -574,11 +613,14 @@ async def api_status(_: None = Depends(require_operator)):
         "viewers": state.viewers,
         "sensitive_mode": state.sensitive_mode,
         "current": state.current.model_dump(mode="json") if state.current else None,
+        "transcript_count": len(hub.final_segments()),
         "metrics": get_metrics(),
         "settings": {
             "model": settings.whisper_model,
+            "transcriber_mode": settings.transcriber_mode,
             "device": settings.whisper_device,
             "compute_type": settings.whisper_compute_type,
+            "beam_size": settings.whisper_beam_size,
             "resolved_whisper_runtime": dict(
                 zip(
                     ("device", "compute_type"),
@@ -625,15 +667,50 @@ async def clear(_: None = Depends(require_operator)):
     return {"status": "cleared"}
 
 
+@app.post("/api/transcript-location")
+async def open_transcript_location(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        folder, file_path = _transcript_storage_paths()
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": "Open this from the Church Cap computer to reveal the local transcript folder.",
+                "path": str(folder),
+                "file": str(file_path),
+            },
+            status_code=403,
+        )
+    folder, file_path = _transcript_storage_paths()
+    try:
+        _reveal_transcript_path(folder, file_path)
+    except Exception as exc:
+        return JSONResponse(
+            {"status": "error", "error": str(exc), "path": str(folder), "file": str(file_path)},
+            status_code=500,
+        )
+    return {"status": "opened", "path": str(folder), "file": str(file_path)}
+
+
+def reset_transcriber_buffer() -> None:
+    if _transcriber is not None and hasattr(_transcriber, "reset_buffer"):
+        try:
+            _transcriber.reset_buffer()
+        except Exception:
+            pass
+
+
 @app.post("/api/sensitive-on")
 async def sensitive_on(_: None = Depends(require_operator)):
+    reset_transcriber_buffer()
     await hub.set_sensitive_mode(True)
     return {"status": "sensitive_on"}
 
 
 @app.post("/api/sensitive-off")
 async def sensitive_off(_: None = Depends(require_operator)):
+    reset_transcriber_buffer()
     await hub.set_sensitive_mode(False)
+    reset_transcriber_buffer()
     return {"status": "sensitive_off"}
 
 
@@ -656,6 +733,7 @@ async def update_privacy(request: Request, _: None = Depends(require_operator)):
         retention_minutes=int(cfg["transcript_retention_minutes"]),
         transcript_saving_enabled=bool(cfg["transcript_saving_enabled"]),
     )
+    await hub.broadcast_retention_state()
     return {"status": "saved", **hub.retention_state()}
 
 

@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Church Cap"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
     feedback_email: str = "info@churchcap.com"
     host: str = "0.0.0.0"
     port: int = 8080
@@ -14,20 +14,22 @@ class Settings(BaseSettings):
     lock_operator_to_localhost: bool = True
     public_base_url: str | None = None
 
-    transcriber_mode: str = "faster_whisper"
+    transcriber_mode: str = "whisper"
     whisper_model: str = "base.en"
     whisper_device: str = "auto"
     whisper_compute_type: str = "auto"
+    whisper_beam_size: int = 5
     language: str = "en"
 
     audio_device: str | None = None
     sample_rate: int = 16000
     chunk_seconds: float = 2.0
-    stream_window_seconds: float = 6.0
-    stream_update_interval_seconds: float = 0.75
-    stream_silence_finalise_seconds: float = 1.2
+    stream_window_seconds: float = 8.0
+    stream_update_interval_seconds: float = 1.2
+    stream_silence_finalise_seconds: float = 1.45
     stream_min_rms: float = 0.006
     stream_stability_passes: int = 2
+    whisper_initial_prompt: str = "Church service audio with prayer, Bible readings, worship, sermon, Scripture, Jesus Christ, Holy Spirit, Psalm, Psalms, Ephesians, Corinthians, Thessalonians."
 
     # Optional local translation scaffolding. Provider/language settings are prepared
     # by default, but the operator must explicitly enable translated captions in the web UI.
@@ -51,6 +53,10 @@ class Settings(BaseSettings):
     transcript_saving_enabled: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def app_version_label(self) -> str:
+        return self.app_version if self.app_version.startswith("v") else f"v{self.app_version}"
 
 
 @lru_cache

@@ -10,8 +10,12 @@
 <body class="operator-page glass-page">
   <script>
     (function () {
-      const saved = localStorage.getItem('operatorTheme') || 'dark';
-      if (saved === 'light') document.body.classList.add('light-mode');
+      const stored = localStorage.getItem('operatorTheme');
+      const manual = localStorage.getItem('operatorThemeManual') === '1';
+      const saved = manual && (stored === 'light' || stored === 'dark') ? stored : 'system';
+      if (saved === 'system') localStorage.removeItem('operatorTheme');
+      const systemLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      if (saved === 'light' || (saved === 'system' && systemLight)) document.body.classList.add('light-mode');
       if (localStorage.getItem('operatorSidebarCollapsed') === 'true') document.body.classList.add('operator-sidebar-collapsed');
     })();
   </script>
@@ -170,7 +174,7 @@
               </div>
               <span class="status-pill">Provider: <strong>{{ translation_provider }}</strong></span>
             </div>
-            <p class="muted"><strong>Important:</strong> phone UI translation and caption translation are separate. Whisper/faster-whisper transcribes speech. Translated captions require an extra translation provider such as local Argos Translate models.</p>
+            <p class="muted"><strong>Important:</strong> phone UI translation and caption translation are separate. Whisper transcribes speech. Translated captions require an extra translation provider such as local Argos Translate models.</p>
             <div class="warning-panel slim-warning glass-card">
               <strong>Performance safeguard:</strong> each active translated language uses extra CPU/RAM. Only the most-used selected languages are translated up to the limit below. Others receive the source captions to protect the Mac from overload.
             </div>
@@ -316,8 +320,19 @@
             </select>
             <div class="button-row">
               <button onclick="savePrivacySettings()">Save privacy settings</button>
+              <button onclick="openTranscriptLocation()" class="secondary-button">Open transcript folder</button>
               <button onclick="api('/api/clear')" class="danger-button">Delete current transcript</button>
             </div>
+            <div class="warning-panel slim-warning transcript-export-warning glass-card">
+              <strong>Export with care.</strong> Current-session transcripts may include names, pastoral details, prayer requests, or other sensitive information. Export only when the church has a clear reason to keep or share it.
+            </div>
+            <div class="button-row transcript-export-row" aria-label="Export current session transcript">
+              <button type="button" class="secondary-button transcript-export-button" data-export-format="txt" onclick="exportTranscript('txt')">Export TXT</button>
+              <button type="button" class="secondary-button transcript-export-button" data-export-format="vtt" onclick="exportTranscript('vtt')">Export VTT</button>
+              <button type="button" class="secondary-button transcript-export-button" data-export-format="srt" onclick="exportTranscript('srt')">Export SRT</button>
+              <button type="button" class="secondary-button transcript-export-button" data-export-format="json" onclick="exportTranscript('json')">Export JSON</button>
+            </div>
+            <p id="transcriptExportStatus" class="muted small-result">No current-session transcript to export yet.</p>
             <p id="privacyResult" class="muted small-result"></p>
           </article>
 
@@ -361,7 +376,7 @@
 
       <footer class="subtle-product-footer operator-product-footer">
         <a href="https://www.churchcap.org" target="_blank" rel="noopener noreferrer">www.churchcap.org</a>
-        <span>Version {{ app_version }}</span>
+        <span>{{ app_version_label }}</span>
       </footer>
   </main>
 
@@ -398,16 +413,37 @@
       localStorage.setItem('operatorSection', sectionName);
     }
 
-    function applyOperatorTheme(mode) {
+    function operatorThemePreference() {
+      const stored = localStorage.getItem('operatorTheme');
+      const manual = localStorage.getItem('operatorThemeManual') === '1';
+      if (manual && (stored === 'light' || stored === 'dark')) return stored;
+      localStorage.removeItem('operatorTheme');
+      return 'system';
+    }
+
+    function systemPrefersLight() {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    }
+
+    function resolveOperatorTheme(preference) {
+      return preference === 'system' ? (systemPrefersLight() ? 'light' : 'dark') : preference;
+    }
+
+    function applyOperatorTheme(preference, {persist = false} = {}) {
+      const mode = resolveOperatorTheme(preference || 'system');
       document.body.classList.toggle('light-mode', mode === 'light');
-      localStorage.setItem('operatorTheme', mode);
+      if (persist) {
+        localStorage.setItem('operatorTheme', preference);
+        localStorage.setItem('operatorThemeManual', '1');
+      }
       const toggle = document.getElementById('operatorThemeToggle');
       if (toggle) toggle.textContent = mode === 'light' ? 'Dark mode' : 'Light mode';
     }
 
     function toggleOperatorTheme() {
-      const current = localStorage.getItem('operatorTheme') || 'dark';
-      applyOperatorTheme(current === 'light' ? 'dark' : 'light');
+      const preference = operatorThemePreference();
+      const current = resolveOperatorTheme(preference);
+      applyOperatorTheme(current === 'light' ? 'dark' : 'light', {persist: true});
     }
 
     async function api(path) {
@@ -499,6 +535,41 @@
       if (result) result.textContent = `Saved. Transcript saving: ${data.transcript_saving_enabled}. Retention: ${data.transcript_retention_minutes} minute(s).`;
     }
 
+    function updateTranscriptExportButtons(count) {
+      const transcriptCount = Number(count || 0);
+      document.querySelectorAll('.transcript-export-button').forEach((button) => {
+        button.disabled = transcriptCount <= 0;
+        button.setAttribute('aria-disabled', transcriptCount <= 0 ? 'true' : 'false');
+      });
+      const status = document.getElementById('transcriptExportStatus');
+      if (status) {
+        status.textContent = transcriptCount > 0
+          ? `${transcriptCount} current-session transcript item(s) available to export.`
+          : 'No current-session transcript to export yet.';
+      }
+    }
+
+    function exportTranscript(format) {
+      const allowed = new Set(['txt', 'vtt', 'srt', 'json']);
+      if (!allowed.has(format)) return;
+      const warning = 'This exports the current-session transcript and may include personal or sensitive information such as names, prayer requests, testimony, or pastoral details. Only export if your church has a clear reason and permission or policy basis to keep or share it. Continue?';
+      if (!window.confirm(warning)) return;
+      window.location.href = `/transcript.${format}`;
+    }
+
+
+    async function openTranscriptLocation() {
+      const result = document.getElementById('privacyResult');
+      const res = await fetch('/api/transcript-location', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (result) {
+        result.textContent = res.ok
+          ? `Opened transcript folder: ${data.path || 'local Church Cap data folder'}`
+          : `${data.error || 'Could not open transcript folder.'}${data.path ? ` Path: ${data.path}` : ''}`;
+      }
+    }
+
+
     async function saveProfanityFilterSettings() {
       const result = document.getElementById('profanityFilterResult');
       const enabled = document.getElementById('profanityFilterEnabled').checked;
@@ -579,6 +650,7 @@
         if (profanityFilterStatus) profanityFilterStatus.textContent = data.profanity_filter_enabled ? 'On' : 'Off';
         const profanityFilterEnabled = document.getElementById('profanityFilterEnabled');
         if (profanityFilterEnabled) profanityFilterEnabled.checked = !!data.profanity_filter_enabled;
+        updateTranscriptExportButtons(data.transcript_count);
       } catch (_) {}
     }
 
@@ -587,11 +659,15 @@
     });
     const sidebarToggle = document.getElementById('sidebarToggle');
     if (sidebarToggle) sidebarToggle.addEventListener('click', () => setSidebarCollapsed(!document.body.classList.contains('operator-sidebar-collapsed')));
+    window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change', () => {
+      if (operatorThemePreference() === 'system') applyOperatorTheme('system');
+    });
 
-    applyOperatorTheme(localStorage.getItem('operatorTheme') || 'dark');
+    applyOperatorTheme(operatorThemePreference());
     setSidebarCollapsed(localStorage.getItem('operatorSidebarCollapsed') === 'true');
     showOperatorSection(localStorage.getItem('operatorSection') || 'dashboard');
     loadAudioDevices();
+    updateTranscriptExportButtons(0);
     refreshStatus();
     setInterval(refreshStatus, 1500);
   </script>

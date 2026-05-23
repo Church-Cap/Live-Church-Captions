@@ -1,13 +1,17 @@
 (() => {
   const current = document.getElementById('currentCaption');
   const history = document.getElementById('history');
+  const historyWrap = document.getElementById('historyWrap');
   const connection = document.getElementById('connection');
   const languageSelect = document.getElementById('languageSelect');
   const languageFlag = document.getElementById('languageFlag');
   const translationNotice = document.getElementById('translationNotice');
   const translationWarning = document.getElementById('translationWarning');
+  const viewerHint = document.getElementById('viewerHint');
+  const isPhonePage = document.body.classList.contains('phone-page');
 
-  const MAX_HISTORY_ITEMS = 120;
+  const MAX_LIVE_SEGMENTS = 120;
+  const MAX_TRANSCRIPT_ITEMS = 1000;
   const SOURCE_LANGUAGE = 'en';
   const UI_STRINGS = window.CC_UI_STRINGS || {};
   const LANGUAGES = window.CC_LANGUAGES || [{code: 'en', native: 'English', flag: '🇬🇧', dir: 'ltr'}];
@@ -16,15 +20,39 @@
   let paused = false;
   let fontScale = Number(localStorage.getItem('captionFontScale') || '1');
   let comfortMode = localStorage.getItem('captionComfortMode') === '1';
-  let viewerTheme = localStorage.getItem('captionTheme') || 'dark';
+  let transcriptVisible = localStorage.getItem('captionTranscriptVisible') !== '0';
+  let viewerThemePreference = initialiseViewerThemePreference();
+  let viewerTheme = resolveViewerTheme();
   let viewerLanguage = localStorage.getItem('captionLanguage') || navigator.language?.split('-')[0] || SOURCE_LANGUAGE;
   if (!LANGUAGES.find(l => l.code === viewerLanguage)) viewerLanguage = SOURCE_LANGUAGE;
   let pendingCurrentText = null;
   let rafScheduled = false;
   const seenIds = new Set();
+  const seenLogIds = new Set();
+  let finalSegments = [];
+  let logSegments = [];
+  let lastRenderedLogIds = new Set();
+  let draftLogCounter = 0;
+  let activeBlock = null;
+  let activeBlockUntil = 0;
+  let blockQueue = [];
+  let blockTimer = null;
+  let currentDraftText = '';
+  let systemMessageText = '';
+  let lastPartialShownAt = 0;
+  let historyLogEnabled = true;
   let socket = null;
   let reconnectTimer = null;
   let manualReconnect = false;
+
+  const MIN_PARTIAL_UPDATE_MS = 1100;
+  const TARGET_READING_CPS = 19;
+  const MIN_BLOCK_MS = 1100;
+  const MAX_BLOCK_MS = 3600;
+  const BLOCK_BREATHING_ROOM_MS = 180;
+  const SUBTITLE_GLIDE_MS = 260;
+  const DRAFT_LOG_UPDATE_MS = 3000;
+  let lastDraftLogAt = 0;
 
   function t(key) {
     return (UI_STRINGS[viewerLanguage] && UI_STRINGS[viewerLanguage][key]) ||
@@ -50,18 +78,43 @@
     if (current && current.dataset.i18n === 'waiting') current.textContent = t('waiting');
     if (translationNotice) translationNotice.hidden = viewerLanguage === SOURCE_LANGUAGE;
     localStorage.setItem('captionLanguage', viewerLanguage);
+    updateTranscriptToggleButton();
   }
 
   function applyFontScale() {
     document.documentElement.style.setProperty('--caption-scale', fontScale.toFixed(2));
     localStorage.setItem('captionFontScale', fontScale.toString());
+    renderSubtitleStack();
+    renderHistoryRoll();
   }
 
-  function applyViewerTheme() {
+  function initialiseViewerThemePreference() {
+    const stored = localStorage.getItem('captionTheme');
+    const manual = localStorage.getItem('captionThemeManual') === '1';
+    if (manual && (stored === 'light' || stored === 'dark')) return stored;
+    localStorage.removeItem('captionTheme');
+    return 'system';
+  }
+
+  function systemPrefersLight() {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+  }
+
+  function resolveViewerTheme() {
+    return viewerThemePreference === 'system'
+      ? (systemPrefersLight() ? 'light' : 'dark')
+      : viewerThemePreference;
+  }
+
+  function applyViewerTheme({persist = false} = {}) {
+    viewerTheme = resolveViewerTheme();
     document.body.classList.toggle('light-mode', viewerTheme === 'light');
     const btn = document.getElementById('toggleTheme');
     if (btn) btn.textContent = viewerTheme === 'light' ? 'Dark' : t('theme');
-    localStorage.setItem('captionTheme', viewerTheme);
+    if (persist) {
+      localStorage.setItem('captionTheme', viewerThemePreference);
+      localStorage.setItem('captionThemeManual', '1');
+    }
   }
 
   function applyComfortMode() {
@@ -69,20 +122,347 @@
     const btn = document.getElementById('toggleCompact');
     if (btn) btn.textContent = comfortMode ? t('compact') : t('comfort');
     localStorage.setItem('captionComfortMode', comfortMode ? '1' : '0');
+    renderSubtitleStack();
+    renderHistoryRoll();
   }
 
-  function scheduleCurrentText(text) {
-    pendingCurrentText = text;
+  function updateTranscriptToggleButton() {
+    const btn = document.getElementById('toggleTranscript');
+    if (!btn) return;
+    btn.textContent = transcriptVisible ? t('hide_transcript') : t('show_transcript');
+    btn.setAttribute('aria-expanded', transcriptVisible ? 'true' : 'false');
+    btn.setAttribute('aria-controls', 'historyWrap');
+  }
+
+  function applyTranscriptVisibility() {
+    document.body.classList.toggle('transcript-hidden', !transcriptVisible);
+    if (historyWrap) historyWrap.hidden = !transcriptVisible;
+    updateTranscriptToggleButton();
+    localStorage.setItem('captionTranscriptVisible', transcriptVisible ? '1' : '0');
+    if (transcriptVisible) renderHistoryRoll();
+    renderSubtitleStack();
+  }
+
+  function subtitleLimits() {
+    const landscape = window.matchMedia('(orientation: landscape)').matches || window.innerWidth > window.innerHeight;
+    const baseChars = landscape ? 52 : 42;
+    const estimatedLineHeight = current ? Math.max(24, parseFloat(getComputedStyle(current).lineHeight) || 30) : 30;
+    const availableHeight = current ? Math.max(220, current.clientHeight - 24) : 300;
+    const capacity = Math.max(4, Math.floor(availableHeight / estimatedLineHeight));
+    return {
+      chars: Math.max(28, Math.round(baseChars / Math.max(fontScale, 0.9))),
+      maxLines: Math.max(4, capacity),
+    };
+  }
+
+  function wordsForCompare(text) {
+    return String(text || '')
+      .toLowerCase()
+      .replace(/[.,;:!?()[\]"']/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter(Boolean);
+  }
+
+  function bestLineBreakIndex(words, maxChars) {
+    if (words.length <= 1) return -1;
+    const punctuation = /[,:;.!?]$/;
+    const preferredStarts = new Set(['and', 'but', 'or', 'so', 'because', 'for', 'with', 'to', 'in', 'on', 'at', 'from', 'by', 'through', 'that', 'which', 'who']);
+    let best = -1;
+    let bestScore = Infinity;
+    const totalLength = words.join(' ').length;
+
+    for (let i = 1; i < words.length; i += 1) {
+      const top = words.slice(0, i).join(' ');
+      const bottom = words.slice(i).join(' ');
+      if (top.length > maxChars || bottom.length > maxChars) continue;
+      let score = Math.abs(top.length - bottom.length) + Math.abs(bottom.length - Math.min(maxChars, totalLength * 0.56)) * 0.2;
+      if (punctuation.test(words[i - 1])) score -= 12;
+      if (preferredStarts.has(words[i]?.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, ''))) score -= 7;
+      if (/^(the|a|an|my|your|his|her|their|our)$/i.test(words[i - 1])) score += 10;
+      if (/^(of|to|in|on|at|with|for|from|by)$/i.test(words[i - 1])) score += 8;
+      if (score < bestScore) {
+        best = i;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  function splitSubtitleBlock(text, maxChars) {
+    const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    if (!words.length) return [];
+    const whole = words.join(' ');
+    if (whole.length <= maxChars) return [whole];
+
+    const breakIndex = bestLineBreakIndex(words, maxChars);
+    if (breakIndex > 0) {
+      return [words.slice(0, breakIndex).join(' '), words.slice(breakIndex).join(' ')];
+    }
+
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && next.length > maxChars) {
+        lines.push(line);
+        line = word;
+        if (lines.length >= 1) break;
+      } else {
+        line = next;
+      }
+    }
+    if (line && lines.length < 2) {
+      const remaining = words.slice(lines.join(' ').split(' ').filter(Boolean).length).join(' ');
+      lines.push(remaining || line);
+    }
+    return lines.slice(0, 2);
+  }
+
+  function splitCaptionSentences(text) {
+    const normalised = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalised) return [];
+    const sentences = normalised.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g) || [normalised];
+    return sentences.map(part => part.trim()).filter(Boolean);
+  }
+
+  function wrapStreamSentence(sentence, maxChars) {
+    const words = String(sentence || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && next.length > maxChars) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function splitCaptionForStream(text, maxChars) {
+    return splitCaptionSentences(text).flatMap(sentence => wrapStreamSentence(sentence, maxChars));
+  }
+
+  function stripCommittedPrefix(text) {
+    const originalWords = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    if (!originalWords.length || !finalSegments.length) return String(text || '').trim();
+
+    const committedWords = wordsForCompare(finalSegments.slice(-4).map(seg => seg.text).join(' '));
+    const incomingWords = wordsForCompare(text);
+    if (!committedWords.length || !incomingWords.length) return String(text || '').trim();
+
+    const incomingJoined = incomingWords.join(' ');
+    const committedJoined = committedWords.join(' ');
+    if (committedJoined.endsWith(incomingJoined)) return '';
+
+    const maxOverlap = Math.min(committedWords.length, incomingWords.length, 32);
+    for (let n = maxOverlap; n > 0; n -= 1) {
+      const committedTail = committedWords.slice(-n).join(' ');
+      const incomingHead = incomingWords.slice(0, n).join(' ');
+      if (committedTail === incomingHead) {
+        return originalWords.slice(n).join(' ').trim();
+      }
+    }
+    return String(text || '').trim();
+  }
+
+  function renderSubtitleStack() {
+    if (!isPhonePage) {
+      const latestFinal = finalSegments.length ? finalSegments[finalSegments.length - 1].text : '';
+      const fallbackText = currentDraftText || activeBlock?.text || latestFinal || t('waiting');
+      if (current) current.textContent = fallbackText;
+      return;
+    }
+    const limits = subtitleLimits();
+    const latestFinalId = finalSegments.length ? finalSegments[finalSegments.length - 1].id : null;
+    const systemLineItems = systemMessageText
+      ? splitSubtitleBlock(systemMessageText, limits.chars).map((text, index) => ({id: `system:${index}`, text, active: true}))
+      : [];
+    let visible;
+    if (systemLineItems.length) {
+      visible = systemLineItems.slice(-limits.maxLines);
+    } else {
+      const finalItems = finalSegments.flatMap(seg =>
+        splitCaptionForStream(seg.text, limits.chars).map((text, index) => ({
+          id: `${seg.id}:stream:${index}`,
+          text,
+          active: seg.id === latestFinalId,
+        }))
+      );
+      const draftItems = !finalItems.length && currentDraftText
+        ? splitCaptionForStream(currentDraftText, limits.chars).map((text, index) => ({
+            id: `draft:stream:${index}`,
+            text,
+            active: true,
+          }))
+        : [];
+      visible = [...finalItems, ...draftItems].slice(-limits.maxLines);
+    }
+
+    pendingCurrentText = visible;
     if (rafScheduled) return;
     rafScheduled = true;
     requestAnimationFrame(() => {
-      if (current && pendingCurrentText !== null) {
-        current.textContent = pendingCurrentText;
-        current.removeAttribute('data-i18n');
+      if (current && Array.isArray(pendingCurrentText)) {
+        const previousRects = new Map();
+        const previousTexts = new Map();
+        current.querySelectorAll('.subtitle-line').forEach((el) => {
+          const key = el.getAttribute('data-line-key');
+          if (key) previousRects.set(key, el.getBoundingClientRect());
+          if (key) previousTexts.set(key, el.getAttribute('data-line-text') || el.textContent || '');
+        });
+
+        current.textContent = '';
+        if (!pendingCurrentText.length) {
+          const waiting = document.createElement('span');
+          waiting.textContent = t('waiting');
+          current.appendChild(waiting);
+          current.dataset.i18n = 'waiting';
+        } else {
+          current.removeAttribute('data-i18n');
+          const frag = document.createDocumentFragment();
+          const total = pendingCurrentText.length;
+          pendingCurrentText.forEach((line, index) => {
+            const p = document.createElement('p');
+            p.className = `subtitle-line${line.active ? ' active-subtitle-line' : ''}`;
+            p.dataset.lineKey = line.id;
+            p.dataset.lineText = line.text;
+            const ageFromBottom = total - index - 1;
+            p.style.setProperty('--stream-opacity', String(Math.max(0.42, 1 - ageFromBottom * 0.075)));
+            appendAnimatedWords(p, line.text, previousTexts.get(line.id), line.active);
+            frag.appendChild(p);
+          });
+          current.appendChild(frag);
+          animateSubtitleGlide(previousRects);
+        }
       }
       pendingCurrentText = null;
       rafScheduled = false;
     });
+  }
+
+  function appendAnimatedWords(parent, text, previousText, isActiveLine) {
+    const words = String(text || '').split(/(\s+)/).filter(part => part.length);
+    const previousWords = String(previousText || '').trim().split(/\s+/).filter(Boolean);
+    const currentWords = String(text || '').trim().split(/\s+/).filter(Boolean);
+    let commonPrefix = 0;
+    while (
+      commonPrefix < previousWords.length &&
+      commonPrefix < currentWords.length &&
+      previousWords[commonPrefix] === currentWords[commonPrefix]
+    ) {
+      commonPrefix += 1;
+    }
+
+    let wordIndex = 0;
+    for (const part of words) {
+      if (/^\s+$/.test(part)) {
+        parent.appendChild(document.createTextNode(part));
+        continue;
+      }
+      const span = document.createElement('span');
+      span.className = 'subtitle-word';
+      if (isActiveLine && wordIndex === currentWords.length - 1 && wordIndex >= commonPrefix) {
+        span.classList.add('subtitle-word-enter');
+      }
+      span.textContent = part;
+      parent.appendChild(span);
+      wordIndex += 1;
+    }
+  }
+
+  function animateSubtitleGlide(previousRects) {
+    if (!current || !previousRects.size || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    current.querySelectorAll('.subtitle-line').forEach((el) => {
+      const key = el.getAttribute('data-line-key');
+      const before = key ? previousRects.get(key) : null;
+      if (!before) return;
+      const after = el.getBoundingClientRect();
+      const deltaY = before.top - after.top;
+      if (Math.abs(deltaY) < 1) return;
+      el.style.transform = `translateY(${deltaY}px)`;
+      el.style.transition = 'none';
+      requestAnimationFrame(() => {
+        el.style.transition = `transform ${SUBTITLE_GLIDE_MS}ms ease, opacity ${SUBTITLE_GLIDE_MS}ms ease`;
+        el.style.transform = '';
+      });
+      window.setTimeout(() => {
+        el.style.transition = '';
+        el.style.transform = '';
+      }, SUBTITLE_GLIDE_MS + 40);
+    });
+  }
+
+  function renderHistoryRoll() {
+    if (!history || paused) return;
+    if (!transcriptVisible) {
+      if (historyWrap) historyWrap.hidden = true;
+      return;
+    }
+    if (historyWrap) historyWrap.hidden = false;
+    const shouldStickToTop = history.scrollTop <= 24 || !lastRenderedLogIds.size;
+    const previousScrollTop = history.scrollTop;
+    const previousScrollHeight = history.scrollHeight;
+    history.textContent = '';
+    if (!historyLogEnabled) {
+      const p = document.createElement('p');
+      p.className = 'history-placeholder';
+      p.textContent = t('history_off');
+      history.appendChild(p);
+      return;
+    }
+    const previousRenderedLogIds = lastRenderedLogIds;
+    const transcriptEntries = logSegments.slice(-MAX_TRANSCRIPT_ITEMS).slice().reverse();
+    lastRenderedLogIds = new Set(transcriptEntries.map(entry => entry.renderId || entry.id));
+    if (!transcriptEntries.length) {
+      const p = document.createElement('p');
+      p.className = 'history-placeholder';
+      p.textContent = t('history_empty');
+      history.appendChild(p);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const entry of transcriptEntries) {
+      const renderId = entry.renderId || entry.id;
+      const article = document.createElement('article');
+      article.className = 'history-entry';
+      article.dataset.id = entry.id;
+
+      const time = document.createElement('time');
+      time.className = 'history-time';
+      if (entry.createdAt) time.dateTime = entry.createdAt;
+      time.textContent = formatLogTime(entry.createdAt || entry.updatedAt);
+
+      const p = document.createElement('p');
+      p.textContent = entry.text;
+
+      article.append(time, p);
+      frag.appendChild(article);
+    }
+    history.appendChild(frag);
+    if (shouldStickToTop) {
+      history.scrollTop = 0;
+    } else {
+      history.scrollTop = previousScrollTop + Math.max(0, history.scrollHeight - previousScrollHeight);
+    }
+  }
+
+  function formatLogTime(value) {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return '';
+    const now = new Date();
+    const sameDay = date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate();
+    const options = sameDay
+      ? {hour: '2-digit', minute: '2-digit'}
+      : {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'};
+    return date.toLocaleString([], options);
   }
 
   function showTranslationWarning(message) {
@@ -101,47 +481,247 @@
     return 'text:' + String(text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 160);
   }
 
-  function addHistory(text, id) {
-    if (!history || !text || paused) return;
-    const key = normaliseId(text, id);
+  function normaliseLogText(text) {
+    return String(text || '')
+      .toLowerCase()
+      .replace(/[.,;:!?()[\]"']/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function addLogEntry(text, id, {draft = false, createdAt = null} = {}) {
+    if (!text || !historyLogEnabled) return;
+    const cleanText = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!cleanText) return;
+    const key = id || `log:${normaliseLogText(cleanText).slice(0, 160)}`;
+    const updatedAtMs = Date.now();
+    const updatedAt = new Date(updatedAtMs).toISOString();
+    const existingIndex = logSegments.findIndex(seg => seg.id === key);
+    const existing = existingIndex >= 0 ? logSegments[existingIndex] : null;
+    const entry = {
+      id: key,
+      text: cleanText,
+      draft,
+      createdAt: createdAt || existing?.createdAt || updatedAt,
+      updatedAt,
+      updatedAtMs,
+      renderId: draft ? `${key}:${updatedAtMs}` : key,
+    };
+    if (existingIndex >= 0) {
+      logSegments[existingIndex] = entry;
+    } else {
+      const last = logSegments[logSegments.length - 1];
+      const nextNorm = normaliseLogText(cleanText);
+      const lastNorm = normaliseLogText(last?.text || '');
+      if (!id && lastNorm && (nextNorm === lastNorm || lastNorm.endsWith(nextNorm))) return;
+      seenLogIds.add(key);
+      logSegments.push(entry);
+    }
+    logSegments = logSegments.slice(-MAX_TRANSCRIPT_ITEMS);
+  }
+
+  function nextDraftLogId() {
+    draftLogCounter += 1;
+    return `draft:live:${draftLogCounter}`;
+  }
+
+  function draftTextsOverlap(previousNorm, currentNorm) {
+    if (!previousNorm || !currentNorm) return false;
+    return currentNorm === previousNorm ||
+      currentNorm.startsWith(previousNorm) ||
+      previousNorm.startsWith(currentNorm) ||
+      currentNorm.includes(previousNorm) ||
+      previousNorm.includes(currentNorm);
+  }
+
+  function commitDraftLogEntry(entry) {
+    if (!entry?.draft) return;
+    const index = logSegments.findIndex(seg => seg.id === entry.id);
+    if (index < 0) return;
+    const committedId = `drafted:${entry.id}`;
+    logSegments[index] = {
+      ...entry,
+      id: committedId,
+      draft: false,
+      renderId: committedId,
+    };
+  }
+
+  function addDraftToLog(text, createdAt = null) {
+    if (!text || !historyLogEnabled) return;
+    const now = Date.now();
+    const last = logSegments[logSegments.length - 1];
+    const currentNorm = normaliseLogText(text);
+    const lastNorm = normaliseLogText(last?.text || '');
+    if (last?.draft) {
+      if (draftTextsOverlap(lastNorm, currentNorm)) {
+        if (currentNorm.length >= lastNorm.length || now - (last.updatedAtMs || 0) >= DRAFT_LOG_UPDATE_MS) {
+          addLogEntry(text, last.id, {draft: true, createdAt: last.createdAt || createdAt});
+          renderHistoryRoll();
+        }
+        return;
+      }
+      commitDraftLogEntry(last);
+    }
+
+    const previous = logSegments[logSegments.length - 1];
+    const previousNorm = normaliseLogText(previous?.text || '');
+    const previousIsProvisional = String(previous?.id || '').startsWith('drafted:draft:live:');
+    if (previousIsProvisional && draftTextsOverlap(previousNorm, currentNorm)) {
+      if (currentNorm.length > previousNorm.length) {
+        addLogEntry(text, previous.id, {draft: false, createdAt: previous.createdAt || createdAt});
+        renderHistoryRoll();
+      }
+      return;
+    }
+    if (draftTextsOverlap(previousNorm, currentNorm)) return;
+    if (now - lastDraftLogAt < DRAFT_LOG_UPDATE_MS && previousNorm && currentNorm.startsWith(previousNorm)) return;
+    lastDraftLogAt = now;
+    addLogEntry(text, nextDraftLogId(), {draft: true, createdAt});
+    renderHistoryRoll();
+  }
+
+  function addHistory(segmentOrText, id, {log = true} = {}) {
+    const segment = typeof segmentOrText === 'object' && segmentOrText !== null
+      ? segmentOrText
+      : {text: segmentOrText, id};
+    const text = segment.text || '';
+    if (!text || paused) return;
+    const key = normaliseId(text, segment.id);
     if (seenIds.has(key)) return;
     seenIds.add(key);
 
-    const p = document.createElement('p');
-    p.textContent = text;
-    p.dataset.id = key;
-    history.prepend(p);
-
-    while (history.children.length > MAX_HISTORY_ITEMS) {
-      const last = history.lastElementChild;
-      if (last?.dataset?.id) seenIds.delete(last.dataset.id);
-      history.removeChild(last);
+    const limits = subtitleLimits();
+    const lines = splitSubtitleBlock(text, limits.chars).map((line, index) => ({id: `${key}:${index}`, text: line}));
+    finalSegments.push({id: key, text, lines, createdAt: segment.created_at || segment.createdAt || null});
+    finalSegments = finalSegments.slice(-MAX_LIVE_SEGMENTS);
+    if (log) {
+      const finalNorm = normaliseLogText(text);
+      logSegments = logSegments.filter((seg) => {
+        if (seg.draft) return false;
+        if (!String(seg.id || '').startsWith('drafted:draft:live:')) return true;
+        return !draftTextsOverlap(normaliseLogText(seg.text || ''), finalNorm);
+      });
+      addLogEntry(text, key, {draft: false, createdAt: segment.created_at || segment.createdAt || null});
     }
+    currentDraftText = '';
+    systemMessageText = '';
+    queueStableBlock({id: key, text, lines});
+    renderHistoryRoll();
+  }
+
+  function applyTranscriptUpdates(items) {
+    if (!Array.isArray(items) || !items.length || !historyLogEnabled) return false;
+    for (const seg of items) {
+      if (!seg?.text) continue;
+      const key = normaliseId(seg.text, seg.id);
+      addLogEntry(seg.text, key, {
+        draft: seg.is_final === false,
+        createdAt: seg.created_at || seg.createdAt || null,
+      });
+    }
+    renderHistoryRoll();
+    return true;
   }
 
   function renderHistoryFromState(items) {
-    if (!history || paused) return;
-    history.textContent = '';
+    if (paused) return;
+    finalSegments = [];
+    logSegments = [];
+    lastRenderedLogIds = new Set();
     seenIds.clear();
-    const frag = document.createDocumentFragment();
-    const recent = (items || []).slice(-MAX_HISTORY_ITEMS).reverse();
+    seenLogIds.clear();
+    draftLogCounter = 0;
+    const recent = (items || []).slice(-MAX_TRANSCRIPT_ITEMS);
     for (const seg of recent) {
       if (!seg.text) continue;
       const key = normaliseId(seg.text, seg.id);
-      if (seenIds.has(key)) continue;
-      seenIds.add(key);
-      const p = document.createElement('p');
-      p.textContent = seg.text;
-      p.dataset.id = key;
-      frag.appendChild(p);
+      addLogEntry(seg.text, key, {draft: seg.is_final === false, createdAt: seg.created_at || seg.createdAt || null});
     }
-    history.appendChild(frag);
+    systemMessageText = '';
+    renderHistoryRoll();
+  }
+
+  function readingDurationMs(text) {
+    const chars = String(text || '').replace(/\s+/g, ' ').trim().length;
+    const duration = (chars / TARGET_READING_CPS) * 1000 + BLOCK_BREATHING_ROOM_MS;
+    return Math.max(MIN_BLOCK_MS, Math.min(MAX_BLOCK_MS, Math.round(duration)));
+  }
+
+  function scheduleBlockAdvance() {
+    if (blockTimer) clearTimeout(blockTimer);
+    blockTimer = null;
+    if (!blockQueue.length) return;
+    const wait = Math.max(0, activeBlockUntil - Date.now());
+    blockTimer = setTimeout(advanceStableBlock, wait);
+  }
+
+  function advanceStableBlock() {
+    if (blockTimer) clearTimeout(blockTimer);
+    blockTimer = null;
+    const next = blockQueue.shift();
+    if (!next) {
+      if (currentDraftText) activeBlock = null;
+      renderSubtitleStack();
+      return;
+    }
+    activeBlock = next;
+    activeBlockUntil = Date.now() + readingDurationMs(next.text);
+    currentDraftText = '';
+    renderSubtitleStack();
+    renderHistoryRoll();
+    scheduleBlockAdvance();
+  }
+
+  function queueStableBlock(block) {
+    blockQueue.push(block);
+    if (!activeBlock || Date.now() >= activeBlockUntil || blockQueue.length > 3) {
+      advanceStableBlock();
+    } else {
+      scheduleBlockAdvance();
+      renderSubtitleStack();
+    }
+  }
+
+  function updateDraft(segmentOrText, {force = false, log = true} = {}) {
+    const segment = typeof segmentOrText === 'object' && segmentOrText !== null
+      ? segmentOrText
+      : {text: segmentOrText};
+    const text = segment.text || '';
+    if (paused) return;
+    const displayText = stripCommittedPrefix(text);
+    if (!displayText) {
+      currentDraftText = '';
+      if (isPhonePage && log) renderHistoryRoll();
+      renderSubtitleStack();
+      return;
+    }
+    const now = Date.now();
+    const currentWords = wordsForCompare(currentDraftText);
+    const nextWords = wordsForCompare(displayText);
+    const wordDelta = Math.abs(nextWords.length - currentWords.length);
+    const enoughTime = now - lastPartialShownAt >= MIN_PARTIAL_UPDATE_MS;
+    if (!force && currentDraftText && !enoughTime && wordDelta < 3) return;
+    currentDraftText = displayText;
+    if (log) addDraftToLog(displayText, segment.created_at || segment.createdAt || null);
+    systemMessageText = '';
+    lastPartialShownAt = now;
+    if (activeBlock && now >= activeBlockUntil && !blockQueue.length) activeBlock = null;
+    renderSubtitleStack();
   }
 
   function renderState(state) {
     if (paused) return;
-    if (state.current && current) scheduleCurrentText(state.current.text);
+    historyLogEnabled = state.transcript_saving_enabled !== false && Number(state.transcript_retention_minutes ?? 1) > 0;
     if (Array.isArray(state.history)) renderHistoryFromState(state.history);
+    currentDraftText = state.current?.text ? stripCommittedPrefix(state.current.text) : '';
+    renderSubtitleStack();
+  }
+
+  function applyRetentionState(state) {
+    if (!state || paused) return;
+    historyLogEnabled = state.transcript_saving_enabled !== false && Number(state.transcript_retention_minutes ?? 1) > 0;
+    renderHistoryRoll();
   }
 
   function connect() {
@@ -171,21 +751,45 @@
       if (payload.type === 'state') renderState(payload.data);
       if (payload.type === 'viewer_meta') translationState = payload.data || translationState;
 
-      if (payload.type === 'caption') {
-        if (paused) return;
-        const seg = payload.data || {};
-        const text = seg.text || '';
-        scheduleCurrentText(text);
-        showTranslationWarning(payload.translation_warning);
-        if (seg.is_final) addHistory(text, seg.id);
+      if (payload.type === 'retention') {
+        applyRetentionState(payload.data);
       }
 
-      if (payload.type === 'sensitive' && !paused) scheduleCurrentText(payload.message || 'Captions are paused for a private or sensitive moment.');
+      if (payload.type === 'caption') {
+        if (paused) return;
+        applyRetentionState(payload);
+        const seg = payload.data || {};
+        const text = seg.text || '';
+        showTranslationWarning(payload.translation_warning);
+        const hasTranscriptUpdates = applyTranscriptUpdates(payload.transcript_updates);
+        if (seg.is_final) {
+          addHistory(seg, null, {log: !hasTranscriptUpdates});
+        } else {
+          updateDraft(seg, {log: !hasTranscriptUpdates});
+        }
+      }
+
+      if (payload.type === 'sensitive' && !paused) {
+        systemMessageText = payload.message || 'Captions are paused for a private or sensitive moment.';
+        currentDraftText = '';
+        renderSubtitleStack();
+      }
 
       if (payload.type === 'clear') {
-        scheduleCurrentText(t('waiting'));
+        finalSegments = [];
+        logSegments = [];
+        lastRenderedLogIds = new Set();
+        activeBlock = null;
+        activeBlockUntil = 0;
+        blockQueue = [];
+        if (blockTimer) clearTimeout(blockTimer);
+        currentDraftText = '';
+        systemMessageText = '';
+        renderSubtitleStack();
         if (history) history.textContent = '';
         seenIds.clear();
+        seenLogIds.clear();
+        draftLogCounter = 0;
       }
     };
 
@@ -206,7 +810,18 @@
     applyViewerTheme();
     applyComfortMode();
     if (history) history.textContent = '';
+    finalSegments = [];
+    logSegments = [];
+    lastRenderedLogIds = new Set();
+    activeBlock = null;
+    activeBlockUntil = 0;
+    blockQueue = [];
+    if (blockTimer) clearTimeout(blockTimer);
+    currentDraftText = '';
+    systemMessageText = '';
     seenIds.clear();
+    seenLogIds.clear();
+    draftLogCounter = 0;
     showTranslationWarning(null);
     connect();
   });
@@ -222,13 +837,18 @@
   });
 
   document.getElementById('toggleTheme')?.addEventListener('click', () => {
-    viewerTheme = viewerTheme === 'light' ? 'dark' : 'light';
-    applyViewerTheme();
+    viewerThemePreference = resolveViewerTheme() === 'light' ? 'dark' : 'light';
+    applyViewerTheme({persist: true});
   });
 
   document.getElementById('toggleCompact')?.addEventListener('click', () => {
     comfortMode = !comfortMode;
     applyComfortMode();
+  });
+
+  document.getElementById('toggleTranscript')?.addEventListener('click', () => {
+    transcriptVisible = !transcriptVisible;
+    applyTranscriptVisibility();
   });
 
   document.getElementById('pauseScroll')?.addEventListener('click', (e) => {
@@ -244,12 +864,35 @@
 
   document.getElementById('clearLocal')?.addEventListener('click', () => {
     if (history) history.textContent = '';
+    finalSegments = [];
+    logSegments = [];
+    lastRenderedLogIds = new Set();
+    activeBlock = null;
+    activeBlockUntil = 0;
+    blockQueue = [];
+    if (blockTimer) clearTimeout(blockTimer);
+    currentDraftText = '';
+    systemMessageText = '';
+    renderSubtitleStack();
     seenIds.clear();
+    seenLogIds.clear();
+    draftLogCounter = 0;
+  });
+
+  window.addEventListener('resize', () => {
+    renderSubtitleStack();
+    renderHistoryRoll();
+  });
+  window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change', () => {
+    if (viewerThemePreference === 'system') applyViewerTheme();
   });
 
   applyLanguage();
   applyFontScale();
   applyViewerTheme();
   applyComfortMode();
+  applyTranscriptVisibility();
+  if (viewerHint) viewerHint.textContent = t('line_by_line');
+  renderSubtitleStack();
   connect();
 })();

@@ -7,7 +7,7 @@ Church Cap is a local live-caption app for churches. It runs on the caption Mac,
 Open Terminal, then go to this folder:
 
 ```bash
-cd "$HOME/Documents/church_cap_v0.1.0"
+cd "$HOME/Documents/church_cap_v0.2.0"
 ```
 
 Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -23,7 +23,7 @@ Setup may take a while. It installs the local Python environment, audio dependen
 Open PowerShell, then go to this folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap_v0.1.0"
+cd "$HOME\Documents\church_cap_v0.2.0"
 ```
 
 Run setup:

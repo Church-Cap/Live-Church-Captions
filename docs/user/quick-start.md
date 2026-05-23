@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: 0.1.0 public preview
+Version: 0.2.0 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -24,7 +24,7 @@ Visitors do not install an app. They scan a QR code and read captions in their b
 2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/church_cap_v0.1.0"
+cd "$HOME/Documents/church_cap_v0.2.0"
 ```
 
 3. Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -45,7 +45,7 @@ If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes 
 2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap_v0.1.0"
+cd "$HOME\Documents\church_cap_v0.2.0"
 ```
 
 3. Run setup.
@@ -131,13 +131,22 @@ In the operator page, open **Audience & OBS**.
 
 Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local` address, use the Android/IP fallback QR code.
 
+## Visitor Caption View
+
+The phone caption page shows live captions as a bottom-to-top reading stream. Captions start at the left edge in English, wrap naturally, and move upward as new captions arrive. A server-backed session transcript below the controls shows timestamped captions from the current app session with the newest entry at the top when history is enabled, and visitors can scroll back through earlier captions. Visitors can use **Hide transcript** or **Show transcript** to choose whether that scrollback panel appears on their own device.
+
+In landscape orientation on phones and tablets, the viewer uses a compact side-by-side layout: live captions take about 75% of the width and the transcript takes the remaining space when enabled. The live caption and transcript panels stay within the visible screen; longer transcript history scrolls inside the transcript panel. If a visitor hides the transcript, the live caption view expands to use the full width.
+
+Visitors automatically get the light or dark theme from their device settings. They can still use the theme button to set a local override, and can change text size, comfort/compact spacing, pause their local view, or clear their local screen without affecting anyone else.
+
 ## During A Service
 
 - Use **Start captions** when ready.
 - Use **Stop** when captions should stop.
-- Use **Blank / pause** before private prayer, pastoral details, testimony, safeguarding, or anything sensitive.
+- Use **Blank / pause** before private prayer, pastoral details, testimony, safeguarding, or anything sensitive. While blanked, captions are not shown, retained in the session transcript, or included in transcript exports; Church Cap also flushes the live transcription buffer and drops a short buffered-audio window when captions resume.
 - Use **Resume** when public captions should continue.
 - Watch the microphone level meter to confirm audio is coming in.
+- Use the privacy controls to choose whether transcript history is saved and how long to keep it. A fresh app start begins with an empty visible session transcript; older saved transcript cache is pruned on startup using the retention window saved with that cache. **Open transcript folder** reveals the per-user local cache folder on the Church Cap computer. **Export TXT/VTT/SRT/JSON** downloads the current-session transcript only and asks the operator to confirm the privacy warning first. Clearing the transcript deletes the retained local transcript cache.
 
 ## Translation
 

@@ -5,7 +5,7 @@ Multilingual support has two separate parts:
 1. **Phone/user-interface language** — local and lightweight. This changes labels such as “Live captions”, “Pause”, and “Recent captions”.
 2. **Translated captions** — experimental and resource-heavy. This takes the source caption text and translates it into selected audience languages.
 
-Whisper/faster-whisper performs speech-to-text. It can transcribe several spoken languages when configured, but it does **not** translate one English caption stream into several audience languages by itself. Caption translation needs a separate translation provider.
+Whisper performs speech-to-text. It can transcribe several spoken languages when configured, but it does **not** translate one English caption stream into several audience languages by itself. Caption translation needs a separate translation provider.
 
 ## Current providers
 
@@ -58,7 +58,7 @@ Restart the app.
 
 ## GPU note
 
-On Windows, Church Cap detects whether faster-whisper/CTranslate2 can use CUDA. Transcription uses the NVIDIA GPU automatically when `WHISPER_DEVICE=auto` only if the GPU and required CUDA runtime DLLs, such as `cublas64_12.dll`, are available. Setup can offer to install local CUDA 12 runtime packages into `.venv`; advanced users can install CUDA 12.x and cuDNN system-wide from NVIDIA instead. Otherwise Church Cap falls back to CPU. Argos Translate is still treated as local experimental translation and may run on CPU even when Whisper uses CUDA.
+The default `TRANSCRIBER_MODE=whisper` uses standard local OpenAI Whisper and favours accuracy/consistency over speed. If `TRANSCRIBER_MODE=faster_whisper` is enabled, Church Cap can detect whether faster-whisper/CTranslate2 can use CUDA on Windows. That optional backend uses the NVIDIA GPU automatically when `WHISPER_DEVICE=auto` only if the GPU and required CUDA runtime DLLs, such as `cublas64_12.dll`, are available. Setup can offer to install local CUDA 12 runtime packages into `.venv`; advanced users can install CUDA 12.x and cuDNN system-wide from NVIDIA instead. Otherwise Church Cap falls back to CPU. Argos Translate is still treated as local experimental translation and may run on CPU even when Whisper uses CUDA.
 
 ## Resource safeguard
 

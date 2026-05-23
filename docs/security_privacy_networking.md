@@ -62,7 +62,7 @@ The operator page lets you choose whether transcript history is saved and how lo
 - 1 day
 - 7 days
 
-For privacy, avoid storing audio by default. Church Cap stores caption text only in memory for the configured retention window plus small runtime settings in the per-user data folder.
+For privacy, avoid storing audio by default. Church Cap does not store audio. When transcript saving is enabled, caption text is retained for the configured window in a small local transcript cache under the per-user data folder. The cache is encrypted at rest when the `cryptography` dependency is installed and records the retention window that applied when it was saved. A fresh app start begins with an empty visible session transcript, then prunes the saved cache on startup using the saved retention window. Current-session transcript export is operator-only and shows a privacy warning because exported files may contain names, pastoral details, prayer requests, testimony, or other sensitive information. Sensitive moment mode suppresses transcript retention and export for that period, flushes the live transcription buffer, and includes a short buffered-audio drain window after captions resume. Clearing the transcript or setting retention to **Do not retain history** deletes the retained transcript cache.
 
 On macOS, runtime settings and operator auth are stored under:
 
@@ -76,7 +76,7 @@ On Windows, they are stored under:
 %APPDATA%\Church Cap\data\
 ```
 
-Older project-local files from `data/` are migrated there when needed.
+Older project-local files from `data/` are migrated there when needed. Transcript retention is enforced when captions are written, when settings change, and when the app starts; if every retained caption is older than the retention window saved with that cache, the transcript cache is deleted. The operator page includes **Open transcript folder**, which opens this per-user data folder in Finder on macOS or File Explorer on Windows when used from the Church Cap computer.
 
 ## HTTPS / local certificate
 

@@ -25,7 +25,9 @@ Before using this in a public or semi-public service, meeting, or group, conside
 
 ## Transcript retention
 
-The prototype includes retention controls. The safest default for sensitive environments is to retain as little as possible.
+The prototype includes retention controls. When transcript saving is enabled, retained caption text is cached locally in the per-user Church Cap data folder for the configured retention window. The transcript cache is encrypted at rest when the installed Python environment includes the `cryptography` dependency. Operator-only export can download the current-session transcript as text, subtitle, or JSON files after a privacy warning. Sensitive moment mode suppresses visible captions, retained transcript entries, and transcript export content for that period. Exported files are outside Church Cap retention controls once saved elsewhere, so churches should only export where they have a clear reason and policy basis to keep or share the transcript. Clearing the transcript, disabling transcript saving, or setting retention to no history deletes the retained transcript cache.
+
+The safest default for sensitive environments is to retain as little as possible.
 
 ## Cloud services
 

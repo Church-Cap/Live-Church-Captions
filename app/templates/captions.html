@@ -49,8 +49,8 @@
 
     <section class="caption-card live-card glass-card" aria-live="polite" aria-atomic="false">
       <div class="caption-label-row">
-        <span class="caption-label" data-i18n="current">Current</span>
-        <span id="viewerHint" class="caption-hint" data-i18n="live_updates">Live text updates automatically</span>
+        <span class="caption-label" data-i18n="current">Live</span>
+        <span id="viewerHint" class="caption-hint" data-i18n="line_by_line">Bottom-to-top caption stream</span>
       </div>
       <div id="currentCaption" class="current-caption compact-current" data-i18n="waiting">Waiting for captions…</div>
       <p id="translationWarning" class="translation-warning" hidden></p>
@@ -61,20 +61,22 @@
       <button id="largerText" type="button">A+</button>
       <button id="toggleTheme" type="button" data-i18n="theme">Theme</button>
       <button id="toggleCompact" type="button" data-i18n="comfort">Comfort</button>
+      <button id="toggleTranscript" type="button">Hide transcript</button>
       <button id="pauseScroll" type="button" data-i18n="pause">Pause</button>
       <button id="clearLocal" type="button" data-i18n="clear">Clear</button>
     </section>
 
-    <section class="history-wrap compact-history-wrap glass-card">
+    <section class="history-wrap compact-history-wrap glass-card" id="historyWrap">
       <div class="caption-label-row">
-        <h2 data-i18n="recent_captions">Recent captions</h2>
-        <span class="caption-hint" data-i18n="newest_first">Newest first</span>
+        <h2 data-i18n="recent_captions">Session transcript</h2>
+        <span class="caption-hint" data-i18n="history_log_hint">Newest at top · scroll for earlier</span>
       </div>
       <div id="history" class="history dense-history"></div>
     </section>
 
     <footer class="subtle-product-footer">
       <a href="https://www.churchcap.org" target="_blank" rel="noopener noreferrer">www.churchcap.org</a>
+      <span>{{ app_version_label }}</span>
     </footer>
   </main>
   <script>

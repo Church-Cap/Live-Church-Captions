@@ -6,7 +6,7 @@ This document describes the first public GitHub preview.
 
 ## Current Release
 
-Version: `0.1.0 public preview`
+Version: `0.2.0 public preview`
 
 Status: early public prototype suitable for local testing and pilot churches. It is not a finished compliance-certified product, and churches remain responsible for their own privacy, safeguarding, accessibility, and copyright policies.
 
@@ -48,7 +48,7 @@ Church microphones
 
 ### FastAPI Server
 
-The server handles routing, templates, WebSocket connections, API controls, caption state, exports, and operator authentication.
+The server handles routing, templates, WebSocket connections, API controls, caption state, operator-only current-session transcript exports, and operator authentication.
 
 Key files:
 
@@ -57,17 +57,19 @@ app/main.py
 app/settings.py
 app/auth.py
 app/broadcast.py
+app/transcript_store.py
 app/runtime_config.py
 app/exporting.py
 ```
 
 ### Audio And Transcription
 
-The current transcription implementation uses `faster-whisper` with a rolling-window approach to reduce latency. It supports partial and final captions.
+The current transcription implementation uses standard local OpenAI Whisper with a rolling-window approach. It prioritises accuracy and consistency while still supporting partial and final captions. An optional `faster-whisper` backend remains available for installs that prefer lower latency.
 
 Key files:
 
 ```text
+app/transcription/whisper_live.py
 app/transcription/faster_whisper_live.py
 app/transcription/base.py
 ```
@@ -87,17 +89,18 @@ config/profanity_filter.txt
 
 ### Caption Broadcast
 
-Captions are transcribed once, then broadcast to connected clients using WebSockets. This avoids running transcription per viewer.
+Captions are transcribed once, then broadcast to connected clients using WebSockets. This avoids running transcription per viewer. The broadcast layer also maintains the retained session transcript, including stable sections derived from rolling partial captions so continuous speech can still appear in the scrollback history.
 
 Key file:
 
 ```text
 app/broadcast.py
+app/transcript_store.py
 ```
 
 ### Client Viewer
 
-The public caption viewer is designed for phones and tablets. It includes font controls, theme controls, pause/clear controls, UI language selection, AI accuracy notices, and optional translated-caption routing.
+The public caption viewer is designed for phones and tablets. It uses a start-aligned, bottom-to-top caption stream: captions read from the left edge in left-to-right languages, wrap naturally, and use the available caption box from the bottom upward as new lines arrive. This avoids a middle-of-the-box caption feel and gives viewers a stable reading surface. If no confirmed caption is available yet, it can show a live draft so continuous speech does not leave viewers on the waiting screen. It includes an optional server-backed, scrollable, timestamped session transcript for the current app session with newest captions first, operator-only export controls with a privacy warning, font controls, automatic system light/dark theme with local override, transcript show/hide, pause/clear controls, UI language selection, AI accuracy notices, and optional translated-caption routing. Sensitive moment mode discards captions and transcript drafts while blanked, resets live transcription buffers, and briefly drops captions after resume so private speech is not retained or exported. A new app start keeps the visible transcript empty while pruning any saved local cache according to the retention window stored with that cache. On phone and tablet landscape viewports, the viewer uses a compact side-by-side layout so the live caption feed takes about 75% of the width while the transcript remains available when enabled; transcript history scrolls inside its panel so it does not push the live feed down, and hiding the transcript lets the live feed use the full width.
 
 Key files:
 
@@ -120,7 +123,7 @@ The operator dashboard includes:
 - OBS links
 - translation controls
 - bad-word censor controls
-- transcript retention controls
+- transcript retention controls and a local transcript-folder reveal action
 - account/password controls
 
 Key file:

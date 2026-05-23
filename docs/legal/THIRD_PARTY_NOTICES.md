@@ -21,8 +21,10 @@ These are the direct dependencies pinned in `requirements.txt` and `requirements
 | pydantic-settings | 2.7.1 | Environment/settings loading | MIT |
 | NumPy | 2.2.1 | Numerical/audio processing support | BSD-3-Clause; binary wheels may include additional notices such as OpenBLAS/LAPACK/GCC runtime components |
 | sounddevice | 0.5.1 | Audio input capture | MIT; uses the system PortAudio library |
-| faster-whisper | 1.2.1 | Local Whisper transcription backend | MIT |
+| openai-whisper | 20250625 | Default local Whisper transcription backend | MIT |
+| faster-whisper | 1.2.1 | Optional lower-latency Whisper transcription backend | MIT |
 | requests | 2.33.0 | Optional installer/model-download HTTP requests | Apache-2.0 |
+| cryptography | >=42.0.0 | Local transcript cache encryption | Apache-2.0 or BSD-3-Clause |
 | argostranslate | 1.9.6 | Local translation provider installed by the Argos setup script | MIT or CC0, per Argos Translate project metadata |
 
 ## Important Transitive Dependencies
@@ -35,6 +37,9 @@ The exact transitive dependency set is resolved by `pip` for the user's platform
 | Pydantic / pydantic-core | FastAPI and pydantic-settings | Data validation/settings dependencies. |
 | python-dotenv | pydantic-settings | `.env` loading support. |
 | CTranslate2 | faster-whisper and Argos Translate | Local inference runtime. On Windows, Church Cap can use CUDA through CTranslate2 when the installed runtime, NVIDIA drivers, and required CUDA runtime DLLs expose it. |
+| PyTorch | openai-whisper | Local model runtime dependency; binary wheels may include platform-specific notices and accelerator libraries. |
+| tiktoken | openai-whisper | Tokenization dependency. |
+| numba / llvmlite | openai-whisper | Audio preprocessing dependencies. |
 | Hugging Face Hub | faster-whisper | Model download/cache helper. |
 | tokenizers | faster-whisper | Text tokenization. |
 | onnxruntime | faster-whisper | Runtime dependency. |
@@ -50,7 +55,8 @@ If you distribute a packaged app, wheels, a frozen environment, or a Docker imag
 
 Church Cap does not commit or redistribute model weights in this repository.
 
-- `faster-whisper` downloads or loads Whisper-compatible model weights at runtime according to `WHISPER_MODEL`.
+- `openai-whisper` downloads or loads Whisper model weights at runtime according to `WHISPER_MODEL`.
+- `faster-whisper` is retained as an optional lower-latency backend and downloads or loads Whisper-compatible model weights at runtime according to `WHISPER_MODEL`.
 - The default model setting is `base.en`.
 - Confirm the licence for every speech-to-text model you ship, cache, mirror, or bundle.
 - Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS or `scripts/install-translation-models-argos.ps1` on Windows during setup or when the translation installer is rerun.
