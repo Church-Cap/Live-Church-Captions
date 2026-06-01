@@ -4,8 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Church Cap"
-    app_version: str = "0.2.0"
-    feedback_email: str = "info@churchcap.com"
+    app_version: str = "0.2.1"
+    feedback_email: str = "info@churchcap.org"
     host: str = "0.0.0.0"
     port: int = 8080
     viewer_port: int = 8080
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     @property
     def app_version_label(self) -> str:
-        return self.app_version if self.app_version.startswith("v") else f"v{self.app_version}"
+        return self.app_version if self.app_version.startswith("v") else f"v.{self.app_version}"
 
 
 @lru_cache

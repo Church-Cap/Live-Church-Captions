@@ -7,7 +7,7 @@ Church Cap is a local live-caption app for churches. It runs on the caption Mac,
 Open Terminal, then go to this folder:
 
 ```bash
-cd "$HOME/Documents/church_cap_v0.2.0"
+cd "$HOME/Documents/church_cap_v0.2.1"
 ```
 
 Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -23,7 +23,7 @@ Setup may take a while. It installs the local Python environment, audio dependen
 Open PowerShell, then go to this folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap_v0.2.0"
+cd "$HOME\Documents\church_cap_v0.2.1"
 ```
 
 Run setup:
@@ -134,4 +134,6 @@ Windows:
 .\update-windows.cmd
 ```
 
-The updater downloads the latest GitHub source into a new folder and keeps the current folder untouched.
+You can also use **Updates** on the operator page. Church Cap checks GitHub first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.
+
+If the internet drops or the download is damaged, the current app is left alone. During replacement, Church Cap keeps a rollback backup in `data/update-backups/` and restores it automatically if the copy or checksum check fails.

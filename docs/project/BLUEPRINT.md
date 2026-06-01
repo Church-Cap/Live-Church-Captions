@@ -6,7 +6,7 @@ This document describes the first public GitHub preview.
 
 ## Current Release
 
-Version: `0.2.0 public preview`
+Version: `v.0.2.1 public preview`
 
 Status: early public prototype suitable for local testing and pilot churches. It is not a finished compliance-certified product, and churches remain responsible for their own privacy, safeguarding, accessibility, and copyright policies.
 
@@ -43,6 +43,7 @@ Church microphones
 - `/docs/privacy` — operator-only privacy notes.
 - `/docs/church-notice` — operator-only suggested church notice wording.
 - `/docs/disclaimer` — operator-only disclaimer notes.
+- Operator **Updates** section — operator-only GitHub version check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
 
 ## Main Components
 
@@ -256,6 +257,8 @@ Before publishing the repository publicly:
   - `scripts/*.sh`
   - `scripts/*.py`
   - Windows `.cmd` launchers are present for setup, start, password reset, update, and optional CUDA runtime install.
+- Confirm updater scripts preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, and local config while refreshing app-owned release metadata.
+- Confirm updater scripts validate downloaded ZIPs, required release files, release version, staged Python syntax, and SHA-256 installed-file checksums before reporting success.
 
 If permissions are lost in a copied or unzipped folder, users can run:
 

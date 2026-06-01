@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **0.2.0 public preview**
+Version: **v.0.2.1 public preview**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -16,7 +16,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - `setup-macos.sh`, `start-macos.sh`, `reset-operator-password.sh` — main Mac operator scripts.
 - `setup-windows.cmd`, `start-windows.cmd`, `reset-operator-password.cmd` — easiest Windows operator launchers.
 - `install-cuda-runtime-windows.cmd` — optional Windows GPU runtime installer for NVIDIA CUDA.
-- `update-macos.sh`, `update-windows.cmd` — download the latest GitHub source into a new update folder.
+- `update-macos.sh`, `update-windows.cmd` — replace the current folder with the latest GitHub source after checking the remote version.
 - `setup-windows.ps1`, `start-windows.ps1`, `reset-operator-password.ps1` — Windows PowerShell scripts used by the launchers.
 - `app/` — Church Cap web app.
 - `config/` — editable glossary and profanity-filter additions.
@@ -120,7 +120,7 @@ On Windows:
 
 Do not recreate `.venv` or overwrite `.env` for normal Sunday use.
 
-Operator passwords and runtime settings are stored outside the project folder so they survive app updates, re-extracted release folders, Terminal restarts, and Mac restarts:
+Operator passwords and runtime settings are stored outside the project folder so they survive app updates, Terminal restarts, and Mac restarts:
 
 ```text
 ~/Library/Application Support/Church Cap/data/
@@ -301,7 +301,17 @@ Remove it with:
 
 ## Updates
 
-The updater downloads the latest GitHub source from `Church-Cap/Live-Church-Captions` into a new sibling folder. It does not overwrite the current folder. It copies `.env`, `config/glossary.csv`, and `config/profanity_filter.txt` into the update folder when present.
+The operator page includes an **Updates** section. It checks the latest version on GitHub, reports when Church Cap is already up to date, asks for confirmation before updating, replaces this folder in place, and restarts Church Cap.
+
+The scripts below provide the same in-place update flow. They preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. The app-owned `APP_VERSION` and `FEEDBACK_EMAIL` values in `.env` are refreshed from the new release defaults.
+
+Update resilience:
+
+- The current app folder is not touched until the download completes, the ZIP passes an integrity test, required files are present, and the extracted version matches the version check.
+- The updater stages the new release in a temporary folder and creates SHA-256 checksums before copying it into place.
+- If the internet drops during download or dependency installation, the update stops before replacing app files.
+- Before replacing files, the updater saves a rollback backup in `data/update-backups/`.
+- After copying, the updater verifies installed file checksums. If replacement fails before completion, it restores the previous files automatically.
 
 On macOS:
 

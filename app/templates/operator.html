@@ -46,6 +46,9 @@
         <a class="nav-button nav-link" href="/docs/church-notice"><span class="nav-icon">✦</span><span class="nav-label">Church notice text</span></a>
         <a class="nav-button nav-link" href="/docs/disclaimer"><span class="nav-icon">!</span><span class="nav-label">Disclaimers</span></a>
         <a class="nav-button nav-link" href="/feedback"><span class="nav-icon">@</span><span class="nav-label">Feedback</span></a>
+
+        <p class="nav-category">System</p>
+        <button type="button" class="nav-button" data-section="updates"><span class="nav-icon">↻</span><span class="nav-label">Updates</span></button>
       </nav>
 
       <div class="sidebar-footer premium-sidebar-footer">
@@ -74,7 +77,7 @@
       {% if operator_password_is_default or session_secret_is_default %}
       <section class="warning-panel glass-card">
         <strong>Security setup needed:</strong>
-        change <code>OPERATOR_PASSWORD</code> and <code>SESSION_SECRET</code> in <code>.env</code> before using this at church.
+        create a strong operator password before using this at church. Use the first-run setup page or the account page.
       </section>
       {% endif %}
 
@@ -372,6 +375,47 @@
           </article>
         </div>
       </section>
+
+      <section class="operator-section" id="operator-section-updates" data-title="Updates" data-description="Check GitHub for a newer Church Cap release and restart into it.">
+        <div class="operator-grid two-card-grid">
+          <article class="operator-panel glass-card wide-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Software</p>
+                <h2>Church Cap updates</h2>
+              </div>
+              <span class="status-pill" id="updateSystemPill">{{ app_version_label }}</span>
+            </div>
+            <dl class="update-status-grid">
+              <div><dt>Installed</dt><dd id="installedVersion">{{ app_version_label }}</dd></div>
+              <div><dt>Computer</dt><dd id="updateOs">Detecting…</dd></div>
+              <div><dt>Update script</dt><dd id="updateScript">Detecting…</dd></div>
+              <div class="update-integrity-row">
+                <dt>Integrity checks</dt>
+                <dd>
+                  <span>ZIP test</span>
+                  <span>Required files</span>
+                  <span>Version match</span>
+                  <span>Staged checksums</span>
+                  <span>Rollback backup</span>
+                </dd>
+              </div>
+            </dl>
+            <div class="button-row spacious-actions">
+              <button type="button" id="checkUpdateButton" onclick="checkForUpdates()">Check for updates</button>
+            </div>
+            <div id="updateConfirmPanel" class="warning-panel slim-warning glass-card update-confirm-panel" hidden>
+              <strong id="updateConfirmTitle">Update available</strong>
+              <p class="muted" id="updateConfirmCopy"></p>
+              <div class="button-row">
+                <button type="button" onclick="startConfirmedUpdate()">Yes, update and restart</button>
+                <button type="button" class="secondary-button" onclick="cancelUpdate()">No, keep this version</button>
+              </div>
+            </div>
+            <p id="updateResult" class="muted small-result">No update check has run yet.</p>
+          </article>
+        </div>
+      </section>
     </section>
 
       <footer class="subtle-product-footer operator-product-footer">
@@ -380,7 +424,19 @@
       </footer>
   </main>
 
+  <div id="updateOverlay" class="update-overlay" hidden>
+    <div class="update-overlay-panel glass-card">
+      <div class="update-spinner" aria-hidden="true"></div>
+      <p class="eyebrow">Updating</p>
+      <h2>Church Cap is updating and restarting</h2>
+      <p id="updateOverlayText" class="muted">This page will reconnect automatically when the operator page is ready.</p>
+    </div>
+  </div>
+
   <script>
+    let pendingUpdate = null;
+    let updatePollTimer = null;
+
     const sectionCopy = {};
     document.querySelectorAll('.operator-section').forEach((section) => {
       const key = section.id.replace('operator-section-', '');
@@ -585,6 +641,122 @@
       if (result) result.textContent = `Saved. Bad-word censor: ${data.profanity_filter_enabled ? 'on' : 'off'}.`;
     }
 
+    function updateResult(text) {
+      const result = document.getElementById('updateResult');
+      if (result) result.textContent = text;
+    }
+
+    function setUpdateControlsDisabled(disabled) {
+      const checkButton = document.getElementById('checkUpdateButton');
+      if (checkButton) checkButton.disabled = disabled;
+      document.querySelectorAll('#updateConfirmPanel button').forEach((button) => {
+        button.disabled = disabled;
+      });
+    }
+
+    async function checkForUpdates() {
+      const confirmPanel = document.getElementById('updateConfirmPanel');
+      if (confirmPanel) confirmPanel.hidden = true;
+      pendingUpdate = null;
+      setUpdateControlsDisabled(true);
+      updateResult('Checking GitHub for the latest Church Cap version…');
+      try {
+        const res = await fetch('/api/update/check', {method: 'POST'});
+        if (res.status === 401) { location.href = '/login'; return; }
+        const data = await res.json();
+        if (!res.ok || data.status === 'error') {
+          updateResult(data.error || 'Could not check for updates.');
+          return;
+        }
+        renderUpdateCapability(data);
+        if (!data.update_available) {
+          updateResult(`Church Cap is up to date. Installed: ${data.current_version_label || data.current_version}.`);
+          return;
+        }
+        pendingUpdate = data;
+        const title = document.getElementById('updateConfirmTitle');
+        const copy = document.getElementById('updateConfirmCopy');
+        if (title) title.textContent = `Update available: ${data.remote_version_label}`;
+        if (copy) copy.textContent = `Installed: ${data.current_version_label}. Latest on GitHub: ${data.remote_version_label}.`;
+        if (confirmPanel) confirmPanel.hidden = false;
+        updateResult('Confirm when you are ready to update and restart Church Cap.');
+      } catch (error) {
+        updateResult(`Could not check for updates: ${error}`);
+      } finally {
+        setUpdateControlsDisabled(false);
+      }
+    }
+
+    function cancelUpdate() {
+      pendingUpdate = null;
+      const confirmPanel = document.getElementById('updateConfirmPanel');
+      if (confirmPanel) confirmPanel.hidden = true;
+      updateResult('Update cancelled.');
+    }
+
+    function showUpdateOverlay(targetLabel) {
+      const overlay = document.getElementById('updateOverlay');
+      const text = document.getElementById('updateOverlayText');
+      if (text) text.textContent = `Updating to ${targetLabel || 'the latest version'}. This page will reconnect automatically when Church Cap is ready.`;
+      if (overlay) overlay.hidden = false;
+    }
+
+    function pollForUpdatedApp(targetLabel) {
+      if (updatePollTimer) clearInterval(updatePollTimer);
+      const startedAt = Date.now();
+      updatePollTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`/health?update=${Date.now()}`, {cache: 'no-store'});
+          if (!res.ok) return;
+          const data = await res.json();
+          const readyVersion = data.app_version_label || data.app_version;
+          if (!targetLabel || readyVersion === targetLabel) {
+            clearInterval(updatePollTimer);
+            window.location.href = '/operator';
+          }
+        } catch (_) {
+        }
+        if (Date.now() - startedAt > 10 * 60 * 1000) {
+          const text = document.getElementById('updateOverlayText');
+          if (text) text.textContent = 'The update is taking longer than expected. Check the Church Cap window or logs/update.log on this computer.';
+        }
+      }, 3000);
+    }
+
+    async function startConfirmedUpdate() {
+      if (!pendingUpdate) {
+        updateResult('Check for updates before starting.');
+        return;
+      }
+      setUpdateControlsDisabled(true);
+      updateResult('Starting update…');
+      try {
+        const res = await fetch('/api/update/start', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({confirm: true})
+        });
+        if (res.status === 401) { location.href = '/login'; return; }
+        const data = await res.json();
+        if (data.status === 'up_to_date') {
+          updateResult(`Church Cap is already up to date at ${data.current_version_label}.`);
+          setUpdateControlsDisabled(false);
+          return;
+        }
+        if (!res.ok || data.status === 'error') {
+          updateResult(data.error || 'Could not start the update.');
+          setUpdateControlsDisabled(false);
+          return;
+        }
+        const targetLabel = data.remote_version_label || pendingUpdate.remote_version_label;
+        showUpdateOverlay(targetLabel);
+        pollForUpdatedApp(targetLabel);
+      } catch (error) {
+        updateResult(`Could not start the update: ${error}`);
+        setUpdateControlsDisabled(false);
+      }
+    }
+
     function languageName(code) {
       const names = {en: 'English', es: 'Spanish', fr: 'French', pt: 'Portuguese', pl: 'Polish', uk: 'Ukrainian', ar: 'Arabic', fa: 'Farsi'};
       return names[code] || code.toUpperCase();
@@ -650,8 +822,21 @@
         if (profanityFilterStatus) profanityFilterStatus.textContent = data.profanity_filter_enabled ? 'On' : 'Off';
         const profanityFilterEnabled = document.getElementById('profanityFilterEnabled');
         if (profanityFilterEnabled) profanityFilterEnabled.checked = !!data.profanity_filter_enabled;
+        renderUpdateCapability(data.update);
         updateTranscriptExportButtons(data.transcript_count);
       } catch (_) {}
+    }
+
+    function renderUpdateCapability(update) {
+      if (!update) return;
+      const os = document.getElementById('updateOs');
+      if (os) os.textContent = update.system || 'Unknown';
+      const script = document.getElementById('updateScript');
+      if (script) script.textContent = update.supported ? (update.script || 'Available') : 'Not available';
+      const installed = document.getElementById('installedVersion');
+      if (installed) installed.textContent = update.current_version_label || update.current_version || 'Unknown';
+      const pill = document.getElementById('updateSystemPill');
+      if (pill) pill.textContent = update.state?.status === 'updating' ? 'Updating' : (update.current_version_label || update.current_version || 'Unknown');
     }
 
     document.querySelectorAll('.nav-button[data-section]').forEach((button) => {

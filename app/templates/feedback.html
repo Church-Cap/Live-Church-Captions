@@ -16,7 +16,7 @@
       <section class="feedback-panel">
         <h2>Helpful things to include</h2>
         <ul class="simple-list">
-          <li>Church Cap version: <strong>{{ app_version }}</strong></li>
+          <li>Church Cap version: <strong>{{ app_version_label }}</strong></li>
           <li>Computer type, such as Mac mini, MacBook, or Windows laptop.</li>
           <li>Operating system version.</li>
           <li>Whether you were using CPU, NVIDIA GPU/CUDA, or Apple Silicon.</li>
@@ -30,7 +30,7 @@
         <h2>Email address</h2>
         <p class="feedback-email"><a href="mailto:{{ feedback_email }}">{{ feedback_email }}</a></p>
         <div class="button-row">
-          <a class="button-link primary-button" href="mailto:{{ feedback_email }}?subject=Church%20Cap%20feedback%20v{{ app_version }}&body=Church%20Cap%20version%3A%20{{ app_version }}%0AComputer%2FOS%3A%20%0AAudio%20interface%3A%20%0AWhat%20happened%3A%20%0AWhat%20I%20expected%3A%20%0AOther%20notes%3A%20">Email feedback</a>
+          <a class="button-link primary-button" href="mailto:{{ feedback_email }}?subject=Church%20Cap%20feedback%20{{ app_version_label }}&body=Church%20Cap%20version%3A%20{{ app_version_label }}%0AComputer%2FOS%3A%20%0AAudio%20interface%3A%20%0AWhat%20happened%3A%20%0AWhat%20I%20expected%3A%20%0AOther%20notes%3A%20">Email feedback</a>
           <a class="button-link secondary" href="/operator">Back to operator</a>
         </div>
       </section>

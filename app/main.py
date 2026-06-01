@@ -25,6 +25,7 @@ from app.runtime_config import load_runtime_config, set_audio_device, set_privac
 from app.i18n import SUPPORTED_LANGUAGES, get_client_ui_strings, normalise_language
 from app.paths import app_support_dir
 from app.transcript_store import TranscriptStore
+from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, update_script_for_system, version_label
 
 try:
     import sounddevice as sd
@@ -59,6 +60,7 @@ DOC_FILES = {
 
 _transcription_task: asyncio.Task | None = None
 _transcriber = None
+_update_state = {"status": "idle"}
 
 
 def base_url(request: Request | None = None) -> str:
@@ -177,6 +179,18 @@ def security_state(request: Request | None = None) -> dict:
         "operator_url": operator_base_url(request),
         "offline_https_note": "Fully offline trusted HTTPS on visitor phones is not possible unless their device already trusts the certificate.",
         "data_dir": str(app_support_dir()),
+    }
+
+
+def update_capability_state() -> dict:
+    system = platform.system()
+    script = update_script_for_system(PROJECT_ROOT, system)
+    return {
+        "system": system,
+        "supported": bool(script and script.exists()),
+        "script": script.name if script else None,
+        "current_version": settings.app_version,
+        "current_version_label": settings.app_version_label,
     }
 
 
@@ -499,6 +513,8 @@ async def health():
     return {
         "ok": True,
         "status": hub.state().status,
+        "app_version": settings.app_version,
+        "app_version_label": settings.app_version_label,
         "viewers": hub.viewer_count,
         "mode": settings.transcriber_mode,
         "audio_device": selected_audio_device(),
@@ -635,7 +651,96 @@ async def api_status(_: None = Depends(require_operator)):
         },
         "translation": hub.translation_state(),
         "security": security_state(),
+        "update": {**update_capability_state(), "state": _update_state},
         "profanity_filter_enabled": bool(load_runtime_config().get("profanity_filter_enabled", True)),
+    }
+
+
+@app.post("/api/update/check")
+async def check_for_update(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": "Check for updates from the Church Cap computer.",
+                **update_capability_state(),
+            },
+            status_code=403,
+        )
+    capability = update_capability_state()
+    if not capability["supported"]:
+        return JSONResponse(
+            {"status": "error", "error": f"Updates are not configured for {capability['system']}.", **capability},
+            status_code=400,
+        )
+    try:
+        remote_version = await asyncio.to_thread(fetch_remote_version)
+    except Exception as exc:
+        return JSONResponse(
+            {"status": "error", "error": f"Could not check GitHub for updates: {exc}", **capability},
+            status_code=502,
+        )
+    update_available = is_remote_newer(remote_version, settings.app_version)
+    status = "update_available" if update_available else "up_to_date"
+    return {
+        **capability,
+        "status": status,
+        "update_available": update_available,
+        "remote_version": remote_version,
+        "remote_version_label": version_label(remote_version),
+    }
+
+
+@app.post("/api/update/start")
+async def start_update(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Start updates from the Church Cap computer.", **update_capability_state()},
+            status_code=403,
+        )
+    body = await request.json()
+    if not bool(body.get("confirm")):
+        return JSONResponse({"status": "error", "error": "Update was not confirmed."}, status_code=400)
+    capability = update_capability_state()
+    if not capability["supported"]:
+        return JSONResponse(
+            {"status": "error", "error": f"Updates are not configured for {capability['system']}.", **capability},
+            status_code=400,
+        )
+    try:
+        remote_version = await asyncio.to_thread(fetch_remote_version)
+    except Exception as exc:
+        return JSONResponse(
+            {"status": "error", "error": f"Could not check GitHub for updates: {exc}", **capability},
+            status_code=502,
+        )
+    if not is_remote_newer(remote_version, settings.app_version):
+        return {
+            **capability,
+            "status": "up_to_date",
+            "update_available": False,
+            "remote_version": remote_version,
+            "remote_version_label": version_label(remote_version),
+        }
+    global _update_state
+    _update_state = {
+        "status": "starting",
+        "remote_version": remote_version,
+        "remote_version_label": version_label(remote_version),
+    }
+    try:
+        process = await asyncio.to_thread(launch_update_process, PROJECT_ROOT, remote_version)
+    except Exception as exc:
+        _update_state = {"status": "error", "error": str(exc)}
+        return JSONResponse({"status": "error", "error": str(exc), **capability}, status_code=500)
+    _update_state = {**_update_state, "status": "updating", **process}
+    return {
+        **capability,
+        "status": "updating",
+        "update_available": True,
+        "remote_version": remote_version,
+        "remote_version_label": version_label(remote_version),
+        **process,
     }
 
 

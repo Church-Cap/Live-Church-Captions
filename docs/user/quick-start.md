@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: 0.2.0 public preview
+Version: v.0.2.1 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -24,7 +24,7 @@ Visitors do not install an app. They scan a QR code and read captions in their b
 2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/church_cap_v0.2.0"
+cd "$HOME/Documents/church_cap_v0.2.1"
 ```
 
 3. Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -45,7 +45,7 @@ If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes 
 2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap_v0.2.0"
+cd "$HOME\Documents\church_cap_v0.2.1"
 ```
 
 3. Run setup.
@@ -239,4 +239,8 @@ Windows:
 .\update-windows.cmd
 ```
 
-The updater downloads the latest GitHub source into a new folder and keeps the current folder untouched. It copies `.env`, `config/glossary.csv`, and `config/profanity_filter.txt` into the update folder when present.
+You can also use **Updates** on the operator page. Church Cap checks GitHub first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.
+
+The updater preserves `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. It refreshes app-owned `APP_VERSION` and `FEEDBACK_EMAIL` values in `.env` from the new release defaults.
+
+The updater checks the ZIP, required release files, release version, staged Python syntax, and SHA-256 file checksums before and after copying. If the internet drops during download or dependency installation, the current app is left alone. During replacement, Church Cap keeps a rollback backup in `data/update-backups/` and restores it automatically if the copy or checksum check fails.
