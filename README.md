@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v.0.2.2 public preview**
+Version: **v.0.2.3 public preview**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -16,7 +16,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - `setup-macos.sh`, `start-macos.sh`, `reset-operator-password.sh` — main Mac operator scripts.
 - `setup-windows.cmd`, `start-windows.cmd`, `reset-operator-password.cmd` — easiest Windows operator launchers.
 - `install-cuda-runtime-windows.cmd` — optional Windows NVIDIA CUDA runtime force reinstall helper.
-- `update-macos.sh`, `update-windows.cmd` — replace the current folder with the latest GitHub source after checking the remote version.
+- `update-macos.sh`, `update-windows.cmd` — replace the current folder with the latest GitHub release tag after checking the remote version.
 - `setup-windows.ps1`, `start-windows.ps1`, `reset-operator-password.ps1` — Windows PowerShell scripts used by the launchers.
 - `app/` — Church Cap web app.
 - `config/` — editable glossary and profanity-filter additions.
@@ -31,7 +31,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - QR codes for audience access, including hostname and IP fallback links.
 - Mobile caption page with a left-to-right, bottom-to-top caption stream, optional server-backed scrollable session transcript with newest captions first, timestamps, font size, automatic system light/dark theme with local override, comfort/compact, pause, and local clear controls.
 - Operator login, first-run password setup, and account/password page.
-- Operator feedback page with version-aware email link.
+- Operator feedback page with version-aware email link, plus a dedicated diagnostics menu item for support exports.
 - Secure dual-port mode: public viewer port and localhost-focused operator port.
 - Audio input selection from the operator page.
 - Local OpenAI Whisper transcription with rolling partial/final captions tuned for accuracy-first readable live subtitle pacing.
@@ -45,6 +45,22 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - Local Argos Translate support for experimental translated captions.
 - Local HTTPS helper scripts for testing and managed-device deployments.
 - macOS and Windows setup, start, permission repair/password reset, and macOS LaunchAgent helper scripts.
+
+## Hardware Guidance
+
+Minimum for testing and small services:
+
+- Apple Silicon Mac, or Windows 10/11 with a modern 4-core CPU and 8 GB RAM.
+- USB audio interface or sound desk feed.
+- Use **Fastest** or **Fast** presets on lower-power systems.
+
+Recommended for live church use:
+
+- Apple Silicon Mac with 16 GB RAM, or Windows 10/11 with a recent 6-8 core CPU and 16 GB RAM.
+- For Windows GPU acceleration, use an NVIDIA GPU with current drivers and the local CUDA runtime packages installed by Church Cap.
+- Use the built-in benchmark before selecting `small.en` or `medium.en`.
+
+For Windows troubleshooting, the operator dashboard shows whether the NVIDIA driver is detected, whether CTranslate2 can use CUDA, whether CUDA runtime DLLs are ready, and which fallback mode Church Cap will use.
 
 ## Quick Start On Apple Silicon macOS
 
@@ -216,6 +232,7 @@ Performance adjustments save automatically. Stop and start captions after changi
 /transcript.vtt    current-session WebVTT export, operator login required
 /transcript.srt    current-session SRT export, operator login required
 /transcript.json   current-session JSON export, operator login required
+/api/diagnostics/export  local diagnostics JSON export, operator login and local computer required
 ```
 
 ## Translation
@@ -316,7 +333,7 @@ Remove it with:
 
 ## Updates
 
-The operator page includes an **Updates** section. It checks the latest version on GitHub, reports when Church Cap is already up to date, asks for confirmation before updating, replaces this folder in place, and restarts Church Cap.
+The operator page includes an **Updates** section. It checks the latest GitHub release tag, reports when Church Cap is already up to date, asks for confirmation before updating, replaces this folder in place, and restarts Church Cap.
 
 The scripts below provide the same in-place update flow. They preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. The app-owned `APP_VERSION` and `FEEDBACK_EMAIL` values in `.env` are refreshed from the new release defaults.
 
@@ -375,11 +392,12 @@ python -m compileall app tests
 
 Before publishing a release, confirm:
 
-- `.env`, `data/`, `certs/`, `.venv/`, logs, and local runtime files are not committed.
+- `.env`, `data/`, `certs/`, `.venv/`, logs, diagnostics exports, and local runtime files are not committed.
+- Diagnostics wording is current and the export still excludes transcripts, passwords, secrets, `.env` contents, and unredacted local paths while clearly naming included system specs and warning against public sharing without review.
 - `LICENSE`, `.github/SECURITY.md`, `.github/CONTRIBUTING.md`, `.github/CODE_OF_CONDUCT.md`, and `docs/legal/THIRD_PARTY_NOTICES.md` are included.
 - Third-party versions and licence notes are reviewed in `docs/legal/THIRD_PARTY_NOTICES.md`.
 - Script permissions are executable, or users can run `bash setup-macos.sh` to repair them during setup.
-- Windows PowerShell scripts are included for setup, start, password reset, GPU check, and Argos model installation.
+- Windows scripts are included for setup, start, password reset, update, optional CUDA runtime force reinstall, and Argos model installation.
 
 GitHub community files live in the standard `.github/` folder:
 

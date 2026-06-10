@@ -1,3 +1,4 @@
+import json
 import os
 import platform
 import re
@@ -7,7 +8,7 @@ import urllib.request
 from pathlib import Path
 
 
-REMOTE_SETTINGS_URL = "https://raw.githubusercontent.com/Church-Cap/Live-Church-Captions/main/app/settings.py"
+LATEST_RELEASE_URL = "https://api.github.com/repos/Church-Cap/Live-Church-Captions/releases/latest"
 
 
 def normalise_version(version: str | None) -> str:
@@ -39,25 +40,33 @@ def parse_version_from_settings(text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def fetch_remote_version(timeout_seconds: int = 8) -> str:
+def fetch_latest_release_tag(timeout_seconds: int = 8) -> str:
     last_error: Exception | None = None
     for attempt in range(3):
         request = urllib.request.Request(
-            REMOTE_SETTINGS_URL,
-            headers={"User-Agent": "Church-Cap-Updater"},
+            LATEST_RELEASE_URL,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "Church-Cap-Updater",
+            },
         )
         try:
             with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
                 body = response.read().decode("utf-8", errors="replace")
-            remote_version = parse_version_from_settings(body)
-            if not remote_version:
-                raise RuntimeError("GitHub version file did not include an app version.")
-            return normalise_version(remote_version)
+            payload = json.loads(body)
+            tag_name = str(payload.get("tag_name") or "").strip()
+            if not tag_name:
+                raise RuntimeError("GitHub latest release did not include a tag name.")
+            return tag_name
         except Exception as exc:
             last_error = exc
             if attempt < 2:
                 time.sleep(2)
-    raise RuntimeError(f"Could not read the latest Church Cap version from GitHub: {last_error}")
+    raise RuntimeError(f"Could not read the latest Church Cap release from GitHub: {last_error}")
+
+
+def fetch_remote_version(timeout_seconds: int = 8) -> str:
+    return normalise_version(fetch_latest_release_tag(timeout_seconds))
 
 
 def update_script_for_system(project_root: Path, system_name: str | None = None) -> Path | None:

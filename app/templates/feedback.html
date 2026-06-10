@@ -27,14 +27,35 @@
       </section>
 
       <section class="feedback-panel">
+        <h2>Diagnostics for support</h2>
+        <p class="muted">Diagnostics are available for Mac and Windows. They can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted.</p>
+        <div class="warning-panel slim-warning">
+          <strong>Review before sharing.</strong>
+          <p class="muted">Diagnostics do not include transcripts, passwords, secrets, or <code>.env</code> contents, but system names, device names, error messages, and log details may be sensitive to your church or computer. Do not post the file publicly on GitHub unless you have reviewed it and are comfortable sharing it.</p>
+        </div>
+        <div class="button-row">
+          <button type="button" class="secondary-button" onclick="downloadDiagnosticsWithConsent()">Download diagnostics</button>
+          <a class="button-link secondary" href="/operator#diagnostics">Open Diagnostics menu</a>
+        </div>
+      </section>
+
+      <section class="feedback-panel">
         <h2>Email address</h2>
         <p class="feedback-email"><a href="mailto:{{ feedback_email }}">{{ feedback_email }}</a></p>
         <div class="button-row">
-          <a class="button-link primary-button" href="mailto:{{ feedback_email }}?subject=Church%20Cap%20feedback%20{{ app_version_label }}&body=Church%20Cap%20version%3A%20{{ app_version_label }}%0AComputer%2FOS%3A%20%0AAudio%20interface%3A%20%0AWhat%20happened%3A%20%0AWhat%20I%20expected%3A%20%0AOther%20notes%3A%20">Email feedback</a>
+          <a class="button-link primary-button" href="mailto:{{ feedback_email }}?subject=Church%20Cap%20feedback%20{{ app_version_label }}&body=Church%20Cap%20version%3A%20{{ app_version_label }}%0AComputer%2FOS%3A%20%0AAudio%20interface%3A%20%0AAttached%20diagnostics%3A%20yes%2Fno%0AWhat%20happened%3A%20%0AWhat%20I%20expected%3A%20%0AOther%20notes%3A%20">Email feedback</a>
           <a class="button-link secondary" href="/operator">Back to operator</a>
         </div>
       </section>
     </section>
   </main>
+  <script>
+    function downloadDiagnosticsWithConsent() {
+      const ok = window.confirm(
+        'Download diagnostics for support?\n\nThis file can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted. It does not include transcripts, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.'
+      );
+      if (ok) window.location.href = '/api/diagnostics/export?confirmed=1';
+    }
+  </script>
 </body>
 </html>

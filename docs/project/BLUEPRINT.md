@@ -6,7 +6,7 @@ This document describes the first public GitHub preview.
 
 ## Current Release
 
-Version: `v.0.2.2 public preview`
+Version: `v.0.2.3 public preview`
 
 Status: early public prototype suitable for local testing and pilot churches. It is not a finished compliance-certified product, and churches remain responsible for their own privacy, safeguarding, accessibility, and copyright policies.
 
@@ -43,7 +43,9 @@ Church microphones
 - `/docs/privacy` — operator-only privacy notes.
 - `/docs/church-notice` — operator-only suggested church notice wording.
 - `/docs/disclaimer` — operator-only disclaimer notes.
-- Operator **Updates** section — operator-only GitHub version check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
+- Operator **Diagnostics** section — operator-only local support export with confirmation, system specs, runtime status, metrics, and redacted updater/CUDA logs.
+- Operator **Updates** section — operator-only GitHub release-tag check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
+- `/api/diagnostics/export` — local diagnostics JSON export, operator login and local computer required.
 
 ## Main Components
 
@@ -131,6 +133,7 @@ The operator dashboard includes:
 - translation controls
 - bad-word censor controls
 - transcript retention controls and a local transcript-folder reveal action
+- dedicated diagnostics support export with confirmation and privacy wording
 - account/password controls
 
 Key file:
@@ -273,6 +276,14 @@ If permissions are lost in a copied or unzipped folder, users can run:
 ```bash
 bash fix-permissions.sh
 ```
+
+## Windows Reliability QA Targets
+
+- Test fresh setup on CPU-only Windows and NVIDIA Windows laptops.
+- Confirm the dashboard clearly reports NVIDIA driver detection, CTranslate2 CUDA availability, missing CUDA DLLs, and CPU fallback mode.
+- Confirm **Download diagnostics** names included system specs clearly and excludes transcripts, `.env`, passwords, session secrets, and unredacted local paths.
+- Confirm `setup-windows.cmd`, `start-windows.cmd`, `update-windows.cmd`, and the operator-page update flow work from a clean folder.
+- Revisit minimum and recommended hardware after real service benchmarks from several churches.
 
 ## Suggested Repository Description
 

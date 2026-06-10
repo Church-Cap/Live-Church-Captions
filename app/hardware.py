@@ -6,7 +6,7 @@ import subprocess
 import os
 import site
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -23,6 +23,11 @@ class HardwareAccelerationStatus:
     missing_cuda_libraries: list[str]
     nvidia_smi_available: bool
     message: str
+    nvidia_driver_status: str = "unknown"
+    nvidia_gpu_names: list[str] = field(default_factory=list)
+    ctranslate2_cuda_status: str = "unknown"
+    cuda_runtime_status: str = "unknown"
+    fallback_mode: str = "unknown"
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -44,21 +49,27 @@ def _ctranslate2_cuda_device_count() -> tuple[int, str | None]:
         return 0, f"CTranslate2 CUDA detection failed: {exc}"
 
 
-def _has_nvidia_smi() -> bool:
+def _nvidia_smi_info() -> tuple[bool, list[str], str | None]:
     nvidia_smi = shutil.which("nvidia-smi")
     if not nvidia_smi:
-        return False
+        return False, [], "nvidia-smi was not found on PATH."
     try:
-        subprocess.run(
+        result = subprocess.run(
             [nvidia_smi, "--query-gpu=name", "--format=csv,noheader"],
             check=True,
             capture_output=True,
             text=True,
             timeout=5,
         )
-        return True
-    except Exception:
-        return False
+        names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        return True, names, None
+    except Exception as exc:
+        return False, [], f"nvidia-smi could not query the GPU: {exc}"
+
+
+def _has_nvidia_smi() -> bool:
+    available, _names, _message = _nvidia_smi_info()
+    return available
 
 
 def _dll_exists_on_path(name: str) -> bool:
@@ -174,27 +185,45 @@ def detect_hardware_acceleration() -> HardwareAccelerationStatus:
     system_name = platform.system()
     prepare_python_cuda_dll_dirs()
     cuda_count, cuda_message = _ctranslate2_cuda_device_count()
-    nvidia_smi_available = _has_nvidia_smi()
+    nvidia_smi_available, nvidia_gpu_names, nvidia_message = _nvidia_smi_info()
     cuda_runtime_ready, missing_cuda_libraries = _cuda_runtime_status(system_name)
     cuda_ready = cuda_count > 0 and cuda_runtime_ready
 
+    if system_name == "Windows":
+        nvidia_driver_status = "detected" if nvidia_smi_available else "not_detected"
+        if cuda_count > 0:
+            ctranslate2_cuda_status = "usable"
+        elif nvidia_smi_available:
+            ctranslate2_cuda_status = "not_exposed"
+        else:
+            ctranslate2_cuda_status = "not_detected"
+        cuda_runtime_status = "ready" if cuda_runtime_ready else "missing_dlls"
+    else:
+        nvidia_driver_status = "not_applicable"
+        ctranslate2_cuda_status = "not_applicable"
+        cuda_runtime_status = "not_applicable"
+
+    fallback_mode = "faster-whisper CUDA" if cuda_ready else "CPU / int8"
+
     if cuda_ready:
-        message = f"CUDA is available for faster-whisper ({cuda_count} device(s))."
+        names = f" ({', '.join(nvidia_gpu_names)})" if nvidia_gpu_names else ""
+        message = f"CUDA ready: NVIDIA driver detected{names}, CTranslate2 sees {cuda_count} CUDA device(s), and required runtime DLLs are available. Church Cap can use faster-whisper on CUDA."
     elif cuda_count > 0 and not cuda_runtime_ready:
         missing = ", ".join(missing_cuda_libraries)
         message = (
-            f"An NVIDIA CUDA device is visible, but required CUDA runtime library files are missing: {missing}. "
-            "Church Cap will use CPU until the NVIDIA CUDA runtime is installed and available on PATH."
+            f"CUDA not ready: CTranslate2 can see {cuda_count} CUDA device(s), but required runtime DLLs are missing: {missing}. "
+            "Church Cap will fall back to CPU / int8 until the local NVIDIA CUDA runtime is repaired."
         )
     elif nvidia_smi_available:
+        names = f" ({', '.join(nvidia_gpu_names)})" if nvidia_gpu_names else ""
+        detail = f" {cuda_message}" if cuda_message else ""
         message = (
-            "An NVIDIA GPU is visible, but the installed CTranslate2 runtime "
-            "does not currently expose CUDA to faster-whisper."
+            f"CUDA not ready: NVIDIA driver/GPU detected{names}, but CTranslate2 does not expose CUDA to faster-whisper.{detail} "
+            "Church Cap will fall back to CPU / int8."
         )
-        if cuda_message:
-            message = f"{message} {cuda_message}"
     else:
-        message = cuda_message or "No CUDA-capable GPU was detected."
+        detail = cuda_message or nvidia_message or "No NVIDIA CUDA-capable GPU was detected."
+        message = f"CUDA not ready: {detail} Church Cap will use CPU / int8."
 
     return HardwareAccelerationStatus(
         platform=system_name,
@@ -204,6 +233,11 @@ def detect_hardware_acceleration() -> HardwareAccelerationStatus:
         missing_cuda_libraries=missing_cuda_libraries,
         nvidia_smi_available=nvidia_smi_available,
         message=message,
+        nvidia_driver_status=nvidia_driver_status,
+        nvidia_gpu_names=nvidia_gpu_names,
+        ctranslate2_cuda_status=ctranslate2_cuda_status,
+        cuda_runtime_status=cuda_runtime_status,
+        fallback_mode=fallback_mode,
     )
 
 

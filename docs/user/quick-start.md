@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v.0.2.2 public preview
+Version: v.0.2.3 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -17,6 +17,14 @@ Visitors do not install an app. They scan a QR code and read captions in their b
 - Internet access for first setup.
 - A USB audio interface or mixer input from the sound desk.
 - The caption computer and audience phones on a network where phones can reach Church Cap.
+
+## Hardware Guidance
+
+Minimum for testing: Apple Silicon Mac, or Windows 10/11 with a modern 4-core CPU and 8 GB RAM. Use **Fastest** or **Fast** if captions lag.
+
+Recommended for live services: Apple Silicon Mac with 16 GB RAM, or Windows 10/11 with a recent 6-8 core CPU and 16 GB RAM. Windows GPU acceleration needs an NVIDIA GPU, current NVIDIA drivers, and CUDA runtime files that CTranslate2 can use.
+
+Use **Benchmark** before selecting heavier models such as `small.en` or `medium.en`.
 
 ## First-Time Setup On Mac
 
@@ -233,7 +241,7 @@ AI-generated captions can contain mistakes. Use the sensitive blank/pause mode f
 
 ## Feedback
 
-The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details.
+The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For technical issues, use **Diagnostics > Download diagnostics** from the operator menu, or use the diagnostics link on the Feedback page, and attach that JSON file only if you are comfortable sharing system specs, OS version, performance settings, hardware status, recent metrics, and redacted updater/CUDA logs. Church Cap asks for confirmation first; review the file because system names, device names, error messages, and log details may still be sensitive. Do not post diagnostics publicly on GitHub unless you have reviewed the file and are comfortable sharing it.
 
 ## Updating Church Cap
 
@@ -249,7 +257,7 @@ Windows:
 .\update-windows.cmd
 ```
 
-You can also use **Updates** on the operator page. Church Cap checks GitHub first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.
+You can also use **Updates** on the operator page. Church Cap checks the latest GitHub release tag first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.
 
 The updater preserves `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. It refreshes app-owned `APP_VERSION` and `FEEDBACK_EMAIL` values in `.env` from the new release defaults.
 

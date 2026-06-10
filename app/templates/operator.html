@@ -48,6 +48,7 @@
         <a class="nav-button nav-link" href="/feedback"><span class="nav-icon">@</span><span class="nav-label">Feedback</span></a>
 
         <p class="nav-category">System</p>
+        <button type="button" class="nav-button" data-section="diagnostics"><span class="nav-icon">i</span><span class="nav-label">Diagnostics</span></button>
         <button type="button" class="nav-button" data-section="updates"><span class="nav-icon">↻</span><span class="nav-label">Updates</span></button>
       </nav>
 
@@ -280,6 +281,12 @@
             </div>
             <p class="muted">Adjustments are saved automatically. Changes apply the next time captions start, so stop and start captions after tuning performance.</p>
             <p id="performanceHardware" class="muted small-result">{{ performance.hardware_acceleration.message }}</p>
+            <dl id="cudaStatusGrid" class="cuda-status-grid" hidden>
+              <div><dt>NVIDIA driver</dt><dd id="cudaDriverStatus">Unknown</dd></div>
+              <div><dt>CTranslate2 CUDA</dt><dd id="cudaCtranslateStatus">Unknown</dd></div>
+              <div><dt>Runtime DLLs</dt><dd id="cudaRuntimeStatus">Unknown</dd></div>
+              <div><dt>Fallback</dt><dd id="cudaFallbackStatus">CPU / int8</dd></div>
+            </dl>
             <div id="cudaTroubleshooter" class="cuda-panel" hidden>
               <div>
                 <strong>Windows CUDA troubleshooting</strong>
@@ -534,6 +541,29 @@
               <a class="button-link secondary" href="/docs/privacy">Privacy statement</a>
               <a class="button-link secondary" href="/docs/church-notice">Church notice wording</a>
               <a class="button-link secondary" href="/docs/disclaimer">AI caption disclaimer</a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="operator-section" id="operator-section-diagnostics" data-title="Diagnostics" data-description="Download local troubleshooting details for Mac or Windows support.">
+        <div class="operator-grid two-card-grid">
+          <article class="operator-panel glass-card wide-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Support</p>
+                <h2>Diagnostics export</h2>
+              </div>
+              <span class="status-pill">Mac / Windows</span>
+            </div>
+            <p class="muted">Download a diagnostics JSON file for troubleshooting or support. It can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and updater/CUDA logs with local paths redacted.</p>
+            <div class="warning-panel slim-warning glass-card diagnostics-warning">
+              <strong>Review before sharing.</strong>
+              <p class="muted">Diagnostics do not include transcripts, captions, passwords, secrets, or .env contents, but system names, device names, error messages, and log details may still identify your church or computer. Do not post the file publicly on GitHub unless you have reviewed it and are comfortable sharing it.</p>
+            </div>
+            <div class="button-row spacious-actions">
+              <button type="button" onclick="downloadDiagnosticsWithConsent()">Download diagnostics</button>
+              <a class="button-link secondary" href="/feedback">Open feedback page</a>
             </div>
           </article>
         </div>
@@ -795,6 +825,8 @@
       const platform = platformChoice();
       const cudaTroubleshooter = document.getElementById('cudaTroubleshooter');
       if (cudaTroubleshooter) cudaTroubleshooter.hidden = platform !== 'windows';
+      const cudaStatusGrid = document.getElementById('cudaStatusGrid');
+      if (cudaStatusGrid) cudaStatusGrid.hidden = platform !== 'windows';
       const deviceSelect = document.getElementById('whisperDevice');
       const computeSelect = document.getElementById('whisperComputeType');
       const processorInfo = document.getElementById('processorInfo');
@@ -934,6 +966,41 @@
       }, 650);
     }
 
+    function friendlyCudaStatus(value) {
+      const labels = {
+        detected: 'Detected',
+        not_detected: 'Not detected',
+        usable: 'Usable',
+        not_exposed: 'Not exposed',
+        ready: 'Ready',
+        missing_dlls: 'Missing DLLs',
+        not_applicable: 'Not applicable',
+        unknown: 'Unknown'
+      };
+      return labels[value] || value || 'Unknown';
+    }
+
+    function renderCudaDetails(hardware) {
+      const grid = document.getElementById('cudaStatusGrid');
+      if (!grid || !hardware) return;
+      grid.hidden = platformChoice() !== 'windows';
+      const driver = document.getElementById('cudaDriverStatus');
+      const ctranslate = document.getElementById('cudaCtranslateStatus');
+      const runtime = document.getElementById('cudaRuntimeStatus');
+      const fallback = document.getElementById('cudaFallbackStatus');
+      const gpuNames = Array.isArray(hardware.nvidia_gpu_names) && hardware.nvidia_gpu_names.length
+        ? ` · ${hardware.nvidia_gpu_names.join(', ')}`
+        : '';
+      if (driver) driver.textContent = `${friendlyCudaStatus(hardware.nvidia_driver_status)}${gpuNames}`;
+      if (ctranslate) ctranslate.textContent = hardware.cuda_device_count
+        ? `${friendlyCudaStatus(hardware.ctranslate2_cuda_status)} · ${hardware.cuda_device_count} device(s)`
+        : friendlyCudaStatus(hardware.ctranslate2_cuda_status);
+      if (runtime) runtime.textContent = hardware.missing_cuda_libraries?.length
+        ? `${friendlyCudaStatus(hardware.cuda_runtime_status)} · missing ${hardware.missing_cuda_libraries.join(', ')}`
+        : friendlyCudaStatus(hardware.cuda_runtime_status);
+      if (fallback) fallback.textContent = hardware.fallback_mode || (hardware.cuda_available ? 'faster-whisper CUDA' : 'CPU / int8');
+    }
+
     function renderCudaRuntime(cudaRuntime) {
       const result = document.getElementById('cudaResult');
       if (!result || !cudaRuntime) return;
@@ -959,6 +1026,7 @@
       }
       const hardware = document.getElementById('performanceHardware');
       if (hardware) hardware.textContent = data.hardware_acceleration?.message || '';
+      renderCudaDetails(data.hardware_acceleration);
       if (result) result.textContent = data.hardware_acceleration?.message || 'CUDA status checked.';
       renderCudaRuntime(data.cuda_runtime);
       refreshStatus();
@@ -1015,6 +1083,7 @@
         : 'Saved. Stop and start captions to use the new performance settings.';
       const hardware = document.getElementById('performanceHardware');
       if (hardware) hardware.textContent = data.hardware_acceleration?.message || '';
+      renderCudaDetails(data.hardware_acceleration);
       refreshStatus();
     }
 
@@ -1313,6 +1382,13 @@
       if (result) result.textContent = text;
     }
 
+    function downloadDiagnosticsWithConsent() {
+      const ok = window.confirm(
+        'Download diagnostics for support?\n\nThis file can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted. It does not include transcripts, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.'
+      );
+      if (ok) window.location.href = '/api/diagnostics/export?confirmed=1';
+    }
+
     function setUpdateControlsDisabled(disabled) {
       const checkButton = document.getElementById('checkUpdateButton');
       if (checkButton) checkButton.disabled = disabled;
@@ -1493,6 +1569,7 @@
         if (livePreset) livePreset.textContent = data.settings?.performance?.effective?.performance_label || 'Custom';
         const perfHardware = document.getElementById('performanceHardware');
         if (perfHardware && data.settings?.hardware_acceleration?.message) perfHardware.textContent = data.settings.hardware_acceleration.message;
+        renderCudaDetails(data.settings?.hardware_acceleration);
         renderRecommendation(data.settings?.performance?.recommendation);
         renderCudaRuntime(data.cuda_runtime);
         const latency = data.metrics?.last_transcription_seconds;
@@ -1538,10 +1615,14 @@
     setPerformanceSettingsDepth(localStorage.getItem('performanceSettingsDepth') || 'easy');
     applyOperatorTheme(operatorThemePreference());
     setSidebarCollapsed(localStorage.getItem('operatorSidebarCollapsed') === 'true');
-    showOperatorSection(localStorage.getItem('operatorSection') || 'dashboard');
+    const initialSection = window.location.hash ? window.location.hash.slice(1) : localStorage.getItem('operatorSection');
+    showOperatorSection(initialSection || 'dashboard');
     loadAudioDevices();
     updateTranscriptExportButtons(0);
     refreshStatus();
+    window.addEventListener('hashchange', () => {
+      if (window.location.hash) showOperatorSection(window.location.hash.slice(1));
+    });
     setInterval(refreshStatus, 1500);
   </script>
   <script src="/static/client.js"></script>

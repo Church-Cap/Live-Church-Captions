@@ -1265,15 +1265,18 @@ select {
   font-weight: 650;
 }
 
-#operator-section-updates .operator-grid {
+#operator-section-updates .operator-grid,
+#operator-section-diagnostics .operator-grid {
   grid-template-columns: minmax(0, 1fr);
 }
 
-#operator-section-updates .wide-card {
+#operator-section-updates .wide-card,
+#operator-section-diagnostics .wide-card {
   grid-column: 1 / -1;
 }
 
-#operator-section-updates .operator-panel.glass-card {
+#operator-section-updates .operator-panel.glass-card,
+#operator-section-diagnostics .operator-panel.glass-card {
   padding: clamp(1.15rem, 2vw, 1.45rem);
 }
 
@@ -1338,11 +1341,13 @@ select {
   border-color: rgba(26,95,180,0.18);
 }
 
-#operator-section-updates .button-row {
+#operator-section-updates .button-row,
+#operator-section-diagnostics .button-row {
   margin-top: 0.2rem;
 }
 
-#operator-section-updates .small-result {
+#operator-section-updates .small-result,
+#operator-section-diagnostics .small-result {
   margin-top: 0.8rem;
   line-height: 1.45;
 }
@@ -2081,5 +2086,48 @@ select {
 @media (max-width: 620px) {
   .operator-page .button-stack-inline {
     padding-top: 0;
+  }
+}
+
+
+.cuda-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.cuda-status-grid div {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cuda-status-grid dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.cuda-status-grid dd {
+  margin: 3px 0 0;
+  font-weight: 700;
+}
+
+.soft-divider {
+  border: 0;
+  border-top: 1px solid var(--panel-border);
+  margin: 18px 0;
+}
+
+.compact-heading-row {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 760px) {
+  .cuda-status-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

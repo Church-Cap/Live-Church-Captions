@@ -7,12 +7,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$RepoZipUrl = "https://github.com/Church-Cap/Live-Church-Captions/archive/refs/heads/main.zip"
-$VersionUrl = "https://raw.githubusercontent.com/Church-Cap/Live-Church-Captions/main/app/settings.py"
+$LatestReleaseUrl = "https://api.github.com/repos/Church-Cap/Live-Church-Captions/releases/latest"
+$RepoTagZipBaseUrl = "https://github.com/Church-Cap/Live-Church-Captions/archive/refs/tags"
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "church-cap-update-$Stamp"
-$ZipPath = Join-Path $TempDir "church-cap-main.zip"
+$ZipPath = Join-Path $TempDir "church-cap-release.zip"
 $PreserveDir = Join-Path $TempDir "preserve"
 $StageDir = Join-Path $TempDir "staged-release"
 $ManifestPath = Join-Path $TempDir "staged-release.sha256.json"
@@ -21,11 +21,16 @@ $BackupDir = Join-Path $BackupRoot "pre-update-$Stamp"
 $ReplacementStarted = $false
 $UpdateComplete = $false
 
+function Normalize-Version {
+    param([string]$Version)
+    return (($Version -replace '^v\.', '') -replace '^v', '').Trim()
+}
+
 function Get-AppVersionFromText {
     param([string]$Text)
     $match = [regex]::Match($Text, 'app_version\s*:\s*str\s*=\s*"([^"]+)"')
     if ($match.Success) {
-        return ($match.Groups[1].Value -replace '^v\.', '' -replace '^v', '')
+        return Normalize-Version $match.Groups[1].Value
     }
     return $null
 }
@@ -36,9 +41,13 @@ function Get-LocalVersion {
     return Get-AppVersionFromText -Text (Get-Content $settingsPath -Raw)
 }
 
-function Get-RemoteVersion {
-    $text = (Invoke-WebRequest -Uri $VersionUrl -UseBasicParsing -TimeoutSec 15).Content
-    return Get-AppVersionFromText -Text $text
+function Get-RemoteReleaseTag {
+    $response = Invoke-WebRequest -Uri $LatestReleaseUrl -UseBasicParsing -TimeoutSec 15 -Headers @{
+        "Accept" = "application/vnd.github+json"
+        "User-Agent" = "Church-Cap-Updater"
+    }
+    $release = $response.Content | ConvertFrom-Json
+    return [string]$release.tag_name
 }
 
 function Convert-VersionTuple {
@@ -172,14 +181,16 @@ function Restore-Backup {
 
 try {
     $CurrentVersion = Get-LocalVersion
-    $RemoteVersion = Get-RemoteVersion
-    if ([string]::IsNullOrWhiteSpace($RemoteVersion)) {
-        throw "Could not read the latest Church Cap version from GitHub."
+    $RemoteTag = Get-RemoteReleaseTag
+    $RemoteVersion = Normalize-Version $RemoteTag
+    if ([string]::IsNullOrWhiteSpace($RemoteTag) -or [string]::IsNullOrWhiteSpace($RemoteVersion)) {
+        throw "Could not read the latest Church Cap release tag from GitHub."
     }
+    $RepoZipUrl = "$RepoTagZipBaseUrl/$RemoteTag.zip"
 
     Write-Host "Church Cap updater"
     Write-Host "Current version: v.$CurrentVersion"
-    Write-Host "Latest GitHub version: v.$RemoteVersion"
+    Write-Host "Latest GitHub release: $RemoteTag"
     Write-Host "  $AppDir"
     Write-Host ""
 
@@ -231,7 +242,7 @@ try {
     Assert-ReleaseTree -ReleaseDir $ExtractedDir.FullName
     $ExtractedVersion = Get-AppVersionFromText -Text (Get-Content (Join-Path $ExtractedDir.FullName "app\settings.py") -Raw)
     if ($ExtractedVersion -ne $RemoteVersion) {
-        throw "Downloaded release version v.$ExtractedVersion did not match GitHub version v.$RemoteVersion."
+        throw "Downloaded release version v.$ExtractedVersion did not match GitHub release $RemoteTag."
     }
 
     Copy-PreservedFile ".env"

@@ -113,6 +113,11 @@ No microphone/audio input:
 - Check macOS microphone permissions in System Settings.
 - Restart captions after changing the input.
 
+Windows CUDA, performance, update, or setup problems:
+
+- Open **System > Diagnostics** on the operator page and use **Download diagnostics** only if you are comfortable sharing the generated support file.
+- Review the file before attaching it to a GitHub issue or support email because system names, device names, error messages, and log details may still be sensitive. Do not post diagnostics publicly unless you are comfortable sharing the contents.
+
 Stop Church Cap:
 
 ```text
@@ -135,6 +140,6 @@ Windows:
 .\update-windows.cmd
 ```
 
-You can also use **Updates** on the operator page. Church Cap checks GitHub first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.
+You can also use **Updates** on the operator page. Church Cap checks the latest GitHub release tag first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.
 
 If the internet drops or the download is damaged, the current app is left alone. During replacement, Church Cap keeps a rollback backup in `data/update-backups/` and restores it automatically if the copy or checksum check fails.

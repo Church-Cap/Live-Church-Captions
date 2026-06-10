@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Church Cap"
-    app_version: str = "0.2.2"
+    app_version: str = "0.2.3"
     feedback_email: str = "info@churchcap.org"
     host: str = "0.0.0.0"
     port: int = 8080

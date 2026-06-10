@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPO_ZIP_URL="https://github.com/Church-Cap/Live-Church-Captions/archive/refs/heads/main.zip"
-VERSION_URL="https://raw.githubusercontent.com/Church-Cap/Live-Church-Captions/main/app/settings.py"
+LATEST_RELEASE_URL="https://api.github.com/repos/Church-Cap/Live-Church-Captions/releases/latest"
+REPO_TAG_ZIP_BASE_URL="https://github.com/Church-Cap/Live-Church-Captions/archive/refs/tags"
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 TMP_DIR="$(mktemp -d)"
-ZIP_PATH="$TMP_DIR/church-cap-main.zip"
+ZIP_PATH="$TMP_DIR/church-cap-release.zip"
 PRESERVE_DIR="$TMP_DIR/preserve"
 STAGE_DIR="$TMP_DIR/staged-release"
 MANIFEST_PATH="$TMP_DIR/staged-release.sha256"
@@ -55,11 +55,16 @@ read_local_version() {
   sed -n 's/.*app_version: str = "\([^"]*\)".*/\1/p' "$APP_DIR/app/settings.py" | head -n 1 | sed 's/^v\.//;s/^v//'
 }
 
-fetch_remote_version() {
-  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 45 "$VERSION_URL" |
-    sed -n 's/.*app_version: str = "\([^"]*\)".*/\1/p' |
-    head -n 1 |
-    sed 's/^v\.//;s/^v//'
+normalise_version() {
+  printf '%s' "${1:-}" | sed 's/^v\.//;s/^v//'
+}
+
+fetch_remote_tag() {
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 45 \
+    -H "Accept: application/vnd.github+json" \
+    -H "User-Agent: Church-Cap-Updater" \
+    "$LATEST_RELEASE_URL" |
+    python3 -c 'import json, sys; print(str(json.load(sys.stdin).get("tag_name") or "").strip())'
 }
 
 version_newer() {
@@ -196,15 +201,17 @@ restore_backup() {
 }
 
 CURRENT_VERSION="$(read_local_version)"
-REMOTE_VERSION="$(fetch_remote_version)"
-if [[ -z "$REMOTE_VERSION" ]]; then
-  echo "Could not read the latest Church Cap version from GitHub." >&2
+REMOTE_TAG="$(fetch_remote_tag)"
+REMOTE_VERSION="$(normalise_version "$REMOTE_TAG")"
+if [[ -z "$REMOTE_TAG" || -z "$REMOTE_VERSION" ]]; then
+  echo "Could not read the latest Church Cap release tag from GitHub." >&2
   exit 1
 fi
+REPO_ZIP_URL="$REPO_TAG_ZIP_BASE_URL/$REMOTE_TAG.zip"
 
 echo "Church Cap updater"
 echo "Current version: v.${CURRENT_VERSION:-unknown}"
-echo "Latest GitHub version: v.${REMOTE_VERSION}"
+echo "Latest GitHub release: $REMOTE_TAG"
 echo "  $APP_DIR"
 echo ""
 
@@ -243,7 +250,7 @@ fi
 validate_release_tree "$EXTRACTED_DIR"
 EXTRACTED_VERSION="$(version_from_settings_file "$EXTRACTED_DIR/app/settings.py")"
 if [[ "$EXTRACTED_VERSION" != "$REMOTE_VERSION" ]]; then
-  echo "Downloaded release version v.$EXTRACTED_VERSION did not match GitHub version v.$REMOTE_VERSION." >&2
+  echo "Downloaded release version v.$EXTRACTED_VERSION did not match GitHub release $REMOTE_TAG." >&2
   exit 1
 fi
 

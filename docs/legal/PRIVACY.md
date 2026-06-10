@@ -32,3 +32,8 @@ The safest default for sensitive environments is to retain as little as possible
 ## Cloud services
 
 If cloud transcription, translation, remote diagnostics, analytics, or public livestream integrations are added later, they should be clearly documented and disabled by default unless the church intentionally enables them.
+
+
+## Diagnostics exports
+
+The operator can choose to download a local diagnostics JSON file for support. Diagnostics can include Church Cap version, operating system version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA log lines with local paths redacted. Diagnostics do not include transcripts, captions, operator passwords, session secrets, or `.env` contents. Operators should review the file before sharing because system names, device names, error messages, and log details may still be sensitive. Do not post diagnostics publicly, including on GitHub issues, unless the file has been reviewed and the operator is comfortable sharing its contents.

@@ -1,8 +1,12 @@
 import asyncio
+import json
 import os
 import platform
+import shutil
 import subprocess
+import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import qrcode
@@ -63,6 +67,7 @@ _transcriber = None
 _update_state = {"status": "idle"}
 _cuda_runtime_install_state = {"status": "idle"}
 _cuda_runtime_install_process: subprocess.Popen | None = None
+CUDA_RUNTIME_LOG_LABEL = "logs/cuda-runtime-install.log"
 
 
 def base_url(request: Request | None = None) -> str:
@@ -348,12 +353,15 @@ def cuda_runtime_capability_state() -> dict:
                     "error": f"CUDA runtime force reinstall exited with code {return_code}. Check logs/cuda-runtime-install.log.",
                     "return_code": return_code,
                 }
+    state = {**_cuda_runtime_install_state}
+    if "log" in state:
+        state["log"] = CUDA_RUNTIME_LOG_LABEL
     return {
         "system": system,
         "supported": system == "Windows" and script.exists(),
         "script": script.name if script.exists() else None,
-        "log": str(PROJECT_ROOT / "logs" / "cuda-runtime-install.log"),
-        "state": _cuda_runtime_install_state,
+        "log": CUDA_RUNTIME_LOG_LABEL,
+        "state": state,
     }
 
 
@@ -398,7 +406,7 @@ def launch_cuda_runtime_install() -> dict:
             close_fds=True,
         )
     _cuda_runtime_install_process = process
-    return {"pid": process.pid, "log": str(log_path)}
+    return {"pid": process.pid, "log": CUDA_RUNTIME_LOG_LABEL}
 
 
 def recommended_performance_config(status: dict | None = None) -> dict:
@@ -471,6 +479,147 @@ def system_performance_snapshot() -> dict:
         "load_5m": load_5m,
         "load_15m": load_15m,
         "load_1m_percent": None if load_1m is None else round((float(load_1m) / cpu_count) * 100, 1),
+    }
+
+
+def _bytes_to_gib(value: int | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value) / (1024 ** 3), 2)
+
+
+def _total_memory_bytes() -> int | None:
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            result = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=3, check=False)
+            if result.returncode == 0 and result.stdout.strip():
+                return int(result.stdout.strip())
+        if system == "Windows":
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MEMORYSTATUSEX()
+            status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return int(status.ullTotalPhys)
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        pages = os.sysconf("SC_PHYS_PAGES")
+        return int(page_size * pages)
+    except Exception:
+        return None
+
+
+def _disk_usage_snapshot() -> dict:
+    try:
+        usage = shutil.disk_usage(PROJECT_ROOT)
+    except Exception:
+        return {
+            "project_drive_total_bytes": None,
+            "project_drive_used_bytes": None,
+            "project_drive_free_bytes": None,
+            "project_drive_total_gib": None,
+            "project_drive_used_gib": None,
+            "project_drive_free_gib": None,
+        }
+    return {
+        "project_drive_total_bytes": int(usage.total),
+        "project_drive_used_bytes": int(usage.used),
+        "project_drive_free_bytes": int(usage.free),
+        "project_drive_total_gib": _bytes_to_gib(usage.total),
+        "project_drive_used_gib": _bytes_to_gib(usage.used),
+        "project_drive_free_gib": _bytes_to_gib(usage.free),
+    }
+
+
+def _system_specs_snapshot() -> dict:
+    memory_bytes = _total_memory_bytes()
+    specs = {
+        "os_name": platform.system(),
+        "os_release": platform.release(),
+        "os_version": platform.version(),
+        "os_label": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "architecture": platform.architecture()[0],
+        "python_version": sys.version.split()[0],
+        "python_implementation": platform.python_implementation(),
+        "cpu_count": os.cpu_count() or 1,
+        "total_memory_bytes": memory_bytes,
+        "total_memory_gib": _bytes_to_gib(memory_bytes),
+    }
+    specs.update(_disk_usage_snapshot())
+    return specs
+
+
+def _redact_local_paths(text: str) -> str:
+    redacted = str(text)
+    replacements = {
+        str(PROJECT_ROOT): "<project_root>",
+        str(PROJECT_ROOT.parent): "<project_parent>",
+        str(app_support_dir()): "<app_support_dir>",
+    }
+    home = Path.home()
+    replacements[str(home)] = "<home>"
+    for before, after in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        if before:
+            redacted = redacted.replace(before, after)
+            redacted = redacted.replace(before.replace("/", "\\"), after)
+    return redacted
+
+
+def _tail_log(path: Path, max_lines: int = 160) -> list[str]:
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception as exc:
+        return [f"Could not read log: {exc}"]
+    return [_redact_local_paths(line) for line in lines[-max_lines:]]
+
+
+def diagnostics_payload() -> dict:
+    runtime = load_runtime_config()
+    performance = performance_status()
+    logs_dir = PROJECT_ROOT / "logs"
+    safe_runtime = {
+        key: value
+        for key, value in runtime.items()
+        if key not in {"audio_device"}
+    }
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "app": {
+            "name": settings.app_name,
+            "version": settings.app_version,
+            "version_label": settings.app_version_label,
+        },
+        "system": _system_specs_snapshot(),
+        "hardware_acceleration": performance["hardware_acceleration"],
+        "resolved_runtime": performance["resolved_whisper_runtime"],
+        "effective_performance": performance["effective"],
+        "system_performance": system_performance_snapshot(),
+        "runtime_config_sanitized": safe_runtime,
+        "metrics": get_metrics(),
+        "cuda_runtime_install": cuda_runtime_capability_state(),
+        "logs": {
+            "update.log": _tail_log(logs_dir / "update.log"),
+            "cuda-runtime-install.log": _tail_log(logs_dir / "cuda-runtime-install.log"),
+            "update-restart.log": _tail_log(logs_dir / "update-restart.log"),
+        },
+        "privacy_note": "Diagnostics are generated only when an operator chooses to download them. They can include OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, runtime metrics, and recent updater/CUDA log lines with local paths redacted. They exclude transcripts, captions, operator passwords, session secrets, and .env contents. Review the file before sharing it for support, and do not post it publicly on GitHub unless you are comfortable with the contents.",
     }
 
 
@@ -1022,6 +1171,29 @@ async def api_status(_: None = Depends(require_operator)):
         "cuda_runtime": cuda_runtime_capability_state(),
         "profanity_filter_enabled": bool(load_runtime_config().get("profanity_filter_enabled", True)),
     }
+
+
+@app.get("/api/diagnostics/export")
+async def export_diagnostics(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Download diagnostics from the Church Cap computer."},
+            status_code=403,
+        )
+    if request.query_params.get("confirmed") != "1":
+        return JSONResponse(
+            {
+                "status": "confirmation_required",
+                "error": "Confirm that you understand the diagnostics file may contain support-sensitive system details before downloading it.",
+            },
+            status_code=400,
+        )
+    body = json.dumps(diagnostics_payload(), indent=2, sort_keys=True)
+    return Response(
+        body,
+        media_type="application/json",
+        headers=_download_headers(f"church-cap-diagnostics-{settings.app_version}.json"),
+    )
 
 
 @app.post("/api/cuda/check")
