@@ -21,7 +21,7 @@ from app.hardware import detect_hardware_acceleration, resolve_whisper_runtime
 from app.profanity_filter import ProfanityFilter
 from app.settings import get_settings
 from app.networking import default_base_url, detected_local_hostname, local_ip
-from app.runtime_config import load_runtime_config, set_audio_device, set_privacy_config, set_profanity_filter_config, set_translation_config, set_security_config
+from app.runtime_config import load_runtime_config, set_audio_device, set_performance_config, set_privacy_config, set_profanity_filter_config, set_translation_config, set_security_config
 from app.i18n import SUPPORTED_LANGUAGES, get_client_ui_strings, normalise_language
 from app.paths import app_support_dir
 from app.transcript_store import TranscriptStore
@@ -61,6 +61,8 @@ DOC_FILES = {
 _transcription_task: asyncio.Task | None = None
 _transcriber = None
 _update_state = {"status": "idle"}
+_cuda_runtime_install_state = {"status": "idle"}
+_cuda_runtime_install_process: subprocess.Popen | None = None
 
 
 def base_url(request: Request | None = None) -> str:
@@ -116,6 +118,137 @@ def _reveal_transcript_path(folder: Path, file_path: Path) -> None:
 def selected_audio_device():
     runtime = load_runtime_config()
     return runtime.get("audio_device") if runtime.get("audio_device") is not None else settings.audio_device
+
+
+PERFORMANCE_PRESETS = {
+    "fastest": {
+        "label": "Fastest, less accurate",
+        "description": "Lowest delay for older PCs. Best for testing or slower hardware.",
+        "transcriber_mode": "faster_whisper",
+        "whisper_model": "tiny.en",
+        "whisper_compute_type": "auto",
+        "whisper_beam_size": 1,
+        "chunk_seconds": 1.0,
+        "stream_window_seconds": 3.5,
+        "stream_update_interval_seconds": 0.6,
+        "stream_silence_finalise_seconds": 0.8,
+        "stream_stability_passes": 1,
+    },
+    "fast": {
+        "label": "Fast",
+        "description": "Quick captions with better wording than tiny on most speech.",
+        "transcriber_mode": "faster_whisper",
+        "whisper_model": "base.en",
+        "whisper_compute_type": "auto",
+        "whisper_beam_size": 1,
+        "chunk_seconds": 1.25,
+        "stream_window_seconds": 4.5,
+        "stream_update_interval_seconds": 0.8,
+        "stream_silence_finalise_seconds": 1.0,
+        "stream_stability_passes": 1,
+    },
+    "balanced": {
+        "label": "Balanced",
+        "description": "Recommended starting point for live church services.",
+        "transcriber_mode": "faster_whisper",
+        "whisper_model": "base.en",
+        "whisper_compute_type": "auto",
+        "whisper_beam_size": 1,
+        "chunk_seconds": 1.5,
+        "stream_window_seconds": 6.0,
+        "stream_update_interval_seconds": 1.0,
+        "stream_silence_finalise_seconds": 1.25,
+        "stream_stability_passes": 2,
+    },
+    "accurate": {
+        "label": "Accurate",
+        "description": "More context and stability, with a little more delay.",
+        "transcriber_mode": "faster_whisper",
+        "whisper_model": "small.en",
+        "whisper_compute_type": "auto",
+        "whisper_beam_size": 1,
+        "chunk_seconds": 2.0,
+        "stream_window_seconds": 8.0,
+        "stream_update_interval_seconds": 1.2,
+        "stream_silence_finalise_seconds": 1.45,
+        "stream_stability_passes": 2,
+    },
+    "most_accurate": {
+        "label": "Slowest, most accurate",
+        "description": "Uses the medium Whisper model. Best for powerful systems; benchmark it before relying on it live.",
+        "transcriber_mode": "whisper",
+        "whisper_model": "medium.en",
+        "whisper_compute_type": "auto",
+        "whisper_beam_size": 5,
+        "chunk_seconds": 2.0,
+        "stream_window_seconds": 10.0,
+        "stream_update_interval_seconds": 1.5,
+        "stream_silence_finalise_seconds": 1.7,
+        "stream_stability_passes": 2,
+    },
+}
+
+
+def performance_platform_key(system_name: str | None = None) -> str:
+    system_name = system_name or platform.system()
+    if system_name == "Darwin":
+        return "macos"
+    if system_name == "Windows":
+        return "windows"
+    return "unsupported"
+
+
+def effective_performance_config(runtime: dict | None = None) -> dict:
+    runtime = runtime or load_runtime_config()
+    preset_key = runtime.get("performance_preset")
+    if preset_key == "custom":
+        preset = {**PERFORMANCE_PRESETS["balanced"], "label": "Custom", "description": "Advanced settings chosen by the operator."}
+    else:
+        preset_key = preset_key if preset_key in PERFORMANCE_PRESETS else "balanced"
+        preset = PERFORMANCE_PRESETS[preset_key]
+    cfg = {
+        "performance_preset": preset_key,
+        "performance_platform": runtime.get("performance_platform") if runtime.get("performance_platform") in {"auto", "macos", "windows"} else "auto",
+        "performance_label": preset["label"],
+        "performance_description": preset["description"],
+        "transcriber_mode": settings.transcriber_mode,
+        "whisper_model": settings.whisper_model,
+        "whisper_device": settings.whisper_device,
+        "whisper_compute_type": settings.whisper_compute_type,
+        "whisper_beam_size": settings.whisper_beam_size,
+        "chunk_seconds": settings.chunk_seconds,
+        "stream_window_seconds": settings.stream_window_seconds,
+        "stream_update_interval_seconds": settings.stream_update_interval_seconds,
+        "stream_silence_finalise_seconds": settings.stream_silence_finalise_seconds,
+        "stream_stability_passes": settings.stream_stability_passes,
+    }
+    for key, value in preset.items():
+        if key not in {"label", "description"}:
+            cfg[key] = value
+    for key in (
+        "performance_platform",
+        "transcriber_mode",
+        "whisper_model",
+        "whisper_device",
+        "whisper_compute_type",
+        "whisper_beam_size",
+        "chunk_seconds",
+        "stream_window_seconds",
+        "stream_update_interval_seconds",
+        "stream_silence_finalise_seconds",
+        "stream_stability_passes",
+    ):
+        if runtime.get(key) is not None:
+            cfg[key] = runtime[key]
+    effective_platform = performance_platform_key() if cfg["performance_platform"] == "auto" else cfg["performance_platform"]
+    if (
+        effective_platform == "windows"
+        and cfg["performance_preset"] == "most_accurate"
+        and cfg["transcriber_mode"] == "whisper"
+    ):
+        cfg["transcriber_mode"] = "faster_whisper"
+        cfg["whisper_beam_size"] = 1
+    return cfg
 
 
 def auth_config():
@@ -194,30 +327,222 @@ def update_capability_state() -> dict:
     }
 
 
+def cuda_runtime_capability_state() -> dict:
+    global _cuda_runtime_install_state
+    system = platform.system()
+    script = PROJECT_ROOT / "scripts" / "install-cuda-runtime-windows.ps1"
+    if _cuda_runtime_install_state.get("status") == "installing" and _cuda_runtime_install_process is not None:
+        return_code = _cuda_runtime_install_process.poll()
+        if return_code is not None:
+            if return_code == 0:
+                _cuda_runtime_install_state = {
+                    **_cuda_runtime_install_state,
+                    "status": "complete",
+                    "message": "CUDA runtime force reinstall finished. Restart Church Cap, then check CUDA again.",
+                    "return_code": return_code,
+                }
+            else:
+                _cuda_runtime_install_state = {
+                    **_cuda_runtime_install_state,
+                    "status": "error",
+                    "error": f"CUDA runtime force reinstall exited with code {return_code}. Check logs/cuda-runtime-install.log.",
+                    "return_code": return_code,
+                }
+    return {
+        "system": system,
+        "supported": system == "Windows" and script.exists(),
+        "script": script.name if script.exists() else None,
+        "log": str(PROJECT_ROOT / "logs" / "cuda-runtime-install.log"),
+        "state": _cuda_runtime_install_state,
+    }
+
+
+def refreshed_hardware_status() -> dict:
+    cache_clear = getattr(detect_hardware_acceleration, "cache_clear", None)
+    if callable(cache_clear):
+        cache_clear()
+    return detect_hardware_acceleration().as_dict()
+
+
+def launch_cuda_runtime_install() -> dict:
+    global _cuda_runtime_install_process
+    if platform.system() != "Windows":
+        raise RuntimeError("CUDA runtime install is only available on Windows.")
+    script = PROJECT_ROOT / "scripts" / "install-cuda-runtime-windows.ps1"
+    if not script.exists():
+        raise RuntimeError("CUDA runtime installer script is missing. Re-download Church Cap and try again.")
+    log_dir = PROJECT_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "cuda-runtime-install.log"
+    with log_path.open("ab") as log:
+        log.write(b"\n--- Starting CUDA runtime force reinstall from operator page ---\n")
+        creationflags = 0
+        if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+            creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
+        if hasattr(subprocess, "DETACHED_PROCESS"):
+            creationflags |= subprocess.DETACHED_PROCESS
+        process = subprocess.Popen(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ],
+            cwd=str(PROJECT_ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+            close_fds=True,
+        )
+    _cuda_runtime_install_process = process
+    return {"pid": process.pid, "log": str(log_path)}
+
+
+def recommended_performance_config(status: dict | None = None) -> dict:
+    status = status or performance_status()
+    hardware = status["hardware_acceleration"]
+    effective_platform = status["effective_platform"]
+    cpu_count = os.cpu_count() or 1
+    if effective_platform == "windows" and hardware.get("cuda_available"):
+        config = {
+            "performance_preset": "balanced",
+            "performance_platform": "auto",
+            "transcriber_mode": "faster_whisper",
+            "whisper_model": "base.en",
+            "whisper_device": "auto",
+            "whisper_compute_type": "auto",
+        }
+        reason = "NVIDIA CUDA is available, so balanced Faster Whisper is recommended as the safest live-service starting point. Try medium manually only after a successful benchmark."
+    elif effective_platform == "macos" and cpu_count >= 8:
+        config = {
+            "performance_preset": "balanced",
+            "performance_platform": "auto",
+            "transcriber_mode": "faster_whisper",
+            "whisper_model": "base.en",
+            "whisper_device": "auto",
+            "whisper_compute_type": "auto",
+        }
+        reason = "This Mac has enough CPU headroom for the balanced Faster Whisper preset, which is safer to auto-apply than the medium model. Try medium manually only after a successful benchmark."
+    elif cpu_count <= 4:
+        config = {
+            "performance_preset": "fastest",
+            "performance_platform": "auto",
+            "transcriber_mode": "faster_whisper",
+            "whisper_model": "tiny.en",
+            "whisper_device": "auto",
+            "whisper_compute_type": "auto",
+        }
+        reason = "This looks like a lower-power CPU, so the fastest preset is recommended to reduce delay."
+    else:
+        config = {
+            "performance_preset": "fast",
+            "performance_platform": "auto",
+            "transcriber_mode": "faster_whisper",
+            "whisper_model": "base.en",
+            "whisper_device": "auto",
+            "whisper_compute_type": "auto",
+        }
+        reason = "No ready GPU acceleration was detected, so fast Faster Whisper settings are recommended."
+    preset_values = {
+        key: value
+        for key, value in PERFORMANCE_PRESETS[config["performance_preset"]].items()
+        if key not in {"label", "description"}
+    }
+    config = {**preset_values, **config}
+    current = status["effective"]
+    applied = all(str(current.get(key)) == str(value) for key, value in config.items())
+    return {"config": config, "reason": reason, "applied": applied, "cpu_count": cpu_count}
+
+
+def system_performance_snapshot() -> dict:
+    cpu_count = os.cpu_count() or 1
+    load_1m = load_5m = load_15m = None
+    try:
+        load_1m, load_5m, load_15m = os.getloadavg()
+    except Exception:
+        pass
+    return {
+        "platform": platform.system(),
+        "cpu_count": cpu_count,
+        "load_1m": load_1m,
+        "load_5m": load_5m,
+        "load_15m": load_15m,
+        "load_1m_percent": None if load_1m is None else round((float(load_1m) / cpu_count) * 100, 1),
+    }
+
+
+def performance_status() -> dict:
+    runtime = load_runtime_config()
+    effective = effective_performance_config(runtime)
+    hardware = detect_hardware_acceleration()
+    detected_platform = performance_platform_key(hardware.platform)
+    selected_platform = str(effective.get("performance_platform") or "auto")
+    effective_platform = detected_platform if selected_platform == "auto" else selected_platform
+    requested_device = str(effective["whisper_device"])
+    if effective["transcriber_mode"] == "faster_whisper":
+        faster_device = "cpu" if requested_device == "mps" else requested_device
+        resolved_device, resolved_compute = resolve_whisper_runtime(
+            faster_device,
+            str(effective["whisper_compute_type"]),
+            hardware,
+        )
+    else:
+        resolved_device = requested_device
+        if resolved_device == "auto":
+            if effective_platform == "macos":
+                resolved_device = "mps"
+            elif hardware.cuda_available:
+                resolved_device = "cuda"
+            else:
+                resolved_device = "cpu"
+        resolved_compute = "fp16" if resolved_device == "cuda" else "fp32"
+    status = {
+        "presets": [
+            {"key": key, "label": value["label"], "description": value["description"]}
+            for key, value in PERFORMANCE_PRESETS.items()
+        ],
+        "runtime": runtime,
+        "effective": effective,
+        "detected_platform": detected_platform,
+        "effective_platform": effective_platform,
+        "resolved_whisper_runtime": {"device": resolved_device, "compute_type": resolved_compute},
+        "hardware_acceleration": hardware.as_dict(),
+    }
+    status["recommendation"] = recommended_performance_config(status)
+    return status
+
+
 
 
 def create_transcriber():
-    mode = settings.transcriber_mode.lower().strip()
+    performance = effective_performance_config()
+    mode = str(performance["transcriber_mode"]).lower().strip()
+    transcriber_device = performance["whisper_device"]
+    if mode == "faster_whisper" and transcriber_device == "mps":
+        transcriber_device = "auto"
     common = dict(
-        model_name=settings.whisper_model,
-        device=settings.whisper_device,
+        model_name=performance["whisper_model"],
+        device=transcriber_device,
         language=settings.language,
         audio_device=selected_audio_device(),
         sample_rate=settings.sample_rate,
-        chunk_seconds=settings.chunk_seconds,
-        stream_window_seconds=settings.stream_window_seconds,
-        stream_update_interval_seconds=settings.stream_update_interval_seconds,
-        stream_silence_finalise_seconds=settings.stream_silence_finalise_seconds,
+        chunk_seconds=performance["chunk_seconds"],
+        stream_window_seconds=performance["stream_window_seconds"],
+        stream_update_interval_seconds=performance["stream_update_interval_seconds"],
+        stream_silence_finalise_seconds=performance["stream_silence_finalise_seconds"],
         stream_min_rms=settings.stream_min_rms,
-        stream_stability_passes=settings.stream_stability_passes,
+        stream_stability_passes=performance["stream_stability_passes"],
         initial_prompt=settings.whisper_initial_prompt,
     )
     if mode in {"whisper", "openai_whisper", "openai-whisper"}:
         from app.transcription.whisper_live import WhisperLiveTranscriber
-        return WhisperLiveTranscriber(**common, beam_size=settings.whisper_beam_size)
+        return WhisperLiveTranscriber(**common, beam_size=performance["whisper_beam_size"])
     if mode == "faster_whisper":
         from app.transcription.faster_whisper_live import FasterWhisperTranscriber
-        return FasterWhisperTranscriber(**common, compute_type=settings.whisper_compute_type)
+        return FasterWhisperTranscriber(**common, compute_type=performance["whisper_compute_type"])
     raise RuntimeError(
         "Demo/mock captions have been disabled. "
         "Set TRANSCRIBER_MODE=whisper for accuracy-first local Whisper, or faster_whisper for the faster backend."
@@ -481,6 +806,7 @@ async def operator(request: Request, _: None = Depends(require_operator)):
             "operator_password_is_default": auth_config().needs_setup,
             "session_secret_is_default": False,
             "runtime": runtime,
+            "performance": performance_status(),
             "languages": SUPPORTED_LANGUAGES,
             "translation_state": hub.translation_state(),
             "translation_provider": settings.translation_provider,
@@ -510,13 +836,14 @@ async def qr_ip(request: Request):
 
 @app.get("/health")
 async def health():
+    performance = effective_performance_config()
     return {
         "ok": True,
         "status": hub.state().status,
         "app_version": settings.app_version,
         "app_version_label": settings.app_version_label,
         "viewers": hub.viewer_count,
-        "mode": settings.transcriber_mode,
+        "mode": performance["transcriber_mode"],
         "audio_device": selected_audio_device(),
         "sensitive_mode": hub.sensitive_mode,
         "profanity_filter_enabled": bool(load_runtime_config().get("profanity_filter_enabled", True)),
@@ -596,6 +923,48 @@ async def set_audio_device_api(request: Request, _: None = Depends(require_opera
     return {"status": "saved", "audio_device": cfg.get("audio_device")}
 
 
+@app.post("/api/performance/apply-recommended")
+async def apply_recommended_performance(_: None = Depends(require_operator)):
+    recommendation = recommended_performance_config()
+    cfg = set_performance_config(recommendation["config"])
+    status = performance_status()
+    return {"status": "saved", "restart_required": True, "recommendation": status["recommendation"], **status, "runtime": cfg}
+
+
+@app.post("/api/performance")
+async def update_performance(request: Request, _: None = Depends(require_operator)):
+    body = await request.json()
+    preset = str(body.get("performance_preset") or "balanced")
+    if preset in PERFORMANCE_PRESETS:
+        preset_values = {
+            key: value
+            for key, value in PERFORMANCE_PRESETS[preset].items()
+            if key not in {"label", "description"}
+        }
+    else:
+        preset_values = {}
+        preset = "custom"
+
+    cfg = set_performance_config(
+        {
+            **preset_values,
+            "performance_preset": preset,
+            "performance_platform": body.get("performance_platform", "auto"),
+            "transcriber_mode": body.get("transcriber_mode", preset_values.get("transcriber_mode")),
+            "whisper_model": body.get("whisper_model", preset_values.get("whisper_model")),
+            "whisper_device": body.get("whisper_device", preset_values.get("whisper_device")),
+            "whisper_compute_type": body.get("whisper_compute_type", preset_values.get("whisper_compute_type")),
+            "whisper_beam_size": body.get("whisper_beam_size", preset_values.get("whisper_beam_size")),
+            "chunk_seconds": body.get("chunk_seconds", preset_values.get("chunk_seconds")),
+            "stream_window_seconds": body.get("stream_window_seconds", preset_values.get("stream_window_seconds")),
+            "stream_update_interval_seconds": body.get("stream_update_interval_seconds", preset_values.get("stream_update_interval_seconds")),
+            "stream_silence_finalise_seconds": body.get("stream_silence_finalise_seconds", preset_values.get("stream_silence_finalise_seconds")),
+            "stream_stability_passes": body.get("stream_stability_passes", preset_values.get("stream_stability_passes")),
+        }
+    )
+    return {"status": "saved", "restart_required": True, **performance_status(), "runtime": cfg}
+
+
 def _download_headers(filename: str) -> dict[str, str]:
     return {"Content-Disposition": f'attachment; filename="{filename}"'}
 
@@ -624,6 +993,7 @@ async def transcript_json(_: None = Depends(require_operator)):
 @app.get("/api/status")
 async def api_status(_: None = Depends(require_operator)):
     state = hub.state()
+    performance = performance_status()
     return {
         "status": state.status,
         "viewers": state.viewers,
@@ -631,28 +1001,65 @@ async def api_status(_: None = Depends(require_operator)):
         "current": state.current.model_dump(mode="json") if state.current else None,
         "transcript_count": len(hub.final_segments()),
         "metrics": get_metrics(),
+        "system_performance": system_performance_snapshot(),
         "settings": {
-            "model": settings.whisper_model,
-            "transcriber_mode": settings.transcriber_mode,
-            "device": settings.whisper_device,
-            "compute_type": settings.whisper_compute_type,
-            "beam_size": settings.whisper_beam_size,
-            "resolved_whisper_runtime": dict(
-                zip(
-                    ("device", "compute_type"),
-                    resolve_whisper_runtime(settings.whisper_device, settings.whisper_compute_type),
-                )
-            ),
-            "hardware_acceleration": detect_hardware_acceleration().as_dict(),
-            "stream_window_seconds": settings.stream_window_seconds,
-            "stream_update_interval_seconds": settings.stream_update_interval_seconds,
-            "stream_stability_passes": settings.stream_stability_passes,
+            "model": performance["effective"]["whisper_model"],
+            "transcriber_mode": performance["effective"]["transcriber_mode"],
+            "device": performance["effective"]["whisper_device"],
+            "compute_type": performance["effective"]["whisper_compute_type"],
+            "beam_size": performance["effective"]["whisper_beam_size"],
+            "resolved_whisper_runtime": performance["resolved_whisper_runtime"],
+            "hardware_acceleration": performance["hardware_acceleration"],
+            "performance": performance,
+            "stream_window_seconds": performance["effective"]["stream_window_seconds"],
+            "stream_update_interval_seconds": performance["effective"]["stream_update_interval_seconds"],
+            "stream_stability_passes": performance["effective"]["stream_stability_passes"],
             "audio_device": selected_audio_device(),
         },
         "translation": hub.translation_state(),
         "security": security_state(),
         "update": {**update_capability_state(), "state": _update_state},
+        "cuda_runtime": cuda_runtime_capability_state(),
         "profanity_filter_enabled": bool(load_runtime_config().get("profanity_filter_enabled", True)),
+    }
+
+
+@app.post("/api/cuda/check")
+async def check_cuda_runtime(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Check CUDA from the Church Cap computer."},
+            status_code=403,
+        )
+    return {"status": "checked", "hardware_acceleration": refreshed_hardware_status(), "cuda_runtime": cuda_runtime_capability_state()}
+
+
+@app.post("/api/cuda/install")
+async def install_cuda_runtime(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Install CUDA from the Church Cap computer."},
+            status_code=403,
+        )
+    capability = cuda_runtime_capability_state()
+    if not capability["supported"]:
+        return JSONResponse(
+            {"status": "error", "error": "CUDA runtime force reinstall is only available on Windows.", "cuda_runtime": capability},
+            status_code=400,
+        )
+    global _cuda_runtime_install_state
+    if _cuda_runtime_install_state.get("status") == "installing":
+        return {"status": "installing", "cuda_runtime": capability}
+    try:
+        process = await asyncio.to_thread(launch_cuda_runtime_install)
+    except Exception as exc:
+        _cuda_runtime_install_state = {"status": "error", "error": str(exc)}
+        return JSONResponse({"status": "error", "error": str(exc), "cuda_runtime": cuda_runtime_capability_state()}, status_code=500)
+    _cuda_runtime_install_state = {"status": "installing", **process}
+    return {
+        "status": "installing",
+        "message": "CUDA runtime force reinstall started. Restart Church Cap after it finishes, then check CUDA again.",
+        "cuda_runtime": cuda_runtime_capability_state(),
     }
 
 

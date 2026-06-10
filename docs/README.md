@@ -5,7 +5,6 @@ This folder keeps reference material out of the project root.
 ## User Guides
 
 - `user/quick-start.md`
-- `user/Church_Cap_Quick_Start.pdf`
 
 ## Setup And Architecture
 

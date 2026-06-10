@@ -1,22 +1,22 @@
 # Church Cap Quick Start Guide
 
-Version: v.0.2.1 public preview
+Version: v.0.2.2 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
 ## What Church Cap Does
 
-Church Cap listens to one audio input from the church sound desk or USB audio interface. It creates live captions locally on the Mac and shares them over the church Wi-Fi.
+Church Cap listens to one audio input from the church sound desk or USB audio interface. It creates live captions locally on the caption computer and shares them over the church Wi-Fi.
 
 Visitors do not install an app. They scan a QR code and read captions in their browser.
 
 ## What You Need
 
 - An Apple Silicon Mac, or a Windows 10/11 computer. On Windows, setup can offer to install Python 3.12 if Windows Package Manager is available.
-- Church Cap downloaded or copied to the Mac.
+- Church Cap downloaded or copied to the caption computer.
 - Internet access for first setup.
 - A USB audio interface or mixer input from the sound desk.
-- The Mac and audience phones on a network where phones can reach the caption Mac.
+- The caption computer and audience phones on a network where phones can reach Church Cap.
 
 ## First-Time Setup On Mac
 
@@ -24,7 +24,7 @@ Visitors do not install an app. They scan a QR code and read captions in their b
 2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/church_cap_v0.2.1"
+cd "$HOME/Documents/church_cap"
 ```
 
 3. Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -45,7 +45,7 @@ If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes 
 2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap_v0.2.1"
+cd "$HOME\Documents\church_cap"
 ```
 
 3. Run setup.
@@ -56,7 +56,7 @@ cd "$HOME\Documents\church_cap_v0.2.1"
 
 4. Wait for setup to finish, then continue to **Start Church Cap** below.
 
-The setup script installs the local Python environment, app dependencies, Argos translation support/models, and checks CUDA/GPU support. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA runtime files are missing, setup can offer to install local CUDA 12 runtime packages into Church Cap's `.venv`. If CUDA is not ready, Church Cap falls back to CPU.
+The setup script installs the local Python environment, app dependencies, Argos translation support/models, and checks CUDA/GPU support. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
 
 You can also run the optional GPU runtime installer later:
 
@@ -125,11 +125,21 @@ Church microphones -> sound desk -> USB audio interface -> Church Cap Mac
 
 Avoid using the built-in Mac microphone for a church service.
 
+## Tune Caption Speed And Accuracy
+
+In the operator page, use **Performance** on the dashboard.
+
+- Move the slider toward **Fastest** if captions are too delayed or the computer is older.
+- Move the slider toward **Most accurate** if the computer has enough headroom and better wording matters more than delay. The far-right setting uses `medium.en`, which may increase latency.
+- Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS or Windows, but can be changed manually if needed.
+
+Adjustments save automatically. Stop and start captions after changing performance settings because Church Cap loads the AI model when captions start. Use **Run 15s benchmark** during normal speech to estimate live-caption delay and system load, or **Live monitor** to keep measuring while captions run. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
+
 ## Share Captions With Visitors
 
 In the operator page, open **Audience & OBS**.
 
-Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local` address, use the Android/IP fallback QR code.
+Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local` address, use the Android/IP fallback QR code. Each QR code has its own **Download QR** button for printing or service slides.
 
 ## Visitor Caption View
 
@@ -168,7 +178,7 @@ On Windows, it is stored in:
 %APPDATA%\Church Cap\data\
 ```
 
-It should survive Terminal restarts, Mac restarts, and app folder updates.
+It should survive terminal restarts, computer restarts, and app folder updates.
 
 If the operator is locked out:
 
@@ -198,7 +208,7 @@ Wait a few seconds after running `./start-macos.sh`.
 
 ### The audience QR code does not open on a phone
 
-Use the Android/IP fallback QR code on the operator page. Also check that the phone is on the same network and that guest Wi-Fi is allowed to reach the caption Mac.
+Use the Android/IP fallback QR code on the operator page. Also check that the phone is on the same network and that guest Wi-Fi is allowed to reach the caption computer.
 
 ### No audio devices appear
 

@@ -16,6 +16,18 @@ _lock = Lock()
 
 DEFAULTS: dict[str, Any] = {
     "audio_device": None,
+    "performance_preset": "balanced",
+    "performance_platform": "auto",
+    "transcriber_mode": None,
+    "whisper_model": None,
+    "whisper_device": None,
+    "whisper_compute_type": None,
+    "whisper_beam_size": None,
+    "chunk_seconds": None,
+    "stream_window_seconds": None,
+    "stream_update_interval_seconds": None,
+    "stream_silence_finalise_seconds": None,
+    "stream_stability_passes": None,
     "transcript_saving_enabled": True,
     "transcript_retention_minutes": 120,
     "translation_enabled": False,
@@ -58,6 +70,34 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         cfg["translation_enabled"] = bool(cfg["translation_enabled"])
         cfg["profanity_filter_enabled"] = bool(cfg["profanity_filter_enabled"])
         cfg["lock_operator_to_localhost"] = bool(cfg.get("lock_operator_to_localhost", True))
+        if not isinstance(cfg.get("performance_preset"), str) or cfg.get("performance_preset") not in {"fastest", "fast", "balanced", "accurate", "most_accurate", "custom"}:
+            cfg["performance_preset"] = "balanced"
+        if not isinstance(cfg.get("performance_platform"), str) or cfg.get("performance_platform") not in {"auto", "macos", "windows"}:
+            cfg["performance_platform"] = "auto"
+        if cfg.get("transcriber_mode") is not None and (not isinstance(cfg.get("transcriber_mode"), str) or cfg.get("transcriber_mode") not in {"whisper", "faster_whisper"}):
+            cfg["transcriber_mode"] = None
+        if cfg.get("whisper_model") is not None and (not isinstance(cfg.get("whisper_model"), str) or cfg.get("whisper_model") not in {"tiny.en", "base.en", "small.en", "medium.en"}):
+            cfg["whisper_model"] = None
+        if cfg.get("whisper_device") is not None and (not isinstance(cfg.get("whisper_device"), str) or cfg.get("whisper_device") not in {"auto", "cpu", "cuda", "mps"}):
+            cfg["whisper_device"] = None
+        if cfg.get("whisper_compute_type") is not None and (not isinstance(cfg.get("whisper_compute_type"), str) or cfg.get("whisper_compute_type") not in {"auto", "int8", "float16", "float32"}):
+            cfg["whisper_compute_type"] = None
+        for key, default, lower, upper, cast in (
+            ("whisper_beam_size", None, 1, 8, int),
+            ("chunk_seconds", None, 0.5, 6.0, float),
+            ("stream_window_seconds", None, 2.0, 14.0, float),
+            ("stream_update_interval_seconds", None, 0.35, 3.0, float),
+            ("stream_silence_finalise_seconds", None, 0.3, 4.0, float),
+            ("stream_stability_passes", None, 1, 4, int),
+        ):
+            value = cfg.get(key)
+            if value is None or value == "":
+                cfg[key] = default
+                continue
+            try:
+                cfg[key] = max(lower, min(upper, cast(value)))
+            except Exception:
+                cfg[key] = default
         if cfg.get("security_mode") not in {"easy_offline", "secure_operator", "managed_https"}:
             cfg["security_mode"] = "secure_operator"
         allowed = cfg.get("translation_allowed_languages") or ["en"]
@@ -75,6 +115,27 @@ def set_audio_device(device: str | int | None) -> dict[str, Any]:
     if device == "" or device == "default":
         device = None
     cfg["audio_device"] = device
+    return save_runtime_config(cfg)
+
+
+def set_performance_config(config: dict[str, Any]) -> dict[str, Any]:
+    cfg = load_runtime_config()
+    for key in (
+        "performance_preset",
+        "performance_platform",
+        "transcriber_mode",
+        "whisper_model",
+        "whisper_device",
+        "whisper_compute_type",
+        "whisper_beam_size",
+        "chunk_seconds",
+        "stream_window_seconds",
+        "stream_update_interval_seconds",
+        "stream_silence_finalise_seconds",
+        "stream_stability_passes",
+    ):
+        if key in config:
+            cfg[key] = config[key]
     return save_runtime_config(cfg)
 
 

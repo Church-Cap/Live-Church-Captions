@@ -148,12 +148,15 @@ try {
 Write-Host ""
 Write-Host "If CUDA and the required NVIDIA runtime DLLs are available, Church Cap will use device=cuda and compute_type=float16 when WHISPER_DEVICE=auto."
 Write-Host "If CUDA is not available, it will use CPU with int8 compute."
-if ($GpuStatus -and $GpuStatus.nvidia_smi_available -and -not $GpuStatus.cuda_runtime_ready) {
+if ($GpuStatus -and $GpuStatus.nvidia_smi_available -and -not $GpuStatus.cuda_available) {
     Write-Host ""
-    Write-Host "An NVIDIA GPU is visible, but the CUDA 12 runtime files are missing."
-    Write-Host "Church Cap can install local NVIDIA CUDA 12 runtime packages into .venv."
+    Write-Host "An NVIDIA GPU is visible, but CUDA is not ready for faster-whisper."
+    if ($GpuStatus.missing_cuda_libraries -and $GpuStatus.missing_cuda_libraries.Count -gt 0) {
+        Write-Host "Missing CUDA runtime files: $($GpuStatus.missing_cuda_libraries -join ', ')"
+    }
+    Write-Host "Church Cap can install or force reinstall local NVIDIA CUDA 12 runtime packages into .venv."
     Write-Host "This is optional, large, and only affects this Church Cap folder."
-    $installCudaRuntime = Read-Host "Install local CUDA 12 runtime packages now? [y/N]"
+    $installCudaRuntime = Read-Host "Install or force reinstall local CUDA 12 runtime packages now? [y/N]"
     if ($installCudaRuntime -match "^(y|yes)$") {
         & (Join-Path $AppDir "scripts\install-cuda-runtime-windows.ps1")
     } else {

@@ -6,7 +6,7 @@ This document describes the first public GitHub preview.
 
 ## Current Release
 
-Version: `v.0.2.1 public preview`
+Version: `v.0.2.2 public preview`
 
 Status: early public prototype suitable for local testing and pilot churches. It is not a finished compliance-certified product, and churches remain responsible for their own privacy, safeguarding, accessibility, and copyright policies.
 
@@ -65,7 +65,9 @@ app/exporting.py
 
 ### Audio And Transcription
 
-The current transcription implementation uses standard local OpenAI Whisper with a rolling-window approach. It prioritises accuracy and consistency while still supporting partial and final captions. An optional `faster-whisper` backend remains available for installs that prefer lower latency.
+The transcription layer supports standard local OpenAI Whisper and the lower-latency `faster-whisper` backend. Both use a rolling-window approach with partial and final captions. The operator dashboard includes performance presets and advanced controls so churches can choose between lower delay and higher accuracy without editing `.env`.
+
+Performance settings are stored in `runtime_config.json` in the per-user data folder. Saved operator settings override matching `.env` defaults when a new caption session starts. Existing sessions keep their loaded model and stream settings until captions are stopped and started again.
 
 Key files:
 
@@ -73,6 +75,8 @@ Key files:
 app/transcription/whisper_live.py
 app/transcription/faster_whisper_live.py
 app/transcription/base.py
+app/hardware.py
+app/runtime_config.py
 ```
 
 ### Caption Cleanup
@@ -117,6 +121,8 @@ The operator dashboard includes:
 
 - start/stop captions
 - audio input selection
+- performance presets for faster/lower-accuracy through slower/higher-accuracy captioning
+- advanced transcription tuning for backend, model size, CPU/GPU, compute type, refresh interval, listening window, silence timing, stability checks, and beam size
 - microphone level monitor
 - source caption preview
 - sensitive blank/pause mode
@@ -204,6 +210,8 @@ On Windows:
 
 The operator password is stored as a salted PBKDF2 hash. The session secret is stored locally because it is needed to verify signed session cookies. The backup auth file is written from the same data so the app can recover if the primary auth file is lost, corrupted, or left incomplete. These files must not be committed to GitHub.
 
+Runtime settings include the selected audio input, transcript retention, translation, profanity filter, security mode, and performance tuning. Performance changes from the operator dashboard are saved automatically and apply when the next caption session starts.
+
 Older project-local files are migrated from:
 
 ```text
@@ -256,7 +264,7 @@ Before publishing the repository publicly:
   - `update-macos.sh`
   - `scripts/*.sh`
   - `scripts/*.py`
-  - Windows `.cmd` launchers are present for setup, start, password reset, update, and optional CUDA runtime install.
+  - Windows `.cmd` launchers are present for setup, start, password reset, update, and optional CUDA runtime force reinstall.
 - Confirm updater scripts preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, and local config while refreshing app-owned release metadata.
 - Confirm updater scripts validate downloaded ZIPs, required release files, release version, staged Python syntax, and SHA-256 installed-file checksums before reporting success.
 

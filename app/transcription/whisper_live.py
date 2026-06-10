@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import platform
 import re
 import time
 from collections import deque
@@ -20,6 +21,7 @@ import sounddevice as sd
 
 from app.metrics import get_metrics, reset_metrics, update_metrics
 from app.models import CaptionSegment
+from app.text_cleanup import collapse_repeated_phrase
 from app.transcription.base import Transcriber
 
 
@@ -82,11 +84,17 @@ class WhisperLiveTranscriber(Transcriber):
         requested = (device or "auto").lower().strip()
         if requested == "cpu":
             return "cpu"
+        if requested == "cuda":
+            return "cuda"
+        if requested == "mps":
+            return "mps"
         if requested in {"cuda", "auto"}:
             try:
                 import torch
                 if torch.cuda.is_available():
                     return "cuda"
+                if requested == "auto" and platform.system() == "Darwin" and getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                    return "mps"
             except Exception:
                 pass
         return "cpu"
@@ -98,13 +106,14 @@ class WhisperLiveTranscriber(Transcriber):
                 import whisper
                 self._model = whisper.load_model(self.model_name, device=self.device)
             except Exception as exc:
-                if self.device != "cuda":
+                if self.device not in {"cuda", "mps"}:
                     raise
+                failed_device = self.device
                 self.device = "cpu"
                 update_metrics(
                     model_device=self.device,
                     model_compute_type="fp32",
-                    error=f"CUDA model load failed; fell back to CPU: {exc}",
+                    error=f"{failed_device.upper()} model load failed; fell back to CPU: {exc}",
                 )
                 import whisper
                 self._model = whisper.load_model(self.model_name, device=self.device)
@@ -219,6 +228,7 @@ class WhisperLiveTranscriber(Transcriber):
             verbose=False,
         )
         text = " ".join(str(result.get("text") or "").split()).strip()
+        text = collapse_repeated_phrase(text)
         if self._looks_unreliable_result(text, result):
             text = ""
         update_metrics(

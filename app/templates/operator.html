@@ -113,8 +113,6 @@
             </div>
           </article>
 
-          
-
           <article class="operator-panel glass-card wide-card">
             <div class="panel-heading-row">
               <div>
@@ -163,6 +161,169 @@
               <span class="status-pill">Source language</span>
             </div>
             <div id="currentCaption" class="operator-caption premium-caption-preview">Waiting for captions…</div>
+          </article>
+
+          <article class="operator-panel glass-card live-performance-tile meter-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Performance</p>
+                <h2>Current settings</h2>
+              </div>
+              <span class="status-pill" id="livePerformancePreset">{{ performance.effective.performance_label }}</span>
+            </div>
+            <dl class="status-list compact-status-list performance-tile-list">
+              <div><dt>Runtime</dt><dd id="livePerformanceRuntime">Loading…</dd></div>
+              <div><dt>Processor</dt><dd id="livePerformanceProcessor">{{ performance.resolved_whisper_runtime.device }} / {{ performance.resolved_whisper_runtime.compute_type }}</dd></div>
+              <div><dt>Latency</dt><dd id="livePerformanceLatency">—</dd></div>
+            </dl>
+            <p class="muted small-result">Use the Performance panel below to tune speed, accuracy, GPU use, and benchmark results.</p>
+          </article>
+
+          <article class="operator-panel glass-card performance-card full-dashboard-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Performance</p>
+                <h2>Caption speed vs accuracy</h2>
+              </div>
+              <span class="status-pill" id="performanceRuntime">Loading…</span>
+            </div>
+            <div class="performance-slider-row">
+              <span>Fastest</span>
+              <input id="performancePreset" type="range" min="0" max="4" step="1"
+                value="{% if runtime.performance_preset == 'fastest' %}0{% elif runtime.performance_preset == 'fast' %}1{% elif runtime.performance_preset == 'accurate' %}3{% elif runtime.performance_preset == 'most_accurate' %}4{% else %}2{% endif %}"
+                oninput="applyPerformancePreset(Number(this.value))"
+                onchange="savePerformanceSettings({automatic: true})">
+              <span>Most accurate</span>
+            </div>
+            <div class="performance-summary">
+              <strong id="performancePresetTitle">{{ performance.effective.performance_label }}</strong>
+              <span id="performancePresetCopy">{{ performance.effective.performance_description }}</span>
+            </div>
+            <details class="advanced-settings">
+              <summary>More settings</summary>
+              <div class="settings-depth-toggle" role="tablist" aria-label="Performance setting depth">
+                <button type="button" id="performanceEasyMode" class="secondary-button active" onclick="setPerformanceSettingsDepth('easy')" aria-pressed="true">Easy</button>
+                <button type="button" id="performanceAdvancedMode" class="secondary-button" onclick="setPerformanceSettingsDepth('advanced')" aria-pressed="false">Advanced</button>
+              </div>
+              <div class="advanced-grid" id="performanceAdvancedGrid">
+                <label class="easy-setting">
+                  Performance platform
+                  <span class="info-dot" data-tip="Auto uses the operating system detected by Church Cap. Choose macOS or Windows only if the detection is wrong or you are preparing settings for another supported computer.">i</span>
+                  <select id="performancePlatform" onchange="handlePerformancePlatformChanged()">
+                    <option value="auto" {% if performance.effective.performance_platform == 'auto' %}selected{% endif %}>Auto-detect</option>
+                    <option value="macos" {% if performance.effective.performance_platform == 'macos' %}selected{% endif %}>macOS</option>
+                    <option value="windows" {% if performance.effective.performance_platform == 'windows' %}selected{% endif %}>Windows</option>
+                  </select>
+                </label>
+                <label class="easy-setting">
+                  Backend
+                  <span class="info-dot" data-tip="Faster Whisper usually gives lower delay. OpenAI Whisper can use Apple Metal on macOS or CUDA on Windows when the local runtime supports it.">i</span>
+                  <select id="transcriberMode" onchange="handleTranscriberModeChanged()">
+                    <option value="faster_whisper" {% if performance.effective.transcriber_mode == 'faster_whisper' %}selected{% endif %}>Faster Whisper</option>
+                    <option value="whisper" {% if performance.effective.transcriber_mode == 'whisper' %}selected{% endif %}>OpenAI Whisper</option>
+                  </select>
+                </label>
+                <label class="easy-setting">
+                  Model size
+                  <span class="info-dot" data-tip="Tiny is quickest but misses more words. Larger models understand more context but need more CPU/GPU time.">i</span>
+                  <select id="whisperModel" onchange="handleWhisperModelChanged()">
+                    {% for model in ['tiny.en', 'base.en', 'small.en', 'medium.en'] %}
+                    <option value="{{ model }}" {% if performance.effective.whisper_model == model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                  </select>
+                  <p id="mediumModelWarning" class="model-warning" hidden>Medium can improve accuracy, but it may add noticeable delay. Use it on a powerful Mac or Windows GPU system, then run the benchmark or live monitor during real speech.</p>
+                </label>
+                <label class="easy-setting">
+                  <span id="processorLabel">Processor</span>
+                  <span id="processorInfo" class="info-dot" data-tip="Auto chooses the best supported local runtime for this computer.">i</span>
+                  <select id="whisperDevice" data-current="{{ performance.effective.whisper_device }}" onchange="handleWhisperDeviceChanged()"></select>
+                </label>
+                <label class="advanced-setting" hidden>
+                  <span id="computeLabel">Compute mode</span>
+                  <span id="computeInfo" class="info-dot" data-tip="Auto chooses the safest compute mode for the selected backend and processor.">i</span>
+                  <select id="whisperComputeType" data-current="{{ performance.effective.whisper_compute_type }}" onchange="markPerformanceCustom()"></select>
+                </label>
+                <label class="advanced-setting" hidden>
+                  Caption refresh
+                  <span class="info-dot" data-tip="How often Church Cap asks the AI for new words. Lower feels faster but uses more CPU/GPU.">i</span>
+                  <input id="streamUpdateIntervalSeconds" type="number" min="0.35" max="3" step="0.05" value="{{ performance.effective.stream_update_interval_seconds }}" onchange="markPerformanceCustom()">
+                </label>
+                <label class="advanced-setting" hidden>
+                  Listening window
+                  <span class="info-dot" data-tip="How many seconds of recent audio the AI hears each pass. More context can improve accuracy but adds work.">i</span>
+                  <input id="streamWindowSeconds" type="number" min="2" max="14" step="0.25" value="{{ performance.effective.stream_window_seconds }}" onchange="markPerformanceCustom()">
+                </label>
+                <label class="advanced-setting" hidden>
+                  Minimum audio chunk
+                  <span class="info-dot" data-tip="The smallest audio slice used internally. Lower can react faster, but very low values may be less stable.">i</span>
+                  <input id="chunkSeconds" type="number" min="0.5" max="6" step="0.25" value="{{ performance.effective.chunk_seconds }}" onchange="markPerformanceCustom()">
+                </label>
+                <label class="advanced-setting" hidden>
+                  Silence to finalise
+                  <span class="info-dot" data-tip="How long Church Cap waits after speech stops before treating the caption as final.">i</span>
+                  <input id="streamSilenceFinaliseSeconds" type="number" min="0.3" max="4" step="0.05" value="{{ performance.effective.stream_silence_finalise_seconds }}" onchange="markPerformanceCustom()">
+                </label>
+                <label class="advanced-setting" hidden>
+                  Stability checks
+                  <span class="info-dot" data-tip="How many matching passes are needed before a caption is saved as final. Higher reduces jumpy text but adds delay.">i</span>
+                  <input id="streamStabilityPasses" type="number" min="1" max="4" step="1" value="{{ performance.effective.stream_stability_passes }}" onchange="markPerformanceCustom()">
+                </label>
+                <label class="advanced-setting" hidden>
+                  OpenAI Whisper beam
+                  <span class="info-dot" data-tip="Higher beam size can improve original OpenAI Whisper wording but costs more time. Faster Whisper live mode currently prioritises beam size 1.">i</span>
+                  <input id="whisperBeamSize" type="number" min="1" max="8" step="1" value="{{ performance.effective.whisper_beam_size }}" onchange="markPerformanceCustom()">
+                </label>
+              </div>
+            </details>
+            <div class="button-row spacious-actions">
+              <button onclick="savePerformanceSettings()">Save performance</button>
+            </div>
+            <p class="muted">Adjustments are saved automatically. Changes apply the next time captions start, so stop and start captions after tuning performance.</p>
+            <p id="performanceHardware" class="muted small-result">{{ performance.hardware_acceleration.message }}</p>
+            <div id="cudaTroubleshooter" class="cuda-panel" hidden>
+              <div>
+                <strong>Windows CUDA troubleshooting</strong>
+                <p class="muted">Use this if NVIDIA/CUDA is visible on the computer but Church Cap still falls back to CPU. Force reinstall removes cached CUDA runtime wheels and downloads fresh local packages into this Church Cap folder's <code>.venv</code>, so it needs internet access while reinstalling.</p>
+              </div>
+              <div class="button-row spacious-actions">
+                <button type="button" class="secondary-button" onclick="checkCudaRuntime()">Check CUDA</button>
+                <button type="button" class="secondary-button" onclick="installCudaRuntime()">Force reinstall CUDA runtime</button>
+              </div>
+              <p id="cudaResult" class="muted small-result"></p>
+            </div>
+            <div class="recommendation-panel">
+              <div>
+                <strong id="recommendationStatus">Recommended settings: checking…</strong>
+                <p id="recommendationReason" class="muted">Church Cap can recommend settings using only this computer's local hardware/runtime information.</p>
+              </div>
+              <button type="button" class="secondary-button" onclick="applyRecommendedSettings()">Apply recommended</button>
+            </div>
+            <p id="performanceResult" class="muted small-result"></p>
+            <div class="benchmark-panel">
+              <div class="panel-heading-row benchmark-heading-row">
+                <div>
+                  <p class="eyebrow">Benchmark</p>
+                  <h3>Latency and system performance</h3>
+                </div>
+                <span class="status-pill" id="benchmarkStatus">Ready</span>
+              </div>
+              <div class="button-row spacious-actions">
+                <button type="button" onclick="startBenchmark(15)">Run 15s benchmark</button>
+                <button type="button" class="secondary-button" onclick="startBenchmark(null)">Live monitor</button>
+                <button type="button" class="secondary-button" onclick="stopBenchmark(true)">Stop</button>
+              </div>
+              <dl class="benchmark-grid">
+                <div><dt>Transcription</dt><dd id="benchmarkTranscription">—</dd></div>
+                <div><dt>Live delay</dt><dd id="benchmarkLiveDelay">—</dd></div>
+                <div><dt>Final delay</dt><dd id="benchmarkFinalDelay">—</dd></div>
+                <div><dt>Throughput</dt><dd id="benchmarkThroughput">—</dd></div>
+                <div><dt>Audio level</dt><dd id="benchmarkAudio">—</dd></div>
+                <div><dt>System load</dt><dd id="benchmarkSystem">—</dd></div>
+                <div><dt>Model load</dt><dd id="benchmarkModelLoad">—</dd></div>
+                <div><dt>Runtime</dt><dd id="benchmarkRuntime">—</dd></div>
+              </dl>
+              <p id="benchmarkResult" class="muted small-result"></p>
+            </div>
           </article>
         </div>
       </section>
@@ -249,12 +410,14 @@
                 <img src="/qr.png" alt="QR code for live captions using local hostname">
                 <p class="address-line"><span class="tiny-label">Hostname</span><code>{{ detected_hostname }}</code></p>
                 <p><a href="{{ caption_url }}">{{ caption_url }}</a></p>
+                <a class="button-link secondary-button qr-download-button" href="/qr.png" download="church-cap-hostname-qr.png">Download QR</a>
               </div>
               <div class="qr-mini-card">
                 <p class="tiny-label">Android / guest Wi‑Fi fallback</p>
                 <img src="/qr-ip.png" alt="Fallback QR code for live captions using IP address">
                 <p class="address-line"><span class="tiny-label">Direct IP</span><code>{{ caption_ip_url }}</code></p>
                 <p><a href="{{ caption_ip_url }}">{{ caption_ip_url }}</a></p>
+                <a class="button-link secondary-button qr-download-button" href="/qr-ip.png" download="church-cap-ip-fallback-qr.png">Download QR</a>
               </div>
             </div>
             <p class="muted">Use the hostname QR first. If some Android phones cannot open <code>.local</code>, use the IP fallback QR or configure router DNS/mDNS forwarding.</p>
@@ -376,7 +539,7 @@
         </div>
       </section>
 
-      <section class="operator-section" id="operator-section-updates" data-title="Updates" data-description="Check GitHub for a newer Church Cap release and restart into it.">
+      <section class="operator-section" id="operator-section-updates" data-title="Updates" data-description="Check for a newer Church Cap release and install it safely.">
         <div class="operator-grid two-card-grid">
           <article class="operator-panel glass-card wide-card">
             <div class="panel-heading-row">
@@ -502,8 +665,512 @@
       applyOperatorTheme(current === 'light' ? 'dark' : 'light', {persist: true});
     }
 
+    const performancePresetKeys = ['fastest', 'fast', 'balanced', 'accurate', 'most_accurate'];
+    const performancePresets = {
+      fastest: {
+        label: 'Fastest, less accurate',
+        description: 'Lowest delay for older PCs. Best for testing or slower hardware.',
+        transcriber_mode: 'faster_whisper',
+        whisper_model: 'tiny.en',
+        whisper_compute_type: 'auto',
+        whisper_beam_size: 1,
+        chunk_seconds: 1.0,
+        stream_window_seconds: 3.5,
+        stream_update_interval_seconds: 0.6,
+        stream_silence_finalise_seconds: 0.8,
+        stream_stability_passes: 1
+      },
+      fast: {
+        label: 'Fast',
+        description: 'Quick captions with better wording than tiny on most speech.',
+        transcriber_mode: 'faster_whisper',
+        whisper_model: 'base.en',
+        whisper_compute_type: 'auto',
+        whisper_beam_size: 1,
+        chunk_seconds: 1.25,
+        stream_window_seconds: 4.5,
+        stream_update_interval_seconds: 0.8,
+        stream_silence_finalise_seconds: 1.0,
+        stream_stability_passes: 1
+      },
+      balanced: {
+        label: 'Balanced',
+        description: 'Recommended starting point for live church services.',
+        transcriber_mode: 'faster_whisper',
+        whisper_model: 'base.en',
+        whisper_compute_type: 'auto',
+        whisper_beam_size: 1,
+        chunk_seconds: 1.5,
+        stream_window_seconds: 6.0,
+        stream_update_interval_seconds: 1.0,
+        stream_silence_finalise_seconds: 1.25,
+        stream_stability_passes: 2
+      },
+      accurate: {
+        label: 'Accurate',
+        description: 'More context and stability, with a little more delay.',
+        transcriber_mode: 'faster_whisper',
+        whisper_model: 'small.en',
+        whisper_compute_type: 'auto',
+        whisper_beam_size: 1,
+        chunk_seconds: 2.0,
+        stream_window_seconds: 8.0,
+        stream_update_interval_seconds: 1.2,
+        stream_silence_finalise_seconds: 1.45,
+        stream_stability_passes: 2
+      },
+      most_accurate: {
+        label: 'Slowest, most accurate',
+        description: 'Uses the medium Whisper model. Best for powerful systems; benchmark it before relying on it live.',
+        transcriber_mode: 'whisper',
+        whisper_model: 'medium.en',
+        whisper_compute_type: 'auto',
+        whisper_beam_size: 5,
+        chunk_seconds: 2.0,
+        stream_window_seconds: 10.0,
+        stream_update_interval_seconds: 1.5,
+        stream_silence_finalise_seconds: 1.7,
+        stream_stability_passes: 2
+      }
+    };
+    let performancePresetKey = '{{ runtime.performance_preset or "balanced" }}';
+    if (!performancePresets[performancePresetKey] && performancePresetKey !== 'custom') performancePresetKey = 'balanced';
+    let performanceSaveTimer = null;
+    const detectedPerformancePlatform = '{{ performance.detected_platform }}';
+    let benchmarkRunning = false;
+    let benchmarkDurationSeconds = 15;
+    let benchmarkStartedAt = 0;
+    let benchmarkSamples = [];
+
+    function setControlValue(id, value) {
+      const el = document.getElementById(id);
+      if (el && value !== undefined && value !== null) {
+        el.value = value;
+        el.dataset.current = value;
+      }
+    }
+
+    function platformChoice() {
+      const selected = document.getElementById('performancePlatform')?.value || 'auto';
+      if (selected !== 'auto') return selected;
+      return ['macos', 'windows'].includes(detectedPerformancePlatform) ? detectedPerformancePlatform : 'unsupported';
+    }
+
+    function setPerformanceSettingsDepth(mode) {
+      const depth = mode === 'advanced' ? 'advanced' : 'easy';
+      localStorage.setItem('performanceSettingsDepth', depth);
+      const grid = document.getElementById('performanceAdvancedGrid');
+      if (grid) grid.dataset.depth = depth;
+      document.querySelectorAll('.advanced-setting').forEach((setting) => {
+        setting.hidden = depth !== 'advanced';
+      });
+      const easyButton = document.getElementById('performanceEasyMode');
+      const advancedButton = document.getElementById('performanceAdvancedMode');
+      if (easyButton) {
+        easyButton.classList.toggle('active', depth === 'easy');
+        easyButton.setAttribute('aria-pressed', depth === 'easy' ? 'true' : 'false');
+      }
+      if (advancedButton) {
+        advancedButton.classList.toggle('active', depth === 'advanced');
+        advancedButton.setAttribute('aria-pressed', depth === 'advanced' ? 'true' : 'false');
+      }
+    }
+
+    function setSelectOptions(select, options, preferred) {
+      if (!select) return;
+      const allowed = new Set(options.map((option) => option.value));
+      const nextValue = allowed.has(preferred) ? preferred : options[0]?.value;
+      select.innerHTML = '';
+      for (const optionData of options) {
+        const option = document.createElement('option');
+        option.value = optionData.value;
+        option.textContent = optionData.label;
+        select.appendChild(option);
+      }
+      select.value = nextValue || '';
+      select.dataset.current = select.value;
+    }
+
+    function updatePlatformControls({markCustom = false} = {}) {
+      const platform = platformChoice();
+      const cudaTroubleshooter = document.getElementById('cudaTroubleshooter');
+      if (cudaTroubleshooter) cudaTroubleshooter.hidden = platform !== 'windows';
+      const deviceSelect = document.getElementById('whisperDevice');
+      const computeSelect = document.getElementById('whisperComputeType');
+      const processorInfo = document.getElementById('processorInfo');
+      const computeInfo = document.getElementById('computeInfo');
+      const currentDevice = deviceSelect?.dataset.current || deviceSelect?.value || 'auto';
+      const currentCompute = computeSelect?.dataset.current || computeSelect?.value || 'auto';
+      let deviceOptions = [
+        {value: 'auto', label: 'Auto'},
+        {value: 'cpu', label: 'CPU only'}
+      ];
+      let computeOptions = [
+        {value: 'auto', label: 'Auto'},
+        {value: 'int8', label: 'CPU efficient / int8'},
+        {value: 'float32', label: 'CPU precise / float32'}
+      ];
+      if (platform === 'windows') {
+        deviceOptions = [
+          {value: 'auto', label: 'Auto'},
+          {value: 'cuda', label: 'GPU / NVIDIA CUDA'},
+          {value: 'cpu', label: 'CPU only'}
+        ];
+        computeOptions = [
+          {value: 'auto', label: 'Auto'},
+          {value: 'int8', label: 'CPU efficient / int8'},
+          {value: 'float16', label: 'GPU fast / float16'},
+          {value: 'float32', label: 'CPU precise / float32'}
+        ];
+        if (processorInfo) processorInfo.dataset.tip = 'Auto uses CUDA for Faster Whisper when CTranslate2 can see an NVIDIA GPU and required runtime files. GPU forces a CUDA attempt first.';
+        if (computeInfo) computeInfo.dataset.tip = 'Auto uses float16 on CUDA and int8 on CPU for Faster Whisper. The built-in CUDA runtime installer is for Faster Whisper/CTranslate2, not PyTorch/OpenAI Whisper.';
+      } else if (platform === 'macos') {
+        deviceOptions = [
+          {value: 'auto', label: 'Auto'},
+          {value: 'mps', label: 'Apple GPU / Metal'},
+          {value: 'cpu', label: 'CPU only'}
+        ];
+        if (processorInfo) processorInfo.dataset.tip = 'Auto can use Apple Metal/MPS with OpenAI Whisper when PyTorch supports it. Faster Whisper uses CPU on macOS in this app.';
+        if (computeInfo) computeInfo.dataset.tip = 'On macOS, Faster Whisper normally uses CPU-efficient int8. Apple Metal/MPS uses OpenAI Whisper and does not need CUDA float16 settings.';
+      } else {
+        if (processorInfo) processorInfo.dataset.tip = 'This operating system is not an official Church Cap target. Choose macOS or Windows if you are preparing settings for a supported computer.';
+        if (computeInfo) computeInfo.dataset.tip = 'Auto chooses a safe CPU compute mode when the detected operating system is not an official Church Cap target.';
+      }
+      setSelectOptions(deviceSelect, deviceOptions, currentDevice);
+      setSelectOptions(computeSelect, computeOptions, currentCompute);
+      if (markCustom) markPerformanceCustom();
+    }
+
+    function handlePerformancePlatformChanged() {
+      updatePlatformControls({markCustom: true});
+    }
+
+    function handleTranscriberModeChanged() {
+      const mode = document.getElementById('transcriberMode')?.value;
+      const device = document.getElementById('whisperDevice')?.value;
+      if (mode === 'faster_whisper' && device === 'mps') {
+        setControlValue('whisperDevice', 'auto');
+        updatePlatformControls();
+      }
+      markPerformanceCustom();
+    }
+
+    function handleWhisperDeviceChanged() {
+      const device = document.getElementById('whisperDevice')?.value;
+      if (device === 'mps') {
+        setControlValue('transcriberMode', 'whisper');
+      }
+      markPerformanceCustom();
+    }
+
+    function updateModelWarning() {
+      const warning = document.getElementById('mediumModelWarning');
+      const model = document.getElementById('whisperModel')?.value;
+      if (warning) warning.hidden = model !== 'medium.en';
+    }
+
+    function handleWhisperModelChanged() {
+      updateModelWarning();
+      markPerformanceCustom();
+    }
+
+    function updatePerformanceCopy(key) {
+      const preset = performancePresets[key] || {label: 'Custom', description: 'Advanced settings chosen by the operator.'};
+      const title = document.getElementById('performancePresetTitle');
+      const copy = document.getElementById('performancePresetCopy');
+      if (title) title.textContent = preset.label;
+      if (copy) copy.textContent = preset.description;
+    }
+
+    function syncPerformancePresetSlider(key) {
+      const slider = document.getElementById('performancePreset');
+      const index = performancePresetKeys.indexOf(key);
+      if (slider && index >= 0) {
+        slider.value = String(index);
+        slider.dataset.current = key;
+      }
+    }
+
+    function applyPerformancePreset(index, {autosave = true} = {}) {
+      const key = performancePresetKeys[index] || 'balanced';
+      const preset = performancePresets[key];
+      performancePresetKey = key;
+      syncPerformancePresetSlider(key);
+      updatePerformanceCopy(key);
+      if (!preset) return;
+      const windowsMedium = key === 'most_accurate' && platformChoice() === 'windows';
+      setControlValue('transcriberMode', windowsMedium ? 'faster_whisper' : preset.transcriber_mode);
+      setControlValue('whisperModel', preset.whisper_model);
+      updateModelWarning();
+      setControlValue('whisperComputeType', preset.whisper_compute_type);
+      updatePlatformControls();
+      setControlValue('whisperBeamSize', windowsMedium ? 1 : preset.whisper_beam_size);
+      setControlValue('chunkSeconds', preset.chunk_seconds);
+      setControlValue('streamWindowSeconds', preset.stream_window_seconds);
+      setControlValue('streamUpdateIntervalSeconds', preset.stream_update_interval_seconds);
+      setControlValue('streamSilenceFinaliseSeconds', preset.stream_silence_finalise_seconds);
+      setControlValue('streamStabilityPasses', preset.stream_stability_passes);
+      if (autosave) schedulePerformanceSave();
+    }
+
+    function markPerformanceCustom() {
+      performancePresetKey = 'custom';
+      updatePerformanceCopy('custom');
+      schedulePerformanceSave();
+    }
+
+    function numberValue(id) {
+      const el = document.getElementById(id);
+      return el ? Number(el.value) : null;
+    }
+
+    function schedulePerformanceSave() {
+      const result = document.getElementById('performanceResult');
+      if (result) result.textContent = 'Saving performance settings…';
+      if (performanceSaveTimer) clearTimeout(performanceSaveTimer);
+      performanceSaveTimer = setTimeout(() => {
+        performanceSaveTimer = null;
+        savePerformanceSettings({automatic: true});
+      }, 650);
+    }
+
+    function renderCudaRuntime(cudaRuntime) {
+      const result = document.getElementById('cudaResult');
+      if (!result || !cudaRuntime) return;
+      const state = cudaRuntime.state || {};
+      if (state.status === 'installing') {
+        result.textContent = `CUDA runtime force reinstall is running. Log: ${state.log || cudaRuntime.log || 'logs/cuda-runtime-install.log'}. Restart Church Cap when it finishes.`;
+      } else if (state.status === 'complete') {
+        result.textContent = state.message || 'CUDA runtime force reinstall finished. Restart Church Cap, then check CUDA again.';
+      } else if (state.status === 'error') {
+        result.textContent = state.error || 'CUDA runtime force reinstall could not start.';
+      }
+    }
+
+    async function checkCudaRuntime() {
+      const result = document.getElementById('cudaResult');
+      if (result) result.textContent = 'Checking CUDA status…';
+      const res = await fetch('/api/cuda/check', {method: 'POST'});
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Could not check CUDA.';
+        return;
+      }
+      const hardware = document.getElementById('performanceHardware');
+      if (hardware) hardware.textContent = data.hardware_acceleration?.message || '';
+      if (result) result.textContent = data.hardware_acceleration?.message || 'CUDA status checked.';
+      renderCudaRuntime(data.cuda_runtime);
+      refreshStatus();
+    }
+
+    async function installCudaRuntime() {
+      const result = document.getElementById('cudaResult');
+      if (result) result.textContent = 'Starting CUDA runtime force reinstall…';
+      const res = await fetch('/api/cuda/install', {method: 'POST'});
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Could not start CUDA runtime force reinstall.';
+        return;
+      }
+      if (result) result.textContent = data.message || 'CUDA runtime force reinstall started. Restart Church Cap after it finishes.';
+      renderCudaRuntime(data.cuda_runtime);
+      refreshStatus();
+    }
+
+    async function savePerformanceSettings({automatic = false} = {}) {
+      if (performanceSaveTimer) {
+        clearTimeout(performanceSaveTimer);
+        performanceSaveTimer = null;
+      }
+      const result = document.getElementById('performanceResult');
+      const body = {
+        performance_preset: performancePresetKey,
+        performance_platform: document.getElementById('performancePlatform')?.value || 'auto',
+        transcriber_mode: document.getElementById('transcriberMode')?.value,
+        whisper_model: document.getElementById('whisperModel')?.value,
+        whisper_device: document.getElementById('whisperDevice')?.value,
+        whisper_compute_type: document.getElementById('whisperComputeType')?.value,
+        whisper_beam_size: numberValue('whisperBeamSize'),
+        chunk_seconds: numberValue('chunkSeconds'),
+        stream_window_seconds: numberValue('streamWindowSeconds'),
+        stream_update_interval_seconds: numberValue('streamUpdateIntervalSeconds'),
+        stream_silence_finalise_seconds: numberValue('streamSilenceFinaliseSeconds'),
+        stream_stability_passes: numberValue('streamStabilityPasses')
+      };
+      const res = await fetch('/api/performance', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Unable to save performance settings.';
+        return;
+      }
+      if (result) result.textContent = automatic
+        ? 'Saved automatically. Stop and start captions to use the new performance settings.'
+        : 'Saved. Stop and start captions to use the new performance settings.';
+      const hardware = document.getElementById('performanceHardware');
+      if (hardware) hardware.textContent = data.hardware_acceleration?.message || '';
+      refreshStatus();
+    }
+
+    function average(values) {
+      const filtered = values.filter((value) => Number.isFinite(value));
+      if (!filtered.length) return null;
+      return filtered.reduce((sum, value) => sum + value, 0) / filtered.length;
+    }
+
+    function formatSeconds(value) {
+      return Number.isFinite(value) ? `${value.toFixed(2)}s` : '—';
+    }
+
+    function benchmarkSampleFromStatus(data) {
+      const metrics = data.metrics || {};
+      const settings = data.settings || {};
+      const system = data.system_performance || {};
+      return {
+        at: Date.now(),
+        status: data.status || 'unknown',
+        transcriptionSeconds: metrics.last_transcription_seconds == null ? null : Number(metrics.last_transcription_seconds),
+        completed: Number(metrics.transcriptions_completed || 0),
+        audioRms: Number(metrics.audio_rms || 0),
+        audioPeak: Number(metrics.audio_peak || 0),
+        modelLoaded: !!metrics.model_loaded,
+        modelLoadSeconds: metrics.model_load_seconds == null ? null : Number(metrics.model_load_seconds),
+        backend: settings.transcriber_mode || 'unknown',
+        model: settings.model || 'unknown',
+        device: metrics.model_device || settings.resolved_whisper_runtime?.device || settings.device || 'auto',
+        compute: metrics.model_compute_type || settings.resolved_whisper_runtime?.compute_type || settings.compute_type || 'auto',
+        updateInterval: Number(settings.stream_update_interval_seconds || 0),
+        silenceFinalise: Number(settings.stream_silence_finalise_seconds || 0),
+        stabilityPasses: Number(settings.stream_stability_passes || 1),
+        loadPercent: system.load_1m_percent == null ? null : Number(system.load_1m_percent),
+        cpuCount: Number(system.cpu_count || 0)
+      };
+    }
+
+    function renderBenchmark({finished = false, cancelled = false} = {}) {
+      const status = document.getElementById('benchmarkStatus');
+      const result = document.getElementById('benchmarkResult');
+      const elapsed = benchmarkStartedAt ? Math.max(0, (Date.now() - benchmarkStartedAt) / 1000) : 0;
+      const samples = benchmarkSamples;
+      const latest = samples[samples.length - 1] || null;
+      if (status) {
+        if (benchmarkRunning) status.textContent = benchmarkDurationSeconds ? `${Math.min(benchmarkDurationSeconds, Math.round(elapsed))}/${benchmarkDurationSeconds}s` : `Live · ${Math.round(elapsed)}s`;
+        else status.textContent = cancelled ? 'Stopped' : (samples.length ? 'Complete' : 'Ready');
+      }
+      if (!latest) {
+        if (result) result.textContent = 'Start captions, then run the benchmark during normal speech for the most useful result.';
+        return;
+      }
+      const transcriptionValues = samples.map((sample) => sample.transcriptionSeconds);
+      const validTranscriptions = transcriptionValues.filter((value) => Number.isFinite(value));
+      const avgTranscription = average(transcriptionValues);
+      const maxTranscription = validTranscriptions.length ? Math.max(...validTranscriptions) : null;
+      const avgAudio = average(samples.map((sample) => Math.min(100, Math.round((sample.audioRms / 0.06) * 100))));
+      const avgLoad = average(samples.map((sample) => sample.loadPercent));
+      const firstCompleted = samples[0]?.completed || 0;
+      const lastCompleted = latest.completed || 0;
+      const throughputWindow = Math.max(1, (latest.at - samples[0].at) / 1000);
+      const throughput = Math.max(0, (lastCompleted - firstCompleted) / throughputWindow);
+      const updateInterval = latest.updateInterval || 0;
+      const stabilityDelay = Math.max(0, (latest.stabilityPasses || 1) - 1) * updateInterval;
+      const liveDelay = avgTranscription == null ? null : avgTranscription + updateInterval;
+      const finalDelay = avgTranscription == null ? null : avgTranscription + updateInterval + latest.silenceFinalise + stabilityDelay;
+      const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+      };
+      setText('benchmarkTranscription', avgTranscription == null ? 'Waiting for transcription' : `avg ${formatSeconds(avgTranscription)} · max ${formatSeconds(maxTranscription)}`);
+      setText('benchmarkLiveDelay', liveDelay == null ? '—' : `about ${formatSeconds(liveDelay)}`);
+      setText('benchmarkFinalDelay', finalDelay == null ? '—' : `about ${formatSeconds(finalDelay)}`);
+      setText('benchmarkThroughput', `${throughput.toFixed(2)} AI pass(es)/sec`);
+      setText('benchmarkAudio', avgAudio == null ? '—' : `avg ${Math.round(avgAudio)}% · peak ${Math.round(Math.min(100, (latest.audioPeak / 0.12) * 100))}%`);
+      setText('benchmarkSystem', avgLoad == null ? `${latest.cpuCount || '—'} CPU core(s)` : `load ${avgLoad.toFixed(0)}% · ${latest.cpuCount || '—'} core(s)`);
+      setText('benchmarkModelLoad', latest.modelLoadSeconds == null ? (latest.modelLoaded ? 'Loaded' : 'Not loaded') : formatSeconds(latest.modelLoadSeconds));
+      setText('benchmarkRuntime', `${latest.backend === 'faster_whisper' ? 'Faster Whisper' : 'OpenAI Whisper'} · ${latest.model} · ${latest.device}/${latest.compute}`);
+      if (result) {
+        if (benchmarkRunning) result.textContent = benchmarkDurationSeconds ? 'Benchmark running. Speak normally into the selected audio input.' : 'Live monitor running while captions continue. Stop it when you have enough samples.';
+        else if (cancelled) result.textContent = 'Benchmark stopped. Results use the samples collected so far.';
+        else if (finished) result.textContent = 'Benchmark complete. Use this as a practical estimate, not a lab-grade measurement.';
+      }
+    }
+
+    function updateBenchmarkFromStatus(data) {
+      if (!benchmarkRunning) return;
+      benchmarkSamples.push(benchmarkSampleFromStatus(data));
+      renderBenchmark();
+      if (benchmarkDurationSeconds && (Date.now() - benchmarkStartedAt) >= benchmarkDurationSeconds * 1000) {
+        stopBenchmark(false);
+      }
+    }
+
+    async function startBenchmark(durationSeconds = 15) {
+      benchmarkRunning = true;
+      benchmarkDurationSeconds = durationSeconds;
+      benchmarkStartedAt = Date.now();
+      benchmarkSamples = [];
+      renderBenchmark();
+      await refreshStatus();
+    }
+
+    function stopBenchmark(cancelled = false) {
+      if (!benchmarkRunning && !benchmarkSamples.length) {
+        renderBenchmark({cancelled});
+        return;
+      }
+      benchmarkRunning = false;
+      renderBenchmark({finished: !cancelled, cancelled});
+    }
+
+    function renderRecommendation(recommendation) {
+      const status = document.getElementById('recommendationStatus');
+      const reason = document.getElementById('recommendationReason');
+      if (!recommendation) return;
+      if (status) status.textContent = recommendation.applied ? 'Recommended settings: applied' : 'Recommended settings available';
+      if (reason) reason.textContent = recommendation.reason || '';
+    }
+
+    async function applyRecommendedSettings() {
+      const result = document.getElementById('performanceResult');
+      const res = await fetch('/api/performance/apply-recommended', {method: 'POST'});
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Unable to apply recommended settings.';
+        return;
+      }
+      if (result) result.textContent = 'Recommended settings applied. Stop and start captions to use them.';
+      const effective = data.effective || data.recommendation?.config || {};
+      performancePresetKey = effective.performance_preset || performancePresetKey;
+      syncPerformancePresetSlider(performancePresetKey);
+      setControlValue('performancePlatform', effective.performance_platform || 'auto');
+      setControlValue('transcriberMode', effective.transcriber_mode);
+      setControlValue('whisperModel', effective.whisper_model);
+      updateModelWarning();
+      setControlValue('whisperDevice', effective.whisper_device);
+      setControlValue('whisperComputeType', effective.whisper_compute_type);
+      setControlValue('whisperBeamSize', effective.whisper_beam_size);
+      setControlValue('chunkSeconds', effective.chunk_seconds);
+      setControlValue('streamWindowSeconds', effective.stream_window_seconds);
+      setControlValue('streamUpdateIntervalSeconds', effective.stream_update_interval_seconds);
+      setControlValue('streamSilenceFinaliseSeconds', effective.stream_silence_finalise_seconds);
+      setControlValue('streamStabilityPasses', effective.stream_stability_passes);
+      updatePerformanceCopy(performancePresetKey);
+      updatePlatformControls();
+      renderRecommendation(data.recommendation);
+      refreshStatus();
+    }
+
     async function api(path) {
       const result = document.getElementById('apiResult');
+      if (path === '/api/start' && performanceSaveTimer) {
+        await savePerformanceSettings({automatic: true});
+      }
       const res = await fetch(path, { method: 'POST' });
       if (res.status === 401) { location.href = '/login'; return; }
       const data = await res.json();
@@ -813,9 +1480,26 @@
         const runtimeDevice = data.metrics?.model_device || runtime.device || data.settings?.device || 'auto';
         const runtimeCompute = data.metrics?.model_compute_type || runtime.compute_type || data.settings?.compute_type || 'auto';
         const runtimeText = `${runtimeDevice} / ${runtimeCompute}`;
-        document.getElementById('modelStatus').textContent = `${data.settings?.model || '—'} · ${data.metrics?.model_loaded ? 'loaded' : 'not loaded'} · ${runtimeText}`;
+        const backendText = data.settings?.transcriber_mode === 'faster_whisper' ? 'Faster Whisper' : 'OpenAI Whisper';
+        document.getElementById('modelStatus').textContent = `${backendText} · ${data.settings?.model || '—'} · ${data.metrics?.model_loaded ? 'loaded' : 'not loaded'} · ${runtimeText}`;
+        const perfRuntime = document.getElementById('performanceRuntime');
+        const runtimeSummary = `${backendText} · ${data.settings?.model || '—'} · ${runtimeText}`;
+        if (perfRuntime) perfRuntime.textContent = runtimeSummary;
+        const liveRuntime = document.getElementById('livePerformanceRuntime');
+        if (liveRuntime) liveRuntime.textContent = `${backendText} · ${data.settings?.model || '—'}`;
+        const liveProcessor = document.getElementById('livePerformanceProcessor');
+        if (liveProcessor) liveProcessor.textContent = runtimeText;
+        const livePreset = document.getElementById('livePerformancePreset');
+        if (livePreset) livePreset.textContent = data.settings?.performance?.effective?.performance_label || 'Custom';
+        const perfHardware = document.getElementById('performanceHardware');
+        if (perfHardware && data.settings?.hardware_acceleration?.message) perfHardware.textContent = data.settings.hardware_acceleration.message;
+        renderRecommendation(data.settings?.performance?.recommendation);
+        renderCudaRuntime(data.cuda_runtime);
         const latency = data.metrics?.last_transcription_seconds;
-        document.getElementById('transcriptionLatency').textContent = latency == null ? '—' : `${latency.toFixed(2)}s`;
+        const latencyText = latency == null ? '—' : `${latency.toFixed(2)}s`;
+        document.getElementById('transcriptionLatency').textContent = latencyText;
+        const liveLatency = document.getElementById('livePerformanceLatency');
+        if (liveLatency) liveLatency.textContent = latencyText;
         const inputText = data.settings?.audio_device ?? 'system default';
         document.getElementById('selectedInputPill').textContent = inputText;
         const profanityFilterStatus = document.getElementById('profanityFilterStatus');
@@ -824,6 +1508,7 @@
         if (profanityFilterEnabled) profanityFilterEnabled.checked = !!data.profanity_filter_enabled;
         renderUpdateCapability(data.update);
         updateTranscriptExportButtons(data.transcript_count);
+        updateBenchmarkFromStatus(data);
       } catch (_) {}
     }
 
@@ -848,6 +1533,9 @@
       if (operatorThemePreference() === 'system') applyOperatorTheme('system');
     });
 
+    updatePlatformControls();
+    updateModelWarning();
+    setPerformanceSettingsDepth(localStorage.getItem('performanceSettingsDepth') || 'easy');
     applyOperatorTheme(operatorThemePreference());
     setSidebarCollapsed(localStorage.getItem('operatorSidebarCollapsed') === 'true');
     showOperatorSection(localStorage.getItem('operatorSection') || 'dashboard');

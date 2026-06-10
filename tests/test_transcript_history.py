@@ -78,6 +78,21 @@ class TranscriptHistoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(hub.final_segments(), [])
             self.assertTrue((root / "transcript.json.enc").exists() or (root / "transcript.json").exists())
 
+    async def test_repeated_phrase_loop_is_trimmed_from_session_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.make_store(root)
+            hub = CaptionHub(history_limit=10, retention_minutes=60, transcript_saving_enabled=True, transcript_store=store)
+            phrase = "So, when Jesus meets Simon, the Bible is made by the Bible."
+            repeated = " ".join([phrase] * 5)
+
+            await hub.publish(CaptionSegment(text=repeated, is_final=False, created_at=datetime.now(timezone.utc)))
+            await hub.publish(CaptionSegment(text=repeated, is_final=True, created_at=datetime.now(timezone.utc)))
+
+            texts = [seg.text for seg in hub.final_segments()]
+            self.assertEqual(texts, [phrase.rstrip(".")])
+
+
     async def test_sensitive_mode_discards_private_and_buffered_transcript_text(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -72,7 +72,25 @@ def _dll_exists_on_path(name: str) -> bool:
         if not item:
             continue
         try:
-            if (os.path.exists(os.path.join(item, name))):
+            if os.path.exists(os.path.join(item, name)):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _dll_pattern_exists_on_path(pattern: str) -> bool:
+    for item in _python_cuda_dll_dirs():
+        try:
+            if any(item.glob(pattern)):
+                return True
+        except OSError:
+            continue
+    for item in os.environ.get("PATH", "").split(os.pathsep):
+        if not item:
+            continue
+        try:
+            if any(Path(item).glob(pattern)):
                 return True
         except OSError:
             continue
@@ -142,9 +160,12 @@ def _cuda_runtime_status(system_name: str) -> tuple[bool, list[str]]:
         return True, []
 
     # CTranslate2's Windows CUDA backend needs NVIDIA runtime DLLs available
-    # on PATH. Without cublas64_12.dll, model loading fails with a caption error.
+    # on PATH. Missing cuBLAS or cuDNN DLLs can make model loading fail even when
+    # the NVIDIA driver and CUDA device are visible.
     required = ["cublas64_12.dll"]
     missing = [name for name in required if not _dll_exists_on_path(name)]
+    if not _dll_pattern_exists_on_path("cudnn*.dll"):
+        missing.append("cudnn*.dll")
     return not missing, missing
 
 

@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v.0.2.1 public preview**
+Version: **v.0.2.2 public preview**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -15,7 +15,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - `START_HERE.md` — simplest setup guide for non-technical users.
 - `setup-macos.sh`, `start-macos.sh`, `reset-operator-password.sh` — main Mac operator scripts.
 - `setup-windows.cmd`, `start-windows.cmd`, `reset-operator-password.cmd` — easiest Windows operator launchers.
-- `install-cuda-runtime-windows.cmd` — optional Windows GPU runtime installer for NVIDIA CUDA.
+- `install-cuda-runtime-windows.cmd` — optional Windows NVIDIA CUDA runtime force reinstall helper.
 - `update-macos.sh`, `update-windows.cmd` — replace the current folder with the latest GitHub source after checking the remote version.
 - `setup-windows.ps1`, `start-windows.ps1`, `reset-operator-password.ps1` — Windows PowerShell scripts used by the launchers.
 - `app/` — Church Cap web app.
@@ -36,6 +36,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - Audio input selection from the operator page.
 - Local OpenAI Whisper transcription with rolling partial/final captions tuned for accuracy-first readable live subtitle pacing.
 - Optional `faster-whisper` backend for installs that need lower latency.
+- Operator performance controls for switching between faster/lower-accuracy and slower/higher-accuracy presets, including model size, backend, CPU/GPU selection, and advanced latency tuning.
 - Glossary correction for church-specific words.
 - Bad-word censor for likely speech-to-text mistakes.
 - Sensitive blank/pause mode for private or pastoral moments.
@@ -100,9 +101,11 @@ Audience viewers normally use the IP address shown in the terminal or QR code, f
 http://192.168.1.50:8080/
 ```
 
-The default `TRANSCRIBER_MODE=whisper` uses the standard local OpenAI Whisper package. It favours accuracy and consistency over raw speed and uses `WHISPER_BEAM_SIZE=5` by default. If you need lower latency, set `TRANSCRIBER_MODE=faster_whisper`; on Windows, that optional backend can use CUDA through CTranslate2 when the GPU, drivers, and required CUDA runtime DLLs are available. If `cublas64_12.dll` is missing, setup can offer to install local NVIDIA CUDA 12 runtime packages inside `.venv`, or you can run `.\install-cuda-runtime-windows.cmd` later. Argos Translate remains local and experimental.
+Church Cap can use either the standard OpenAI Whisper backend or the lower-latency `faster-whisper` backend. The operator page includes a **Performance** section with a speed/accuracy slider and advanced controls for platform view, backend, model size, processor, compute type, caption refresh, listening window, silence timing, and stability checks. These settings are saved automatically in the per-user runtime config and apply the next time captions are started.
 
-The local CUDA runtime installer is usually easier than installing the full NVIDIA CUDA Toolkit. Advanced users can instead install CUDA 12.x and cuDNN system-wide from NVIDIA, then rerun `.\start-windows.cmd`.
+The **Performance platform** setting defaults to auto-detect. On Windows, `faster-whisper` can use CUDA through CTranslate2 when the GPU, drivers, and required CUDA runtime DLLs are available. If CUDA is not ready, setup can offer to install or force reinstall local NVIDIA CUDA 12 runtime packages inside `.venv`, or you can run `.\install-cuda-runtime-windows.cmd` later. The force reinstall clears pip's CUDA wheel cache and downloads fresh local runtime wheels. The operator Performance panel also shows a Windows CUDA troubleshooting area when Windows is selected, with **Check CUDA** and **Force reinstall CUDA runtime** buttons. Selecting **GPU / NVIDIA CUDA** forces a CUDA load attempt first for Faster Whisper; if the runtime cannot load CUDA, Church Cap falls back to CPU and reports the reason in the operator status. The built-in CUDA runtime installer targets Faster Whisper/CTranslate2 rather than PyTorch/OpenAI Whisper, so Windows CUDA recommendations stay on Faster Whisper. On macOS, the processor choices hide CUDA and can show Apple GPU / Metal for OpenAI Whisper when PyTorch supports MPS. Argos Translate remains local and experimental and may still run on CPU.
+
+The local CUDA runtime installer is usually easier than installing the full NVIDIA CUDA Toolkit. Windows users who already manage NVIDIA tooling can instead install CUDA 12.x and cuDNN system-wide from NVIDIA, then rerun `.\start-windows.cmd`.
 
 ## Normal Use
 
@@ -120,7 +123,7 @@ On Windows:
 
 Do not recreate `.venv` or overwrite `.env` for normal Sunday use.
 
-Operator passwords and runtime settings are stored outside the project folder so they survive app updates, Terminal restarts, and Mac restarts:
+Operator passwords and runtime settings are stored outside the project folder so they survive app updates, terminal restarts, and computer restarts:
 
 ```text
 ~/Library/Application Support/Church Cap/data/
@@ -133,6 +136,8 @@ On Windows, the equivalent folder is:
 ```
 
 The password is stored as a salted hash in `operator_auth.json`. Church Cap also keeps `operator_auth.backup.json` in the same folder and can restore from it if the primary auth file is lost or incomplete.
+
+Runtime settings include audio input, transcript/privacy options, translation options, bad-word censor state, security mode, and performance tuning. Values saved on the operator page override the matching `.env` defaults until changed again from the operator page.
 
 If login ever needs to be reset:
 
@@ -182,6 +187,16 @@ On macOS, if no audio devices are listed, make sure microphone permission is all
 ```text
 System Settings -> Privacy & Security -> Microphone
 ```
+
+## Performance Tuning
+
+Open `/operator`, then use **Performance** on the dashboard.
+
+- Move the slider toward **Fastest** for older CPUs or lower delay.
+- Move the slider toward **Most accurate** when the computer has enough CPU/GPU headroom and wording matters more than delay. The far-right setting uses `medium.en` and can noticeably increase latency, so check it with the benchmark before a service.
+- Use **More settings** for deeper tuning. Easy mode shows platform, backend, model size, and processor. Advanced mode adds compute type, caption refresh, listening window, silence finalise timing, stability checks, and OpenAI Whisper beam size. The platform view is automatic by default, but can be set to macOS or Windows if detection is wrong.
+
+Performance adjustments save automatically. Stop and start captions after changing them because the model and audio stream are loaded when captions start. The Performance panel also includes a 15-second benchmark and a live monitor that sample live transcription time, estimated caption delay, audio level, model load time, runtime, and available system load. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
 
 ## Main Pages
 
@@ -327,7 +342,7 @@ On Windows:
 
 ## Docker
 
-Docker is useful for the web app, but audio capture can be awkward on macOS. For Linux or server-style testing:
+Docker is useful for web-only server-style testing, but Church Cap is officially supported on macOS and Windows. For a container smoke test:
 
 ```bash
 cp env.example .env

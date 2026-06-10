@@ -5,6 +5,7 @@ from fastapi import WebSocket
 from app.models import CaptionSegment, CaptionState
 from app.i18n import LocalTranslator, normalise_language
 from app.transcript_store import TranscriptStore
+from app.text_cleanup import collapse_repeated_phrase
 
 
 class CaptionHub:
@@ -328,18 +329,18 @@ class CaptionHub:
         return committed
 
     def _start_draft(self, source: CaptionSegment, text: str) -> CaptionSegment | None:
-        text = " ".join(str(text or "").split()).strip()
+        text = collapse_repeated_phrase(" ".join(str(text or "").split()).strip())
         if self._word_count(text) < 2:
             return None
         self._history_draft = self._copy_segment(source, text=text, is_final=False)
         return self._history_draft
 
     def _record_partial_transcript(self, segment: CaptionSegment) -> list[CaptionSegment]:
-        text = " ".join(segment.text.split()).strip()
+        text = collapse_repeated_phrase(" ".join(segment.text.split()).strip())
         if self._word_count(text) < 2:
             return []
 
-        suffix = self._dedupe_against_previous(text, self._recent_history_text())
+        suffix = collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text()))
         if self._word_count(suffix) < 2:
             return []
 
@@ -359,7 +360,7 @@ class CaptionHub:
                 updates.append(self._history_draft)
             return updates
 
-        advanced = self._dedupe_against_previous(suffix, draft.text)
+        advanced = collapse_repeated_phrase(self._dedupe_against_previous(suffix, draft.text))
         if self._word_count(advanced) >= 2 and self._texts_overlap(draft.text, suffix):
             committed = self._commit_draft()
             if committed:
@@ -378,16 +379,16 @@ class CaptionHub:
         return updates
 
     def _record_final_transcript(self, segment: CaptionSegment) -> list[CaptionSegment]:
-        text = " ".join(segment.text.split()).strip()
+        text = collapse_repeated_phrase(" ".join(segment.text.split()).strip())
         if self._word_count(text) < 2:
             return []
 
         updates: list[CaptionSegment] = []
-        suffix = self._dedupe_against_previous(text, self._recent_history_text())
+        suffix = collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text()))
         draft = self._history_draft
         if draft is not None:
             if not suffix or self._texts_overlap(draft.text, suffix):
-                best_text = suffix if self._word_count(suffix) >= self._word_count(draft.text) else draft.text
+                best_text = collapse_repeated_phrase(suffix if self._word_count(suffix) >= self._word_count(draft.text) else draft.text)
                 self._history_draft = self._copy_segment(segment, text=best_text, is_final=False, existing=draft)
                 committed = self._commit_draft()
                 if committed:
@@ -397,7 +398,7 @@ class CaptionHub:
             if committed:
                 updates.append(committed)
 
-        suffix = self._dedupe_against_previous(text, self._recent_history_text())
+        suffix = collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text()))
         if self._word_count(suffix) >= 2 and not self._looks_duplicate_final(suffix):
             committed = self._copy_segment(segment, text=suffix, is_final=True)
             self._history.append(committed)

@@ -1,13 +1,13 @@
 # Start Here: Church Cap
 
-Church Cap is a local live-caption app for churches. It runs on the caption Mac, listens to the church sound desk or USB audio interface, and gives visitors a QR code so they can read captions on their phones.
+Church Cap is a local live-caption app for churches. It runs on the caption computer, listens to the church sound desk or USB audio interface, and gives visitors a QR code so they can read captions on their phones.
 
 ## First-Time Setup On Mac
 
 Open Terminal, then go to this folder:
 
 ```bash
-cd "$HOME/Documents/church_cap_v0.2.1"
+cd "$HOME/Documents/church_cap"
 ```
 
 Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -23,7 +23,7 @@ Setup may take a while. It installs the local Python environment, audio dependen
 Open PowerShell, then go to this folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap_v0.2.1"
+cd "$HOME\Documents\church_cap"
 ```
 
 Run setup:
@@ -32,7 +32,7 @@ Run setup:
 .\setup-windows.cmd
 ```
 
-If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12. Setup also checks for CUDA/GPU support. If an NVIDIA GPU is visible but CUDA runtime files are missing, setup can offer to install local CUDA 12 runtime packages into Church Cap's `.venv`. If CUDA is not ready, Church Cap falls back to CPU.
+If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12. Setup also checks for CUDA/GPU support. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
 
 You can also run the optional GPU runtime installer later:
 
@@ -81,9 +81,10 @@ If that does not work on a phone, use the Android/IP fallback QR code shown on t
 1. Create or enter the operator password.
 2. Select the church audio interface or mixer input.
 3. Click **Save input**.
-4. Click **Start captions**.
-5. Show the audience QR code.
-6. Use **Blank / pause** for private or sensitive moments.
+4. Use **Performance** if captions are delayed or the computer needs a faster/lower-accuracy mode. Adjustments save automatically, then take effect after captions are stopped and started.
+5. Click **Start captions**.
+6. Show the audience QR code.
+7. Use **Blank / pause** for private or sensitive moments.
 
 ## If Something Goes Wrong
 
