@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v.0.2.3 public preview
+Version: v.0.3.0 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -43,7 +43,7 @@ bash setup-macos.sh
 
 4. Wait for setup to finish, then continue to **Start Church Cap** below.
 
-The setup script installs the local Python environment, audio dependencies, and Argos translation support/models. It only installs Python packages inside the Church Cap folder's `.venv`.
+The setup script installs the local Python environment and audio dependencies. It also offers translation-resource choices for common Base Argos packs, all Base packs, optional Core / SMaLL-100, or skipping translation resources until later. It only installs Python packages inside the Church Cap folder's `.venv`.
 
 If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes if this Mac will normally run captions.
 
@@ -64,7 +64,7 @@ cd "$HOME\Documents\church_cap"
 
 4. Wait for setup to finish, then continue to **Start Church Cap** below.
 
-The setup script installs the local Python environment, app dependencies, Argos translation support/models, and checks CUDA/GPU support. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
+The setup script installs the local Python environment and app dependencies, checks CUDA/GPU support, and offers translation-resource choices for common Base Argos packs, all Base packs, optional Core / SMaLL-100, or skipping translation resources until later. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
 
 You can also run the optional GPU runtime installer later:
 
@@ -141,7 +141,7 @@ In the operator page, use **Performance** on the dashboard.
 - Move the slider toward **Most accurate** if the computer has enough headroom and better wording matters more than delay. The far-right setting uses `medium.en`, which may increase latency.
 - Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS or Windows, but can be changed manually if needed.
 
-Adjustments save automatically. Stop and start captions after changing performance settings because Church Cap loads the AI model when captions start. Use **Run 15s benchmark** during normal speech to estimate live-caption delay and system load, or **Live monitor** to keep measuring while captions run. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
+Adjustments save automatically while captions are stopped. Stop captions before changing performance settings because Church Cap loads the AI model when captions start, and the Performance panel is locked during a live caption session to protect the audience feed. Use **Run 15s benchmark** during normal speech to estimate live-caption delay and system load, or **Live monitor** to keep measuring while captions run. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
 
 ## Share Captions With Visitors
 
@@ -153,6 +153,8 @@ Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `
 
 The phone caption page shows live captions as a bottom-to-top reading stream. Captions start at the left edge in English, wrap naturally, and move upward as new captions arrive. A server-backed session transcript below the controls shows timestamped captions from the current app session with the newest entry at the top when history is enabled, and visitors can scroll back through earlier captions. Visitors can use **Hide transcript** or **Show transcript** to choose whether that scrollback panel appears on their own device.
 
+When captions are already visible and a visitor changes language, the phone page may briefly show a small loading notice inside the live caption card while the new language stream catches up. The notice overlays the card so the controls and transcript do not jump.
+
 In landscape orientation on phones and tablets, the viewer uses a compact side-by-side layout: live captions take about 75% of the width and the transcript takes the remaining space when enabled. The live caption and transcript panels stay within the visible screen; longer transcript history scrolls inside the transcript panel. If a visitor hides the transcript, the live caption view expands to use the full width.
 
 Visitors automatically get the light or dark theme from their device settings. They can still use the theme button to set a local override, and can change text size, comfort/compact spacing, pause their local view, or clear their local screen without affecting anyone else.
@@ -160,6 +162,7 @@ Visitors automatically get the light or dark theme from their device settings. T
 ## During A Service
 
 - Use **Start captions** when ready.
+- If the speech model or audio input takes a moment to load, the operator page shows a starting notice until captions are live.
 - Use **Stop** when captions should stop.
 - Use **Blank / pause** before private prayer, pastoral details, testimony, safeguarding, or anything sensitive. While blanked, captions are not shown, retained in the session transcript, or included in transcript exports; Church Cap also flushes the live transcription buffer and drops a short buffered-audio window when captions resume.
 - Use **Resume** when public captions should continue.
@@ -168,9 +171,11 @@ Visitors automatically get the light or dark theme from their device settings. T
 
 ## Translation
 
-Argos Translate support is installed during setup, but translated captions stay off until the operator enables them.
+Phone UI language selection is local and lightweight. It uses bundled interface labels and falls back to English for labels that have not been translated yet.
 
-Translation is experimental and may be inaccurate. Keep the active translated language limit low at first. Use a qualified human interpreter where accuracy matters.
+Translated captions stay off until the operator enables them. The **Languages** page lets the operator choose Off, Base / Argos, Core / SMaLL-100, or Auto / Base + Core mode, install language resources, and set how many translated languages can be active at once. Visitor languages are automatic by default; Church Cap prioritises the most-requested languages up to the active limit. The default active limit is 20 and can be lowered for weaker computers or raised up to the supported language catalogue on powerful hardware.
+
+Translation is experimental and may be inaccurate. Start with the default active translated language limit, then lower it if the computer struggles or captions begin to lag. Use a qualified human interpreter where accuracy matters.
 
 ## Passwords
 

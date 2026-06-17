@@ -26,7 +26,8 @@ from app.profanity_filter import ProfanityFilter
 from app.settings import get_settings
 from app.networking import default_base_url, detected_local_hostname, local_ip
 from app.runtime_config import load_runtime_config, set_audio_device, set_performance_config, set_privacy_config, set_profanity_filter_config, set_translation_config, set_security_config
-from app.i18n import SUPPORTED_LANGUAGES, get_client_ui_strings, normalise_language
+from app.i18n import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, normalise_language
+from app.localisation import get_client_ui_language_strings, get_client_ui_sources, get_client_ui_strings, get_runtime_translated_client_ui_strings
 from app.paths import app_support_dir
 from app.transcript_store import TranscriptStore
 from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, update_script_for_system, version_label
@@ -46,9 +47,11 @@ hub = CaptionHub(
 )
 hub.configure_translation(
     enabled=bool(runtime_config.get("translation_enabled", settings.translation_enabled)),
-    provider=settings.translation_provider,
+    provider=runtime_config.get("translation_provider") or settings.translation_provider,
     allowed_languages=runtime_config.get("translation_allowed_languages", (settings.translation_allowed_languages or "en").split(",")),
     max_active_languages=int(runtime_config.get("translation_max_active_languages", settings.translation_max_active_languages)),
+    language_policy=runtime_config.get("translation_language_policy", "automatic"),
+    priority_mode=runtime_config.get("translation_priority_mode", "most_viewers"),
 )
 glossary = Glossary()
 profanity_filter = ProfanityFilter()
@@ -65,9 +68,13 @@ DOC_FILES = {
 _transcription_task: asyncio.Task | None = None
 _transcriber = None
 _update_state = {"status": "idle"}
+_client_ui_runtime_translation_cache: dict[tuple[str, str], dict[str, str]] = {}
 _cuda_runtime_install_state = {"status": "idle"}
 _cuda_runtime_install_process: subprocess.Popen | None = None
+_translation_install_state = {"status": "idle"}
+_translation_install_process: subprocess.Popen | None = None
 CUDA_RUNTIME_LOG_LABEL = "logs/cuda-runtime-install.log"
+TRANSLATION_INSTALL_LOG_LABEL = "logs/translation-install.log"
 
 
 def base_url(request: Request | None = None) -> str:
@@ -472,6 +479,7 @@ def system_performance_snapshot() -> dict:
         load_1m, load_5m, load_15m = os.getloadavg()
     except Exception:
         pass
+    memory = _memory_usage_snapshot()
     return {
         "platform": platform.system(),
         "cpu_count": cpu_count,
@@ -479,6 +487,7 @@ def system_performance_snapshot() -> dict:
         "load_5m": load_5m,
         "load_15m": load_15m,
         "load_1m_percent": None if load_1m is None else round((float(load_1m) / cpu_count) * 100, 1),
+        **memory,
     }
 
 
@@ -520,6 +529,110 @@ def _total_memory_bytes() -> int | None:
         return int(page_size * pages)
     except Exception:
         return None
+
+
+def _memory_usage_snapshot() -> dict:
+    total = _total_memory_bytes()
+    available: int | None = None
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            page_size_result = subprocess.run(["pagesize"], capture_output=True, text=True, timeout=3, check=False)
+            vm_result = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=3, check=False)
+            page_size = int(page_size_result.stdout.strip()) if page_size_result.returncode == 0 else 4096
+            pages: dict[str, int] = {}
+            for line in vm_result.stdout.splitlines():
+                if ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                digits = "".join(ch for ch in value if ch.isdigit())
+                if digits:
+                    pages[key.strip()] = int(digits)
+            free_pages = pages.get("Pages free", 0) + pages.get("Pages inactive", 0) + pages.get("Pages speculative", 0)
+            available = free_pages * page_size
+        elif system == "Windows":
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MEMORYSTATUSEX()
+            status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                total = int(status.ullTotalPhys)
+                available = int(status.ullAvailPhys)
+        else:
+            meminfo = Path("/proc/meminfo")
+            if meminfo.exists():
+                values = {}
+                for line in meminfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    key, raw = line.split(":", 1)
+                    amount = raw.strip().split()[0]
+                    values[key] = int(amount) * 1024
+                total = values.get("MemTotal", total)
+                available = values.get("MemAvailable")
+    except Exception:
+        available = None
+    used = None if total is None or available is None else max(0, total - available)
+    used_percent = None if total in {None, 0} or used is None else round((used / total) * 100, 1)
+    return {
+        "memory_total_bytes": total,
+        "memory_available_bytes": available,
+        "memory_used_bytes": used,
+        "memory_total_gib": _bytes_to_gib(total),
+        "memory_available_gib": _bytes_to_gib(available),
+        "memory_used_gib": _bytes_to_gib(used),
+        "memory_used_percent": used_percent,
+    }
+
+
+def gpu_utilisation_snapshot(active_device: str | None = None) -> dict:
+    device = (active_device or "").lower()
+    if device == "cuda":
+        nvidia_smi = shutil.which("nvidia-smi")
+        if nvidia_smi:
+            try:
+                result = subprocess.run(
+                    [
+                        nvidia_smi,
+                        "--query-gpu=utilization.gpu,memory.used,memory.total",
+                        "--format=csv,noheader,nounits",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    first = result.stdout.splitlines()[0]
+                    parts = [part.strip() for part in first.split(",")]
+                    util = float(parts[0]) if parts and parts[0] else None
+                    memory_used = float(parts[1]) if len(parts) > 1 and parts[1] else None
+                    memory_total = float(parts[2]) if len(parts) > 2 and parts[2] else None
+                    return {
+                        "device": "cuda",
+                        "active": True,
+                        "utilization_percent": util,
+                        "memory_used_mib": memory_used,
+                        "memory_total_mib": memory_total,
+                        "message": "NVIDIA GPU utilisation reported by nvidia-smi.",
+                    }
+            except Exception:
+                pass
+        return {"device": "cuda", "active": True, "utilization_percent": None, "message": "NVIDIA GPU active; utilisation unavailable."}
+    if device == "mps":
+        return {"device": "mps", "active": True, "utilization_percent": None, "message": "Apple Metal/MPS active; utilisation unavailable without system tools."}
+    return {"device": device or "cpu", "active": False, "utilization_percent": None, "message": "GPU is not active for captions."}
 
 
 def _disk_usage_snapshot() -> dict:
@@ -590,16 +703,50 @@ def _tail_log(path: Path, max_lines: int = 160) -> list[str]:
     return [_redact_local_paths(line) for line in lines[-max_lines:]]
 
 
+def _redact_diagnostics_value(value):
+    if isinstance(value, str):
+        return _redact_local_paths(value)
+    if isinstance(value, list):
+        return [_redact_diagnostics_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_diagnostics_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _redact_diagnostics_value(item) for key, item in value.items()}
+    return value
+
+
 def diagnostics_payload() -> dict:
     runtime = load_runtime_config()
     performance = performance_status()
     logs_dir = PROJECT_ROOT / "logs"
+    support_logs_dir = app_support_dir() / "logs"
     safe_runtime = {
         key: value
         for key, value in runtime.items()
         if key not in {"audio_device"}
     }
-    return {
+    translation = hub.translation_state()
+    translation_diagnostics = {
+        "enabled": translation.get("enabled"),
+        "provider": translation.get("provider"),
+        "provider_ready": translation.get("provider_status", {}).get("ready"),
+        "provider_message": translation.get("provider_status", {}).get("message"),
+        "max_active_languages": translation.get("max_active_languages"),
+        "language_policy": translation.get("language_policy"),
+        "priority_mode": translation.get("priority_mode"),
+        "active_translated_languages": translation.get("active_translated_languages", []),
+        "viewer_language_counts": translation.get("viewer_languages", {}),
+        "argos_installed_language_count": len(translation.get("resources", {}).get("argos", {}).get("installed_languages", [])),
+        "argos_installed_pair_count": len(translation.get("resources", {}).get("argos", {}).get("installed_pairs", [])),
+        "small100_ready": translation.get("resources", {}).get("small100", {}).get("status", {}).get("ready"),
+        "small100_license": translation.get("resources", {}).get("small100", {}).get("license"),
+    }
+    safe_metrics = {
+        key: value
+        for key, value in get_metrics().items()
+        if key not in {"audio_device"}
+    }
+    payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "app": {
             "name": settings.app_name,
@@ -612,15 +759,19 @@ def diagnostics_payload() -> dict:
         "effective_performance": performance["effective"],
         "system_performance": system_performance_snapshot(),
         "runtime_config_sanitized": safe_runtime,
-        "metrics": get_metrics(),
+        "translation": translation_diagnostics,
+        "metrics": safe_metrics,
         "cuda_runtime_install": cuda_runtime_capability_state(),
+        "translation_install": _translation_install_state,
         "logs": {
             "update.log": _tail_log(logs_dir / "update.log"),
             "cuda-runtime-install.log": _tail_log(logs_dir / "cuda-runtime-install.log"),
+            "translation-install.log": _tail_log(support_logs_dir / "translation-install.log"),
             "update-restart.log": _tail_log(logs_dir / "update-restart.log"),
         },
         "privacy_note": "Diagnostics are generated only when an operator chooses to download them. They can include OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, runtime metrics, and recent updater/CUDA log lines with local paths redacted. They exclude transcripts, captions, operator passwords, session secrets, and .env contents. Review the file before sharing it for support, and do not post it publicly on GitHub unless you are comfortable with the contents.",
     }
+    return _redact_diagnostics_value(payload)
 
 
 def performance_status() -> dict:
@@ -662,6 +813,23 @@ def performance_status() -> dict:
     }
     status["recommendation"] = recommended_performance_config(status)
     return status
+
+
+def captions_are_running() -> bool:
+    task_running = _transcription_task is not None and not _transcription_task.done()
+    return task_running or hub.state().status in {"listening", "sensitive"}
+
+
+def performance_locked_response() -> JSONResponse:
+    return JSONResponse(
+        {
+            "status": "error",
+            "error": "Stop captions before changing performance settings.",
+            "restart_required": True,
+            "performance_locked": True,
+        },
+        status_code=409,
+    )
 
 
 
@@ -791,6 +959,7 @@ async def index(request: Request):
             "dnd_reminder": settings.dnd_reminder,
             "languages": SUPPORTED_LANGUAGES,
             "ui_strings": get_client_ui_strings(),
+            "ui_string_sources": get_client_ui_sources(language["code"] for language in SUPPORTED_LANGUAGES),
             "translation_state": hub.translation_state(),
         },
     )
@@ -1074,6 +1243,8 @@ async def set_audio_device_api(request: Request, _: None = Depends(require_opera
 
 @app.post("/api/performance/apply-recommended")
 async def apply_recommended_performance(_: None = Depends(require_operator)):
+    if captions_are_running():
+        return performance_locked_response()
     recommendation = recommended_performance_config()
     cfg = set_performance_config(recommendation["config"])
     status = performance_status()
@@ -1082,6 +1253,8 @@ async def apply_recommended_performance(_: None = Depends(require_operator)):
 
 @app.post("/api/performance")
 async def update_performance(request: Request, _: None = Depends(require_operator)):
+    if captions_are_running():
+        return performance_locked_response()
     body = await request.json()
     preset = str(body.get("performance_preset") or "balanced")
     if preset in PERFORMANCE_PRESETS:
@@ -1143,14 +1316,20 @@ async def transcript_json(_: None = Depends(require_operator)):
 async def api_status(_: None = Depends(require_operator)):
     state = hub.state()
     performance = performance_status()
+    system_perf = system_performance_snapshot()
+    runtime = performance["resolved_whisper_runtime"]
+    metrics = get_metrics()
+    runtime_device = str(metrics.get("model_device") or runtime.get("device") or "cpu")
+    gpu = gpu_utilisation_snapshot(runtime_device)
+    translation_state = hub.translation_state()
     return {
         "status": state.status,
         "viewers": state.viewers,
         "sensitive_mode": state.sensitive_mode,
         "current": state.current.model_dump(mode="json") if state.current else None,
         "transcript_count": len(hub.final_segments()),
-        "metrics": get_metrics(),
-        "system_performance": system_performance_snapshot(),
+        "metrics": metrics,
+        "system_performance": system_perf,
         "settings": {
             "model": performance["effective"]["whisper_model"],
             "transcriber_mode": performance["effective"]["transcriber_mode"],
@@ -1165,10 +1344,28 @@ async def api_status(_: None = Depends(require_operator)):
             "stream_stability_passes": performance["effective"]["stream_stability_passes"],
             "audio_device": selected_audio_device(),
         },
-        "translation": hub.translation_state(),
+        "translation": translation_state,
         "security": security_state(),
+        "performance_locked": captions_are_running(),
         "update": {**update_capability_state(), "state": _update_state},
         "cuda_runtime": cuda_runtime_capability_state(),
+        "translation_install": translation_install_state(),
+        "operator_strip": {
+            "caption_status": state.status,
+            "mic_level_percent": max(0, min(100, round((float(metrics.get("audio_rms") or 0) / 0.06) * 100))),
+            "processing_delay_seconds": metrics.get("last_transcription_seconds"),
+            "cpu_percent": system_perf.get("load_1m_percent"),
+            "ram_percent": system_perf.get("memory_used_percent"),
+            "ram_used_gib": system_perf.get("memory_used_gib"),
+            "ram_total_gib": system_perf.get("memory_total_gib"),
+            "gpu": f"{runtime.get('device', 'auto')} / {runtime.get('compute_type', 'auto')}",
+            "gpu_utilization_percent": gpu.get("utilization_percent"),
+            "gpu_memory_used_mib": gpu.get("memory_used_mib"),
+            "gpu_memory_total_mib": gpu.get("memory_total_mib"),
+            "gpu_message": gpu.get("message"),
+            "active_languages": translation_state.get("active_translated_languages", []),
+            "translation_capacity": translation_state.get("max_active_languages", 1),
+        },
         "profanity_filter_enabled": bool(load_runtime_config().get("profanity_filter_enabled", True)),
     }
 
@@ -1436,13 +1633,20 @@ async def update_translation(request: Request, _: None = Depends(require_operato
     if not isinstance(allowed, list):
         allowed = ["en"]
     allowed = [normalise_language(x) for x in allowed]
-    max_active = int(body.get("translation_max_active_languages", 1))
-    cfg = set_translation_config(enabled, allowed, max_active)
+    max_active = int(body.get("translation_max_active_languages", 20))
+    provider = str(body.get("translation_provider") or "argos")
+    if provider == "disabled":
+        enabled = False
+    language_policy = str(body.get("translation_language_policy") or "automatic")
+    priority_mode = str(body.get("translation_priority_mode") or "most_viewers")
+    cfg = set_translation_config(enabled, allowed, max_active, provider, language_policy, priority_mode)
     hub.configure_translation(
         enabled=bool(cfg["translation_enabled"]),
-        provider=settings.translation_provider,
+        provider=cfg["translation_provider"],
         allowed_languages=cfg["translation_allowed_languages"],
         max_active_languages=int(cfg["translation_max_active_languages"]),
+        language_policy=cfg["translation_language_policy"],
+        priority_mode=cfg["translation_priority_mode"],
     )
     return {"status": "saved", **hub.translation_state()}
 
@@ -1451,15 +1655,103 @@ async def update_translation(request: Request, _: None = Depends(require_operato
 
 @app.get("/api/translation/status")
 async def translation_status(_: None = Depends(require_operator)):
-    return hub.translation_state()
+    return {**hub.translation_state(), "install": _translation_install_state}
+
+
+def translation_install_script(kind: str) -> list[str]:
+    system = platform.system()
+    if kind in {"argos", "argos_all"}:
+        if system == "Windows":
+            command = ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(PROJECT_ROOT / "scripts" / "install-translation-models-argos.ps1")]
+            if kind == "argos_all":
+                command.append("-All")
+            return command
+        command = ["bash", str(PROJECT_ROOT / "scripts" / "install-translation-models-argos.sh")]
+        if kind == "argos_all":
+            command.append("--all")
+        return command
+    if kind == "small100":
+        if system == "Windows":
+            return ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(PROJECT_ROOT / "scripts" / "install-small100-core.ps1")]
+        return ["bash", str(PROJECT_ROOT / "scripts" / "install-small100-core.sh")]
+    raise ValueError("Unknown translation install kind.")
+
+
+def translation_install_state() -> dict:
+    global _translation_install_state
+    if _translation_install_process is not None and _translation_install_state.get("status") == "installing":
+        code = _translation_install_process.poll()
+        if code is not None:
+            _translation_install_state = {
+                **_translation_install_state,
+                "status": "complete" if code == 0 else "error",
+                "returncode": code,
+                "message": "Translation install finished." if code == 0 else "Translation install failed. Check logs/translation-install.log.",
+            }
+    return _translation_install_state
+
+
+@app.post("/api/translation/install")
+async def install_translation_resources(request: Request, _: None = Depends(require_operator)):
+    global _translation_install_process, _translation_install_state
+    body = await request.json()
+    kind = str(body.get("kind") or "argos")
+    state = translation_install_state()
+    if state.get("status") == "installing":
+        return {"status": "installing", "message": "Translation install is already running.", "install": state}
+    try:
+        command = translation_install_script(kind)
+    except Exception as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+    if not (PROJECT_ROOT / ".venv").exists():
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": "No local .venv was found. Run setup first, then install translation resources from this page.",
+            },
+            status_code=400,
+        )
+    script_paths = [Path(part) for part in command if "install-" in part and part.endswith((".sh", ".ps1"))]
+    if script_paths and not script_paths[0].exists():
+        return JSONResponse({"status": "error", "error": "Translation installer script was not found."}, status_code=500)
+    logs_dir = app_support_dir() / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / "translation-install.log"
+    try:
+        log_file = log_path.open("a", encoding="utf-8")
+        log_file.write(f"\n[{datetime.now(timezone.utc).isoformat()}] Starting {kind} translation install\n")
+        log_file.flush()
+        _translation_install_process = subprocess.Popen(command, cwd=str(PROJECT_ROOT), stdout=log_file, stderr=subprocess.STDOUT)
+    except Exception as exc:
+        _translation_install_state = {"status": "error", "error": str(exc), "log": TRANSLATION_INSTALL_LOG_LABEL}
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
+    _translation_install_state = {"status": "installing", "kind": kind, "log": TRANSLATION_INSTALL_LOG_LABEL}
+    return {"status": "installing", "message": f"Installing {kind} translation resources.", "install": _translation_install_state}
+
 
 @app.get("/api/languages")
 async def languages():
     return {
         "languages": SUPPORTED_LANGUAGES,
         "ui_strings": get_client_ui_strings(),
+        "ui_string_sources": get_client_ui_sources(language["code"] for language in SUPPORTED_LANGUAGES),
         "translation": hub.translation_state(),
     }
+
+
+@app.get("/api/client-ui/{language}")
+async def client_ui(language: str):
+    language = normalise_language(language)
+    strings = dict(get_client_ui_language_strings(language))
+    source = get_client_ui_sources([language])[language]
+    if language != SOURCE_LANGUAGE and source == "fallback":
+        strings, source = await get_runtime_translated_client_ui_strings(
+            language,
+            translator=hub.translator,
+            provider="argos",
+            cache=_client_ui_runtime_translation_cache,
+        )
+    return {"language": language, "source": source, "strings": strings}
 
 
 @app.post("/api/test-caption")

@@ -47,8 +47,26 @@ class DiagnosticsSourceTests(unittest.TestCase):
 
     def test_redaction_helper_exists(self):
         self.assertIn("def _redact_local_paths", self.source)
+        self.assertIn("def _redact_diagnostics_value", self.source)
+        self.assertIn("return _redact_diagnostics_value(payload)", self.payload_source)
         self.assertIn("<home>", self.source)
         self.assertIn("<project_root>", self.source)
+
+    def test_diagnostics_excludes_audio_device_names(self):
+        self.assertIn('if key not in {"audio_device"}', self.payload_source)
+        self.assertIn('"metrics": safe_metrics', self.payload_source)
+        self.assertNotIn('"metrics": get_metrics()', self.payload_source)
+
+    def test_diagnostics_includes_language_state(self):
+        for expected in (
+            '"provider": translation.get("provider")',
+            '"max_active_languages": translation.get("max_active_languages")',
+            '"language_policy": translation.get("language_policy")',
+            '"priority_mode": translation.get("priority_mode")',
+            '"active_translated_languages": translation.get("active_translated_languages", [])',
+            '"viewer_language_counts": translation.get("viewer_languages", {})',
+        ):
+            self.assertIn(expected, self.payload_source)
 
     def test_system_specs_are_included(self):
         self.assertIn("def _system_specs_snapshot", self.source)

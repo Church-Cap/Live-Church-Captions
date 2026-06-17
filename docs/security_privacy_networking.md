@@ -37,6 +37,7 @@ Audience caption pages remain open:
 /qr.png
 /qr-ip.png
 /api/languages
+/api/client-ui/{language}
 /ws/captions
 ```
 

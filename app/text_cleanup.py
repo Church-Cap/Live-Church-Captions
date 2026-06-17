@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 
 
+_WORD_RE = re.compile(r"\w", re.UNICODE)
+_PUNCTUATION_ONLY_RE = re.compile(r"^[\s.·•…\-–—_,;:!?|/\\()\[\]{}\"'`~*+=<>]+$")
+
+
 def collapse_repeated_phrase(text: str, *, max_phrase_words: int = 18) -> str:
     """Trim obvious Whisper loops like "phrase phrase phrase" to one phrase.
 
@@ -43,3 +47,15 @@ def collapse_repeated_phrase(text: str, *, max_phrase_words: int = 18) -> str:
     if len(tail) <= 8:
         collapsed += tail
     return " ".join(collapsed).strip(" ,.;:-")
+
+
+def clean_caption_text(text: str) -> str:
+    """Return displayable caption text, or empty for punctuation-only noise."""
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    if _PUNCTUATION_ONLY_RE.fullmatch(cleaned):
+        return ""
+    if not _WORD_RE.search(cleaned):
+        return ""
+    return cleaned

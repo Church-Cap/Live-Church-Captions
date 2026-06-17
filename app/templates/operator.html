@@ -72,6 +72,11 @@
           <span id="connection" class="status-pill">Connecting</span>
           <span class="status-pill">Viewers: <strong id="viewerCount">0</strong></span>
           <span class="status-pill">Mode: <strong id="sensitiveStatus">Normal</strong></span>
+          <span class="status-pill">Mic: <strong id="stripMic">0%</strong></span>
+          <span class="status-pill">CPU: <strong id="stripCpu">—</strong></span>
+          <span class="status-pill">RAM: <strong id="stripRam">—</strong></span>
+          <span class="status-pill">GPU: <strong id="stripGpu">—</strong></span>
+          <span class="status-pill">Translate: <strong id="stripTranslate">0 / 1</strong></span>
         </div>
       </header>
 
@@ -97,6 +102,7 @@
               <button onclick="api('/api/stop')" class="secondary-button">Stop</button>
               <button onclick="api('/api/test-caption')" class="secondary-button">Send test</button>
             </div>
+            <p id="captionStartNotice" class="operator-start-notice" aria-live="polite"></p>
             <p id="apiResult" class="muted small-result"></p>
           </article>
 
@@ -130,11 +136,11 @@
                 </select>
               </div>
               <div class="button-stack-inline">
-                <button onclick="saveAudioDevice()">Save input</button>
+                <button id="saveAudioDeviceButton" onclick="saveAudioDevice()">Save input</button>
                 <button onclick="loadAudioDevices()" class="secondary-button">Refresh</button>
               </div>
             </div>
-            <p class="muted">Use the church mixer or USB audio interface for best accuracy. Restart captions after changing input.</p>
+            <p class="muted">Use the church mixer or USB audio interface for best accuracy. Stop captions before changing input.</p>
             <p id="audioResult" class="muted small-result"></p>
           </article>
 
@@ -196,6 +202,7 @@
                 onchange="savePerformanceSettings({automatic: true})">
               <span>Most accurate</span>
             </div>
+            <p id="performanceLockedMessage" class="settings-lock-note" hidden>Stop captions before changing caption settings. The live model is locked while captions are running.</p>
             <div class="performance-summary">
               <strong id="performancePresetTitle">{{ performance.effective.performance_label }}</strong>
               <span id="performancePresetCopy">{{ performance.effective.performance_description }}</span>
@@ -277,7 +284,7 @@
               </div>
             </details>
             <div class="button-row spacious-actions">
-              <button onclick="savePerformanceSettings()">Save performance</button>
+              <button id="savePerformanceButton" onclick="savePerformanceSettings()">Save performance</button>
             </div>
             <p class="muted">Adjustments are saved automatically. Changes apply the next time captions start, so stop and start captions after tuning performance.</p>
             <p id="performanceHardware" class="muted small-result">{{ performance.hardware_acceleration.message }}</p>
@@ -343,40 +350,66 @@
                 <p class="eyebrow">Experimental</p>
                 <h2>Multilingual captions <span class="beta-pill">Beta</span></h2>
               </div>
-              <span class="status-pill">Provider: <strong>{{ translation_provider }}</strong></span>
+              <span class="status-pill">Mode: <strong id="translationModePill">{{ runtime.translation_provider or translation_provider }}</strong></span>
             </div>
-            <p class="muted"><strong>Important:</strong> phone UI translation and caption translation are separate. Whisper transcribes speech. Translated captions require an extra translation provider such as local Argos Translate models.</p>
+            <p class="muted"><strong>Important:</strong> phone UI translation and caption translation are separate. Whisper transcribes speech. Translated captions require an extra local translation provider.</p>
             <div class="warning-panel slim-warning glass-card">
-              <strong>Performance safeguard:</strong> each active translated language uses extra CPU/RAM. Only the most-used selected languages are translated up to the limit below. Others receive the source captions to protect the Mac from overload.
+              <strong>Performance safeguard:</strong> each active translated language uses extra CPU/RAM. Church Cap automatically translates the most-requested languages up to the limit below. Others receive source captions with a help message.
             </div>
             <div class="warning-panel slim-warning glass-card">
               <strong>Accuracy warning:</strong> translated captions are experimental and not verified. Scripture, names, theology, safeguarding, and pastoral details should be checked by the church team or a human interpreter.
             </div>
-            <label class="toggle-row premium-toggle-row">
-              <input id="translationEnabled" type="checkbox" {% if runtime.translation_enabled %}checked{% endif %}>
-              <span class="toggle-slider" aria-hidden="true"></span>
-              <span class="toggle-copy"><strong>Enable experimental translated captions</strong><small>Keep this off until models are installed and the operator is ready to monitor accuracy and performance.</small></span>
-            </label>
-            <label for="translationMax">Maximum active translated languages</label>
-            <select id="translationMax">
-              {% for n in [1,2,3,4] %}
-              <option value="{{ n }}" {% if runtime.translation_max_active_languages == n %}selected{% endif %}>{{ n }}</option>
-              {% endfor %}
+            <label for="translationProvider">Translation mode</label>
+            <select id="translationProvider" onchange="syncTranslationModeCopy()">
+              <option value="disabled" {% if not runtime.translation_enabled or runtime.translation_provider == 'disabled' %}selected{% endif %}>Off — source captions only</option>
+              <option value="argos" {% if runtime.translation_enabled and (runtime.translation_provider or translation_provider) == 'argos' %}selected{% endif %}>Base — Argos Translate</option>
+              <option value="small100" {% if runtime.translation_enabled and runtime.translation_provider == 'small100' %}selected{% endif %}>Core — SMaLL-100</option>
+              <option value="both" {% if runtime.translation_enabled and runtime.translation_provider == 'both' %}selected{% endif %}>Auto — Base + Core</option>
             </select>
-            <fieldset class="language-fieldset premium-language-fieldset">
-              <legend>Allowed client languages</legend>
-              {% for lang in languages %}
-              <label class="language-toggle premium-language-toggle">
-                <input type="checkbox" name="translationLang" value="{{ lang.code }}" {% if lang.code in runtime.translation_allowed_languages %}checked{% endif %} {% if lang.code == 'en' %}disabled checked{% endif %}>
-                <span class="toggle-slider small" aria-hidden="true"></span>
-                <span class="language-toggle-label"><span class="language-flag">{{ lang.flag }}</span><span>{{ lang.native }}</span></span>
-              </label>
-              {% endfor %}
-            </fieldset>
+            <p id="translationModeCopy" class="muted small-result"></p>
+            <label for="translationMax">Maximum active translated languages</label>
+            <div class="range-number-control">
+              <input id="translationMaxSlider" type="range" min="1" max="{{ languages | length }}" step="1" value="{{ runtime.translation_max_active_languages }}">
+              <input id="translationMax" type="number" min="1" max="{{ languages | length }}" step="1" inputmode="numeric" value="{{ runtime.translation_max_active_languages }}">
+            </div>
+            <p class="muted small-result">Church Cap automatically translates the most-requested visitor languages up to this limit.</p>
+            <div class="translation-resource-panel">
+              <strong>Language resources</strong>
+              <p id="translationResourceSummary" class="muted">Checking installed translation resources…</p>
+              <div class="button-row spacious-actions">
+                <button type="button" class="secondary-button" onclick="installTranslationResources('argos')">Install Base packs</button>
+                <button type="button" class="secondary-button" onclick="installTranslationResources('argos_all')">Install all Base packs</button>
+                <button type="button" class="secondary-button" onclick="installTranslationResources('small100')">Install Core model</button>
+              </div>
+              <p id="translationInstallResult" class="muted small-result"></p>
+            </div>
+            <details class="advanced-settings">
+              <summary>Advanced language controls</summary>
+              <label for="translationLanguagePolicy">Language availability</label>
+              <select id="translationLanguagePolicy">
+                <option value="automatic" {% if runtime.translation_language_policy != 'restricted' %}selected{% endif %}>Automatic — visitors can request any supported language</option>
+                <option value="restricted" {% if runtime.translation_language_policy == 'restricted' %}selected{% endif %}>Restricted — only languages selected below</option>
+              </select>
+              <label for="translationPriorityMode">Capacity priority</label>
+              <select id="translationPriorityMode">
+                <option value="most_viewers" {% if runtime.translation_priority_mode != 'pinned_first' %}selected{% endif %}>Most viewers first</option>
+                <option value="pinned_first" {% if runtime.translation_priority_mode == 'pinned_first' %}selected{% endif %}>Selected languages first, then most viewers</option>
+              </select>
+              <fieldset class="language-fieldset premium-language-fieldset">
+                <legend>Restricted-language list</legend>
+                {% for lang in languages %}
+                <label class="language-toggle premium-language-toggle">
+                  <input type="checkbox" name="translationLang" value="{{ lang.code }}" {% if lang.code in runtime.translation_allowed_languages %}checked{% endif %} {% if lang.code == 'en' %}disabled checked{% endif %}>
+                  <span class="toggle-slider small" aria-hidden="true"></span>
+                  <span class="language-toggle-label"><span class="language-flag">{{ lang.flag }}</span><span>{{ lang.native }}</span></span>
+                </label>
+                {% endfor %}
+              </fieldset>
+            </details>
             <div class="button-row">
               <button onclick="saveTranslationSettings()">Save language settings</button>
             </div>
-            <p class="muted">Use <code>TRANSLATION_PROVIDER=demo</code> only to test routing. Use <code>TRANSLATION_PROVIDER=argos</code> for local translation after installing Argos Translate and the language models.</p>
+            <p class="muted">Base uses installed Argos language packs. Core uses the optional SMaLL-100 model and can use more RAM/CPU. Auto shows languages from both installed providers and uses Base first, then Core when needed.</p>
             <p id="translationProviderStatus" class="muted small-result">Provider status will appear here.</p>
             <p id="translationResult" class="muted small-result"></p>
           </article>
@@ -627,6 +660,7 @@
   </div>
 
   <script>
+    window.CC_LANGUAGES = {{ languages | tojson }};
     let pendingUpdate = null;
     let updatePollTimer = null;
 
@@ -771,6 +805,94 @@
     let benchmarkDurationSeconds = 15;
     let benchmarkStartedAt = 0;
     let benchmarkSamples = [];
+    let captionSettingsLocked = false;
+    let captionStartPending = false;
+    let captionStartNoticeTimer = null;
+
+    function setCaptionStartNotice(message = '') {
+      const notice = document.getElementById('captionStartNotice');
+      if (!notice) return;
+      if (captionStartNoticeTimer) {
+        clearTimeout(captionStartNoticeTimer);
+        captionStartNoticeTimer = null;
+      }
+      if (message) {
+        notice.textContent = message;
+        notice.classList.add('visible');
+        return;
+      }
+      notice.classList.remove('visible');
+      captionStartNoticeTimer = setTimeout(() => {
+        if (!notice.classList.contains('visible')) notice.textContent = '';
+      }, 180);
+    }
+
+    function showCaptionStartingNotice() {
+      captionStartPending = true;
+      setCaptionStartNotice('Starting captions. Loading the speech model and audio input; please wait.');
+    }
+
+    function clearCaptionStartingNotice() {
+      captionStartPending = false;
+      setCaptionStartNotice('');
+    }
+
+    function updateCaptionStartNoticeFromStatus(status) {
+      if (!captionStartPending) return;
+      if (status === 'listening' || status === 'sensitive') {
+        setCaptionStartNotice('Captions are live.');
+        captionStartPending = false;
+        captionStartNoticeTimer = setTimeout(() => setCaptionStartNotice(''), 1400);
+      } else if (status === 'stopped') {
+        clearCaptionStartingNotice();
+      }
+    }
+
+    function captionSettingsAreLocked(status) {
+      return ['listening', 'sensitive'].includes(status || '');
+    }
+
+    function setCaptionSettingsLocked(locked) {
+      captionSettingsLocked = !!locked;
+      document.body.classList.toggle('caption-settings-locked', captionSettingsLocked);
+      const message = document.getElementById('performanceLockedMessage');
+      if (message) message.hidden = !captionSettingsLocked;
+      const disabledIds = [
+        'audioDevice',
+        'saveAudioDeviceButton',
+        'performancePreset',
+        'performanceEasyMode',
+        'performanceAdvancedMode',
+        'performancePlatform',
+        'transcriberMode',
+        'whisperModel',
+        'whisperDevice',
+        'whisperComputeType',
+        'streamUpdateIntervalSeconds',
+        'streamWindowSeconds',
+        'chunkSeconds',
+        'streamSilenceFinaliseSeconds',
+        'streamStabilityPasses',
+        'whisperBeamSize',
+        'savePerformanceButton'
+      ];
+      disabledIds.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.disabled = captionSettingsLocked;
+          el.setAttribute('aria-disabled', captionSettingsLocked ? 'true' : 'false');
+        }
+      });
+      document.querySelectorAll('.recommendation-panel button').forEach((button) => {
+        button.disabled = captionSettingsLocked;
+        button.setAttribute('aria-disabled', captionSettingsLocked ? 'true' : 'false');
+      });
+    }
+
+    function showCaptionSettingsLockedMessage(targetId = 'performanceResult') {
+      const result = document.getElementById(targetId);
+      if (result) result.textContent = 'Stop captions before changing caption settings.';
+    }
 
     function setControlValue(id, value) {
       const el = document.getElementById(id);
@@ -874,10 +996,12 @@
     }
 
     function handlePerformancePlatformChanged() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       updatePlatformControls({markCustom: true});
     }
 
     function handleTranscriberModeChanged() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       const mode = document.getElementById('transcriberMode')?.value;
       const device = document.getElementById('whisperDevice')?.value;
       if (mode === 'faster_whisper' && device === 'mps') {
@@ -888,6 +1012,7 @@
     }
 
     function handleWhisperDeviceChanged() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       const device = document.getElementById('whisperDevice')?.value;
       if (device === 'mps') {
         setControlValue('transcriberMode', 'whisper');
@@ -902,6 +1027,7 @@
     }
 
     function handleWhisperModelChanged() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       updateModelWarning();
       markPerformanceCustom();
     }
@@ -924,6 +1050,7 @@
     }
 
     function applyPerformancePreset(index, {autosave = true} = {}) {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       const key = performancePresetKeys[index] || 'balanced';
       const preset = performancePresets[key];
       performancePresetKey = key;
@@ -946,6 +1073,7 @@
     }
 
     function markPerformanceCustom() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       performancePresetKey = 'custom';
       updatePerformanceCopy('custom');
       schedulePerformanceSave();
@@ -957,6 +1085,7 @@
     }
 
     function schedulePerformanceSave() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       const result = document.getElementById('performanceResult');
       if (result) result.textContent = 'Saving performance settings…';
       if (performanceSaveTimer) clearTimeout(performanceSaveTimer);
@@ -1048,6 +1177,7 @@
     }
 
     async function savePerformanceSettings({automatic = false} = {}) {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       if (performanceSaveTimer) {
         clearTimeout(performanceSaveTimer);
         performanceSaveTimer = null;
@@ -1204,7 +1334,76 @@
       if (reason) reason.textContent = recommendation.reason || '';
     }
 
+    function syncTranslationModeCopy() {
+      const provider = document.getElementById('translationProvider')?.value || 'disabled';
+      const copy = document.getElementById('translationModeCopy');
+      const pill = document.getElementById('translationModePill');
+      const labels = {disabled: 'Off', argos: 'Base', small100: 'Core', both: 'Auto'};
+      const descriptions = {
+        disabled: 'Visitors can still choose the phone UI language, but captions stay in the source language.',
+        argos: 'Base mode uses installed Argos packs. It is more literal and lighter on system resources.',
+        small100: 'Core mode uses SMaLL-100. It covers many languages and may be more accurate, but it uses more RAM and CPU/GPU.',
+        both: 'Auto mode shows languages from both installed providers. Church Cap tries Base first, then Core for languages Base cannot translate.'
+      };
+      if (copy) copy.textContent = descriptions[provider] || descriptions.disabled;
+      if (pill) pill.textContent = labels[provider] || provider;
+    }
+
+    function clampTranslationMax(value) {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isFinite(parsed)) return 1;
+      const max = Number(document.getElementById('translationMax')?.max || document.getElementById('translationMaxSlider')?.max || 20);
+      return Math.max(1, Math.min(max, parsed));
+    }
+
+    function syncTranslationMax(source) {
+      const slider = document.getElementById('translationMaxSlider');
+      const input = document.getElementById('translationMax');
+      const next = clampTranslationMax(source?.value ?? input?.value ?? slider?.value ?? 1);
+      if (slider) slider.value = String(next);
+      if (input) input.value = String(next);
+    }
+
+    function renderTranslationResources(translation) {
+      const summary = document.getElementById('translationResourceSummary');
+      if (!summary || !translation) return;
+      const resources = translation.resources || {};
+      const argos = resources.argos || {};
+      const core = resources.small100 || {};
+      const argosCount = Array.isArray(argos.installed_languages) ? argos.installed_languages.length : 0;
+      const coreReady = !!core.status?.ready;
+      summary.textContent = `Base packs installed: ${argosCount}. Core model: ${coreReady ? 'installed' : 'not installed'}.`;
+      const install = translation.install || window.CC_TRANSLATION_INSTALL;
+      const installResult = document.getElementById('translationInstallResult');
+      if (installResult && install?.status === 'installing') {
+        installResult.textContent = `Installing translation resources. Log: ${install.log || 'logs/translation-install.log'}.`;
+      } else if (installResult && install?.status === 'complete') {
+        installResult.textContent = install.message || 'Translation install finished.';
+      } else if (installResult && install?.status === 'error') {
+        installResult.textContent = install.error || install.message || 'Translation install failed. Check logs/translation-install.log.';
+      }
+    }
+
+    async function installTranslationResources(kind) {
+      const result = document.getElementById('translationInstallResult');
+      if (result) result.textContent = kind === 'small100' ? 'Starting Core model install…' : 'Starting Base language pack install…';
+      const res = await fetch('/api/translation/install', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({kind})
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Could not start translation install.';
+        return;
+      }
+      if (result) result.textContent = `${data.message || 'Translation install started.'} Log: ${data.install?.log || 'logs/translation-install.log'}.`;
+      refreshStatus();
+    }
+
     async function applyRecommendedSettings() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage(); return; }
       const result = document.getElementById('performanceResult');
       const res = await fetch('/api/performance/apply-recommended', {method: 'POST'});
       if (res.status === 401) { location.href = '/login'; return; }
@@ -1237,14 +1436,29 @@
 
     async function api(path) {
       const result = document.getElementById('apiResult');
+      if (path === '/api/start') showCaptionStartingNotice();
+      if (path === '/api/stop') clearCaptionStartingNotice();
       if (path === '/api/start' && performanceSaveTimer) {
         await savePerformanceSettings({automatic: true});
       }
-      const res = await fetch(path, { method: 'POST' });
-      if (res.status === 401) { location.href = '/login'; return; }
-      const data = await res.json();
-      if (result) result.textContent = JSON.stringify(data);
-      refreshStatus();
+      try {
+        const res = await fetch(path, { method: 'POST' });
+        if (res.status === 401) { location.href = '/login'; return; }
+        const data = await res.json();
+        if (result) result.textContent = JSON.stringify(data);
+        if (path === '/api/start' && data.status === 'already_running') {
+          setCaptionStartNotice('Captions are already running.');
+          captionStartPending = false;
+          captionStartNoticeTimer = setTimeout(() => setCaptionStartNotice(''), 1400);
+        }
+        refreshStatus();
+      } catch (error) {
+        if (path === '/api/start') {
+          captionStartPending = false;
+          setCaptionStartNotice('Could not start captions. Check the audio input and try again.');
+        }
+        if (result) result.textContent = String(error);
+      }
     }
 
     async function loadAudioDevices() {
@@ -1276,6 +1490,7 @@
     }
 
     async function saveAudioDevice() {
+      if (captionSettingsLocked) { showCaptionSettingsLockedMessage('audioResult'); return; }
       const select = document.getElementById('audioDevice');
       const result = document.getElementById('audioResult');
       const res = await fetch('/api/audio-device', {
@@ -1295,13 +1510,17 @@
 
     async function saveTranslationSettings() {
       const result = document.getElementById('translationResult');
+      const provider = document.getElementById('translationProvider')?.value || 'disabled';
       const selected = Array.from(document.querySelectorAll('input[name="translationLang"]:checked')).map(x => x.value);
       if (!selected.includes('en')) selected.push('en');
       const res = await fetch('/api/translation', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          translation_enabled: document.getElementById('translationEnabled').checked,
+          translation_enabled: provider !== 'disabled',
+          translation_provider: provider,
+          translation_language_policy: document.getElementById('translationLanguagePolicy')?.value || 'automatic',
+          translation_priority_mode: document.getElementById('translationPriorityMode')?.value || 'most_viewers',
           translation_allowed_languages: selected,
           translation_max_active_languages: Number(document.getElementById('translationMax').value)
         })
@@ -1309,6 +1528,8 @@
       if (res.status === 401) { location.href = '/login'; return; }
       const data = await res.json();
       if (result) result.textContent = `Saved. Enabled: ${data.enabled}. Provider: ${data.provider}. Max active languages: ${data.max_active_languages}. ${data.provider_status?.message || ''}`;
+      syncTranslationModeCopy();
+      renderTranslationResources(data);
       refreshStatus();
     }
 
@@ -1501,8 +1722,8 @@
     }
 
     function languageName(code) {
-      const names = {en: 'English', es: 'Spanish', fr: 'French', pt: 'Portuguese', pl: 'Polish', uk: 'Ukrainian', ar: 'Arabic', fa: 'Farsi'};
-      return names[code] || code.toUpperCase();
+      const lang = (window.CC_LANGUAGES || []).find(item => item.code === code);
+      return lang?.name || code.toUpperCase();
     }
 
     function renderViewerLanguageTable(translationState) {
@@ -1520,7 +1741,7 @@
       }
       for (const [code, count] of entries) {
         const row = document.createElement('tr');
-        const status = code === 'en' ? 'Source captions' : (active.has(code) ? 'Translated' : 'Source / waiting');
+        const status = code === 'en' ? 'Source captions' : (active.has(code) ? 'Translated' : 'Source / capacity');
         row.innerHTML = `<td>${languageName(code)} <span class="muted">${code}</span></td><td>${count}</td><td>${status}</td>`;
         tbody.appendChild(row);
       }
@@ -1537,6 +1758,8 @@
         if (languageViewerCount) languageViewerCount.textContent = viewerCount;
         const serviceStatus = document.getElementById('serviceStatus');
         if (serviceStatus) serviceStatus.textContent = data.status || 'stopped';
+        updateCaptionStartNoticeFromStatus(data.status || 'stopped');
+        setCaptionSettingsLocked(data.performance_locked ?? captionSettingsAreLocked(data.status));
         const sensitiveStatus = document.getElementById('sensitiveStatus');
         if (sensitiveStatus) sensitiveStatus.textContent = data.sensitive_mode ? 'Blanked' : 'Normal';
         const connection = document.getElementById('connection');
@@ -1546,6 +1769,7 @@
         const activeTranslationLanguages = document.getElementById('activeTranslationLanguages');
         if (activeTranslationLanguages) activeTranslationLanguages.textContent = activeText;
         renderViewerLanguageTable(data.translation);
+        renderTranslationResources({...data.translation, install: data.translation_install});
         const providerStatus = document.getElementById('translationProviderStatus');
         if (providerStatus && data.translation?.provider_status) providerStatus.textContent = data.translation.provider_status.message || '';
         const rms = Number(data.metrics?.audio_rms || 0);
@@ -1579,6 +1803,22 @@
         if (liveLatency) liveLatency.textContent = latencyText;
         const inputText = data.settings?.audio_device ?? 'system default';
         document.getElementById('selectedInputPill').textContent = inputText;
+        const strip = data.operator_strip || {};
+        const stripMic = document.getElementById('stripMic');
+        const stripCpu = document.getElementById('stripCpu');
+        const stripRam = document.getElementById('stripRam');
+        const stripGpu = document.getElementById('stripGpu');
+        const stripTranslate = document.getElementById('stripTranslate');
+        if (stripMic) stripMic.textContent = strip.mic_level_percent == null ? '—' : `${strip.mic_level_percent}%`;
+        if (stripCpu) stripCpu.textContent = strip.cpu_percent == null ? '—' : `${Math.round(strip.cpu_percent)}%`;
+        if (stripRam) stripRam.textContent = strip.ram_percent == null ? '—' : `${Math.round(strip.ram_percent)}%`;
+        if (stripGpu) {
+          stripGpu.textContent = strip.gpu_utilization_percent == null
+            ? (strip.gpu || '—')
+            : `${Math.round(strip.gpu_utilization_percent)}%`;
+          stripGpu.title = strip.gpu_message || strip.gpu || '';
+        }
+        if (stripTranslate) stripTranslate.textContent = `${(strip.active_languages || []).length} / ${strip.translation_capacity || 1}`;
         const profanityFilterStatus = document.getElementById('profanityFilterStatus');
         if (profanityFilterStatus) profanityFilterStatus.textContent = data.profanity_filter_enabled ? 'On' : 'Off';
         const profanityFilterEnabled = document.getElementById('profanityFilterEnabled');
@@ -1615,8 +1855,13 @@
     setPerformanceSettingsDepth(localStorage.getItem('performanceSettingsDepth') || 'easy');
     applyOperatorTheme(operatorThemePreference());
     setSidebarCollapsed(localStorage.getItem('operatorSidebarCollapsed') === 'true');
+    syncTranslationModeCopy();
     const initialSection = window.location.hash ? window.location.hash.slice(1) : localStorage.getItem('operatorSection');
     showOperatorSection(initialSection || 'dashboard');
+    document.getElementById('translationMaxSlider')?.addEventListener('input', (event) => syncTranslationMax(event.target));
+    document.getElementById('translationMax')?.addEventListener('input', (event) => syncTranslationMax(event.target));
+    document.getElementById('translationMax')?.addEventListener('blur', (event) => syncTranslationMax(event.target));
+    syncTranslationMax(document.getElementById('translationMax'));
     loadAudioDevices();
     updateTranscriptExportButtons(0);
     refreshStatus();

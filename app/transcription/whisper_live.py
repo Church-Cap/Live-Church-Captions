@@ -21,7 +21,7 @@ import sounddevice as sd
 
 from app.metrics import get_metrics, reset_metrics, update_metrics
 from app.models import CaptionSegment
-from app.text_cleanup import collapse_repeated_phrase
+from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
 
 
@@ -228,7 +228,7 @@ class WhisperLiveTranscriber(Transcriber):
             verbose=False,
         )
         text = " ".join(str(result.get("text") or "").split()).strip()
-        text = collapse_repeated_phrase(text)
+        text = clean_caption_text(collapse_repeated_phrase(text))
         if self._looks_unreliable_result(text, result):
             text = ""
         update_metrics(

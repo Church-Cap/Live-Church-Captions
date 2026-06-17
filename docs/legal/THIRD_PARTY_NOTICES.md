@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Last reviewed: 2026-05-19
+Last reviewed: 2026-06-16
 
 Church Cap is released under the MIT License. This file records the direct third-party packages and model/tooling notes for the first public preview.
 
@@ -25,7 +25,8 @@ These are the direct dependencies pinned in `requirements.txt` and `requirements
 | faster-whisper | 1.2.1 | Optional lower-latency Whisper transcription backend | MIT |
 | requests | 2.33.0 | Optional installer/model-download HTTP requests | Apache-2.0 |
 | cryptography | >=42.0.0 | Local transcript cache encryption | Apache-2.0 or BSD-3-Clause |
-| argostranslate | 1.9.6 | Local translation provider installed by the Argos setup script | MIT or CC0, per Argos Translate project metadata |
+| argostranslate | 1.9.6 | Optional local Base translation provider installed by setup or the operator language-resource installer | MIT or CC0, per Argos Translate project metadata |
+| transformers, sentencepiece, safetensors | installed only by optional Core translation setup | Optional SMaLL-100 translation runtime | Apache-2.0 / BSD-style / Apache-2.0, confirm exact resolved versions if distributing a packaged build |
 
 ## Important Transitive Dependencies
 
@@ -59,8 +60,9 @@ Church Cap does not commit or redistribute model weights in this repository.
 - `faster-whisper` is retained as an optional lower-latency backend and downloads or loads Whisper-compatible model weights at runtime according to `WHISPER_MODEL`.
 - The default model setting is `base.en`.
 - Confirm the licence for every speech-to-text model you ship, cache, mirror, or bundle.
-- Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS or `scripts/install-translation-models-argos.ps1` on Windows during setup or when the translation installer is rerun.
+- Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS or `scripts/install-translation-models-argos.ps1` on Windows during setup, from the operator **Languages** page, or when the translation installer is rerun manually.
 - Confirm the licence for every Argos language package you redistribute or preinstall.
+- Optional Core translation downloads `alirezamsh/small100` when `scripts/install-small100-core.sh` or `scripts/install-small100-core.ps1` is run. The Hugging Face model card lists SMaLL-100 as MIT licensed and covering 101 languages. Confirm the licence again before redistributing model weights.
 
 Do not assume every model hosted online is safe to redistribute or use commercially. Model code, model weights, training data, and conversion scripts may have different licences.
 

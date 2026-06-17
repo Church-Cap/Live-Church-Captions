@@ -3,9 +3,9 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from fastapi import WebSocket
 from app.models import CaptionSegment, CaptionState
-from app.i18n import LocalTranslator, normalise_language
+from app.i18n import LocalTranslator, MAX_TRANSLATION_LANGUAGES, normalise_language
 from app.transcript_store import TranscriptStore
-from app.text_cleanup import collapse_repeated_phrase
+from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 
 
 class CaptionHub:
@@ -30,8 +30,15 @@ class CaptionHub:
         self.translation_enabled = False
         self.translation_provider = "disabled"
         self.translation_allowed_languages: set[str] = {"en"}
-        self.translation_max_active_languages = 1
+        self.translation_max_active_languages = 20
+        self.translation_language_policy = "automatic"
+        self.translation_priority_mode = "most_viewers"
         self.translator = LocalTranslator("en")
+        self._translation_tasks: set[asyncio.Task] = set()
+        self._translation_semaphore = asyncio.Semaphore(2)
+        self._translation_sequence = 0
+        self._latest_translation_sequence: dict[str, int] = {}
+        self._last_partial_translation_at: dict[str, datetime] = {}
         self._transcript_store = transcript_store or TranscriptStore()
         self._session_cache_written = False
         self._start_new_session()
@@ -60,19 +67,37 @@ class CaptionHub:
     def set_status(self, status: str) -> None:
         self._status = status
 
-    def configure_translation(self, *, enabled: bool, provider: str, allowed_languages: list[str], max_active_languages: int) -> None:
+    def configure_translation(
+        self,
+        *,
+        enabled: bool,
+        provider: str,
+        allowed_languages: list[str],
+        max_active_languages: int,
+        language_policy: str = "automatic",
+        priority_mode: str = "most_viewers",
+    ) -> None:
         self.translation_enabled = bool(enabled)
         self.translation_provider = provider or "disabled"
         self.translation_allowed_languages = set(normalise_language(x) for x in allowed_languages)
         self.translation_allowed_languages.add("en")
-        self.translation_max_active_languages = max(1, min(8, int(max_active_languages)))
+        self.translation_max_active_languages = max(1, min(MAX_TRANSLATION_LANGUAGES, int(max_active_languages)))
+        self.translation_language_policy = language_policy if language_policy in {"automatic", "restricted"} else "automatic"
+        self.translation_priority_mode = priority_mode if priority_mode in {"most_viewers", "pinned_first"} else "most_viewers"
 
     def language_counts(self) -> dict[str, int]:
         return dict(Counter(self._clients.values()))
 
     def active_translated_languages(self) -> list[str]:
         counts = Counter(lang for lang in self._clients.values() if lang != "en")
-        allowed = [lang for lang, _ in counts.most_common() if lang in self.translation_allowed_languages]
+        if self.translation_language_policy == "restricted":
+            allowed = [lang for lang, _ in counts.most_common() if lang in self.translation_allowed_languages]
+        else:
+            allowed = [lang for lang, _ in counts.most_common()]
+        if self.translation_priority_mode == "pinned_first":
+            pinned = [lang for lang in sorted(self.translation_allowed_languages) if lang != "en" and counts.get(lang)]
+            rest = [lang for lang in allowed if lang not in pinned]
+            allowed = pinned + rest
         return allowed[: self.translation_max_active_languages]
 
     def translation_state(self) -> dict:
@@ -82,8 +107,12 @@ class CaptionHub:
             "provider_status": self.translator.provider_status(self.translation_provider),
             "allowed_languages": sorted(self.translation_allowed_languages),
             "max_active_languages": self.translation_max_active_languages,
+            "language_policy": self.translation_language_policy,
+            "priority_mode": self.translation_priority_mode,
             "viewer_languages": self.language_counts(),
             "active_translated_languages": self.active_translated_languages(),
+            "resources": self.translator.translation_resources(),
+            "available_languages": self.translator.supported_languages_for_provider(self.translation_provider if self.translation_enabled else "disabled"),
         }
 
     def configure_retention(self, retention_minutes: int, transcript_saving_enabled: bool) -> None:
@@ -159,17 +188,14 @@ class CaptionHub:
         language = normalise_language(language)
         if language == "en":
             return segment
-        if language not in self.translation_allowed_languages:
+        if self.translation_language_policy == "restricted" and language not in self.translation_allowed_languages:
             return segment.model_copy(update={"text": segment.text, "raw_text": segment.raw_text or segment.text})
         if language not in self.active_translated_languages():
             return segment.model_copy(update={"text": segment.text, "raw_text": segment.raw_text or segment.text})
-        result = self.translator.translate(
-            segment.text,
-            language,
-            enabled=self.translation_enabled,
-            provider=self.translation_provider,
-        )
-        return segment.model_copy(update={"text": result.text, "raw_text": segment.text})
+        cached = self.translator.cached_result(segment.text, language, provider=self.translation_provider)
+        if cached and cached.applied:
+            return segment.model_copy(update={"text": cached.text, "raw_text": segment.text})
+        return segment.model_copy(update={"text": segment.text, "raw_text": segment.raw_text or segment.text})
 
     def _state_for_language(self, language: str) -> CaptionState:
         self._purge_old_history()
@@ -208,6 +234,11 @@ class CaptionHub:
     async def publish(self, segment: CaptionSegment) -> None:
         if self._sensitive_mode or self._inside_sensitive_drain_window():
             return
+        text = clean_caption_text(collapse_repeated_phrase(segment.text))
+        if not text:
+            return
+        if text != segment.text:
+            segment = segment.model_copy(update={"text": text, "raw_text": segment.raw_text or segment.text})
         self._current = segment
         transcript_updates = self._record_transcript_segment(segment)
         if segment.is_final and self._looks_duplicate_final(segment.text) and not transcript_updates:
@@ -329,18 +360,18 @@ class CaptionHub:
         return committed
 
     def _start_draft(self, source: CaptionSegment, text: str) -> CaptionSegment | None:
-        text = collapse_repeated_phrase(" ".join(str(text or "").split()).strip())
+        text = clean_caption_text(collapse_repeated_phrase(text))
         if self._word_count(text) < 2:
             return None
         self._history_draft = self._copy_segment(source, text=text, is_final=False)
         return self._history_draft
 
     def _record_partial_transcript(self, segment: CaptionSegment) -> list[CaptionSegment]:
-        text = collapse_repeated_phrase(" ".join(segment.text.split()).strip())
+        text = clean_caption_text(collapse_repeated_phrase(segment.text))
         if self._word_count(text) < 2:
             return []
 
-        suffix = collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text()))
+        suffix = clean_caption_text(collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text())))
         if self._word_count(suffix) < 2:
             return []
 
@@ -360,7 +391,7 @@ class CaptionHub:
                 updates.append(self._history_draft)
             return updates
 
-        advanced = collapse_repeated_phrase(self._dedupe_against_previous(suffix, draft.text))
+        advanced = clean_caption_text(collapse_repeated_phrase(self._dedupe_against_previous(suffix, draft.text)))
         if self._word_count(advanced) >= 2 and self._texts_overlap(draft.text, suffix):
             committed = self._commit_draft()
             if committed:
@@ -379,16 +410,19 @@ class CaptionHub:
         return updates
 
     def _record_final_transcript(self, segment: CaptionSegment) -> list[CaptionSegment]:
-        text = collapse_repeated_phrase(" ".join(segment.text.split()).strip())
+        text = clean_caption_text(collapse_repeated_phrase(segment.text))
         if self._word_count(text) < 2:
             return []
 
         updates: list[CaptionSegment] = []
-        suffix = collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text()))
+        suffix = clean_caption_text(collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text())))
         draft = self._history_draft
         if draft is not None:
             if not suffix or self._texts_overlap(draft.text, suffix):
-                best_text = collapse_repeated_phrase(suffix if self._word_count(suffix) >= self._word_count(draft.text) else draft.text)
+                best_text = clean_caption_text(collapse_repeated_phrase(suffix if self._word_count(suffix) >= self._word_count(draft.text) else draft.text))
+                if not best_text:
+                    self._history_draft = None
+                    return updates
                 self._history_draft = self._copy_segment(segment, text=best_text, is_final=False, existing=draft)
                 committed = self._commit_draft()
                 if committed:
@@ -398,7 +432,7 @@ class CaptionHub:
             if committed:
                 updates.append(committed)
 
-        suffix = collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text()))
+        suffix = clean_caption_text(collapse_repeated_phrase(self._dedupe_against_previous(text, self._recent_history_text())))
         if self._word_count(suffix) >= 2 and not self._looks_duplicate_final(suffix):
             committed = self._copy_segment(segment, text=suffix, is_final=True)
             self._history.append(committed)
@@ -413,6 +447,134 @@ class CaptionHub:
             self._purge_old_history(persist=False)
         return updates
 
+    def _source_language_segment(self, segment: CaptionSegment, *, as_draft: bool = False) -> CaptionSegment:
+        update = {"text": segment.text, "raw_text": segment.raw_text or segment.text}
+        if as_draft and segment.is_final:
+            update["is_final"] = False
+        return segment.model_copy(update=update)
+
+    @staticmethod
+    def _translated_segment(segment: CaptionSegment, text: str) -> CaptionSegment:
+        return segment.model_copy(update={"text": text, "raw_text": segment.text})
+
+    def _track_translation_task(self, task: asyncio.Task) -> None:
+        self._translation_tasks.add(task)
+        def _done(completed: asyncio.Task) -> None:
+            self._translation_tasks.discard(completed)
+            try:
+                completed.exception()
+            except asyncio.CancelledError:
+                pass
+        task.add_done_callback(_done)
+
+    def _should_translate_partial(self, language: str, segment: CaptionSegment) -> bool:
+        if segment.is_final or self._word_count(segment.text) < 3:
+            return segment.is_final
+        now = datetime.now(timezone.utc)
+        previous = self._last_partial_translation_at.get(language)
+        if previous and (now - previous).total_seconds() < 2.0:
+            return False
+        self._last_partial_translation_at[language] = now
+        return True
+
+    def _queue_translated_caption(self, segment: CaptionSegment, language: str) -> None:
+        self._translation_sequence += 1
+        sequence = self._translation_sequence
+        self._latest_translation_sequence[language] = sequence
+        self._track_translation_task(asyncio.create_task(self._broadcast_translated_caption(segment, language, sequence)))
+
+    def _caption_payload(
+        self,
+        segment: CaptionSegment,
+        *,
+        language: str,
+        source_text: str,
+        transcript_updates: list[CaptionSegment] | None = None,
+        translation_applied: bool = False,
+        translation_warning: str | None = None,
+    ) -> dict:
+        return {
+            "type": "caption",
+            "data": segment.model_dump(mode="json"),
+            "transcript_updates": [
+                update.model_dump(mode="json")
+                for update in (transcript_updates or [])
+            ],
+            "source_text": source_text,
+            "language": language,
+            "translation_applied": translation_applied,
+            "translation_warning": translation_warning,
+            **self.retention_state(),
+            "viewers": self.viewer_count,
+        }
+
+    def _translation_status_payload(self, *, language: str, warning: str) -> dict:
+        return {
+            "type": "translation_status",
+            "language": language,
+            "translation_warning": warning,
+            **self.retention_state(),
+            "viewers": self.viewer_count,
+        }
+
+    async def _send_caption_payload(self, clients: list[WebSocket], payload: dict) -> list[WebSocket]:
+        dead: list[WebSocket] = []
+        for ws in clients:
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead.append(ws)
+        return dead
+
+    async def _remove_dead_clients(self, dead: list[WebSocket]) -> None:
+        if not dead:
+            return
+        async with self._lock:
+            for ws in dead:
+                self._clients.pop(ws, None)
+        await self._broadcast_viewer_meta()
+
+    async def _broadcast_translated_caption(self, segment: CaptionSegment, language: str, sequence: int) -> None:
+        async with self._translation_semaphore:
+            try:
+                result = await self.translator.translate_async(
+                    segment.text,
+                    language,
+                    enabled=self.translation_enabled,
+                    provider=self.translation_provider,
+                )
+            except Exception as exc:
+                result = None
+                warning = f"Translation failed for {language}: {exc}"
+        if result is None:
+            display_segment = self._source_language_segment(segment)
+            applied = False
+        else:
+            warning = result.warning
+            applied = result.applied
+            display_segment = self._translated_segment(segment, result.text) if applied else self._source_language_segment(segment)
+        if not applied and not warning:
+            warning = "Translation is experimental or unavailable. Showing source captions."
+        if not segment.is_final and self._latest_translation_sequence.get(language) != sequence:
+            return
+
+        async with self._lock:
+            clients = [ws for ws, lang in self._clients.items() if lang == language]
+        if not clients:
+            return
+        if not applied and not segment.is_final:
+            payload = self._translation_status_payload(language=language, warning=warning)
+            await self._remove_dead_clients(await self._send_caption_payload(clients, payload))
+            return
+        payload = self._caption_payload(
+            display_segment,
+            language=language,
+            source_text=segment.text,
+            translation_applied=applied,
+            translation_warning=warning,
+        )
+        await self._remove_dead_clients(await self._send_caption_payload(clients, payload))
+
     async def _broadcast_caption(self, segment: CaptionSegment, transcript_updates: list[CaptionSegment] | None = None) -> None:
         async with self._lock:
             clients = list(self._clients.items())
@@ -422,69 +584,48 @@ class CaptionHub:
         transcript_updates = transcript_updates or []
         dead: list[WebSocket] = []
         active_translated = set(self.active_translated_languages())
-        languages_needed = sorted({lang for _, lang in clients if lang != "en"})
-        translated_by_language: dict[str, tuple[CaptionSegment, str | None, bool]] = {}
+        clients_by_language: dict[str, list[WebSocket]] = {}
+        for ws, lang in clients:
+            clients_by_language.setdefault(lang, []).append(ws)
 
-        # Translate once per active target language, then reuse that result for
-        # every connected viewer using that language. This avoids multiplying CPU
-        # work by the number of phones in the room.
-        for lang in languages_needed:
+        for lang, sockets in clients_by_language.items():
+            if lang == "en":
+                payload = self._caption_payload(
+                    segment,
+                    language=lang,
+                    source_text=segment.text,
+                    transcript_updates=transcript_updates,
+                )
+                dead.extend(await self._send_caption_payload(sockets, payload))
+                continue
+
             warning = None
-            applied = False
-            display_segment = segment
-            if lang not in self.translation_allowed_languages:
+            should_translate = False
+            if self.translation_language_policy == "restricted" and lang not in self.translation_allowed_languages:
                 warning = "This language is not enabled by the operator. Showing source captions."
             elif lang not in active_translated:
-                warning = "Translation language limit reached. Showing source captions to protect system performance."
+                warning = "Translation capacity is full right now, so captions are shown in the source language. Please speak to the welcome team if you need help."
             else:
-                result = await self.translator.translate_async(
-                    segment.text,
-                    lang,
-                    enabled=self.translation_enabled,
-                    provider=self.translation_provider,
-                )
-                applied = result.applied
-                warning = result.warning
-                if result.applied:
-                    display_segment = segment.model_copy(update={"text": result.text, "raw_text": segment.text})
-                else:
-                    display_segment = segment.model_copy(update={"text": segment.text, "raw_text": segment.raw_text or segment.text})
-                if lang != "en" and not applied and not warning:
-                    warning = "Translation is experimental or unavailable. Showing source captions."
-            translated_by_language[lang] = (display_segment, warning, applied)
+                should_translate = True
+                warning = "Translating captions locally. New translated text will appear as soon as it is ready."
 
-        for ws, lang in clients:
-            if lang == "en":
-                display_segment = segment
-                translation_warning = None
-                translation_applied = False
+            if should_translate:
+                payload = self._translation_status_payload(language=lang, warning=warning)
+                dead.extend(await self._send_caption_payload(sockets, payload))
             else:
-                display_segment, translation_warning, translation_applied = translated_by_language.get(
-                    lang,
-                    (segment.model_copy(update={"text": segment.text, "raw_text": segment.raw_text or segment.text}), "Translation unavailable. Showing source captions.", False),
+                source_segment = self._source_language_segment(segment)
+                payload = self._caption_payload(
+                    source_segment,
+                    language=lang,
+                    source_text=segment.text,
+                    translation_warning=warning,
                 )
-            try:
-                await ws.send_json({
-                    "type": "caption",
-                    "data": display_segment.model_dump(mode="json"),
-                    "transcript_updates": [
-                        self._translate_segment_for_language(update, lang).model_dump(mode="json")
-                        for update in transcript_updates
-                    ],
-                    "source_text": segment.text,
-                    "language": lang,
-                    "translation_applied": translation_applied,
-                    "translation_warning": translation_warning,
-                    **self.retention_state(),
-                    "viewers": self.viewer_count,
-                })
-            except Exception:
-                dead.append(ws)
-        if dead:
-            async with self._lock:
-                for ws in dead:
-                    self._clients.pop(ws, None)
-            await self._broadcast_viewer_meta()
+                dead.extend(await self._send_caption_payload(sockets, payload))
+
+            if should_translate and self._should_translate_partial(lang, segment):
+                self._queue_translated_caption(segment, lang)
+
+        await self._remove_dead_clients(dead)
 
     async def _broadcast_viewer_meta(self) -> None:
         await self._broadcast({"type": "viewer_meta", "data": self.translation_state(), "viewers": self.viewer_count})

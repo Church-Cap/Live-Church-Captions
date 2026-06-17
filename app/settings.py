@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Church Cap"
-    app_version: str = "0.2.3"
+    app_version: str = "0.3.0"
     feedback_email: str = "info@churchcap.org"
     host: str = "0.0.0.0"
     port: int = 8080
@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     # Optional local translation scaffolding. Provider/language settings are prepared
     # by default, but the operator must explicitly enable translated captions in the web UI.
     translation_enabled: bool = False
-    translation_provider: str = "argos"  # argos or demo; disabled is also accepted
+    translation_provider: str = "argos"  # argos, small100, both, demo; disabled is also accepted
     translation_allowed_languages: str = "en"
-    translation_max_active_languages: int = 1
+    translation_max_active_languages: int = 20
 
     church_name: str = "Church Cap"
     dnd_reminder: bool = True

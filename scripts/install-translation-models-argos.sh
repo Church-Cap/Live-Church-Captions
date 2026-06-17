@@ -3,9 +3,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ENABLE_RUNTIME="false"
-if [[ "${1:-}" == "--enable" ]]; then
-  ENABLE_RUNTIME="true"
-fi
+INSTALL_SCOPE="common"
+for arg in "$@"; do
+  case "$arg" in
+    --enable) ENABLE_RUNTIME="true" ;;
+    --all) INSTALL_SCOPE="all" ;;
+    --common) INSTALL_SCOPE="common" ;;
+  esac
+done
 
 if [[ ! -d ".venv" ]]; then
   echo "No .venv found. Run ./setup-macos.sh first."
@@ -19,20 +24,25 @@ cat <<'MSG'
 
 Argos Translate is installed in the local .venv.
 
-The next step attempts to download/install English -> target-language packages for:
-Spanish, French, Portuguese, Polish, Ukrainian, Arabic, and Farsi/Persian where available.
+The next step attempts to download/install English -> target-language packages.
+Default scope: common church languages. Use --all to install every English -> target package in the Argos index.
 This requires internet access now, but live translation itself runs locally afterwards.
 
 MSG
-python - <<'PY'
+python - <<PY
 from argostranslate import package
-TARGETS = ["es", "fr", "pt", "pl", "uk", "ar", "fa"]
+SCOPE = "$INSTALL_SCOPE"
+COMMON_TARGETS = ["es", "fr", "pt", "pl", "uk", "ar", "fa"]
 print("Updating Argos package index…")
 package.update_package_index()
 available = package.get_available_packages()
+if SCOPE == "all":
+    targets = sorted({p.to_code for p in available if p.from_code == "en" and p.to_code != "en"})
+else:
+    targets = COMMON_TARGETS
 installed = []
 missing = []
-for target in TARGETS:
+for target in targets:
     candidates = [p for p in available if p.from_code == "en" and p.to_code == target]
     if not candidates:
         missing.append(target)
@@ -97,7 +107,7 @@ else:
 runtime.update({
     'translation_enabled': True if '$ENABLE_RUNTIME' == 'true' else False,
     'translation_allowed_languages': ['en'],
-    'translation_max_active_languages': 1,
+    'translation_max_active_languages': 20,
 })
 runtime_path.write_text(json.dumps(runtime, indent=2), encoding='utf-8')
 PY

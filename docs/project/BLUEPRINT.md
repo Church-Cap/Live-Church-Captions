@@ -6,7 +6,7 @@ This document describes the first public GitHub preview.
 
 ## Current Release
 
-Version: `v.0.2.3 public preview`
+Version: `v.0.3.0 public preview`
 
 Status: early public prototype suitable for local testing and pilot churches. It is not a finished compliance-certified product, and churches remain responsible for their own privacy, safeguarding, accessibility, and copyright policies.
 
@@ -69,7 +69,7 @@ app/exporting.py
 
 The transcription layer supports standard local OpenAI Whisper and the lower-latency `faster-whisper` backend. Both use a rolling-window approach with partial and final captions. The operator dashboard includes performance presets and advanced controls so churches can choose between lower delay and higher accuracy without editing `.env`.
 
-Performance settings are stored in `runtime_config.json` in the per-user data folder. Saved operator settings override matching `.env` defaults when a new caption session starts. Existing sessions keep their loaded model and stream settings until captions are stopped and started again.
+Performance settings are stored in `runtime_config.json` in the per-user data folder. Saved operator settings override matching `.env` defaults when a new caption session starts. Existing sessions keep their loaded model and stream settings until captions are stopped and started again. The operator dashboard locks performance controls while captions are live so the loaded model, backend, and audio stream cannot be changed mid-session.
 
 Key files:
 
@@ -107,7 +107,7 @@ app/transcript_store.py
 
 ### Client Viewer
 
-The public caption viewer is designed for phones and tablets. It uses a start-aligned, bottom-to-top caption stream: captions read from the left edge in left-to-right languages, wrap naturally, and use the available caption box from the bottom upward as new lines arrive. This avoids a middle-of-the-box caption feel and gives viewers a stable reading surface. If no confirmed caption is available yet, it can show a live draft so continuous speech does not leave viewers on the waiting screen. It includes an optional server-backed, scrollable, timestamped session transcript for the current app session with newest captions first, operator-only export controls with a privacy warning, font controls, automatic system light/dark theme with local override, transcript show/hide, pause/clear controls, UI language selection, AI accuracy notices, and optional translated-caption routing. Sensitive moment mode discards captions and transcript drafts while blanked, resets live transcription buffers, and briefly drops captions after resume so private speech is not retained or exported. A new app start keeps the visible transcript empty while pruning any saved local cache according to the retention window stored with that cache. On phone and tablet landscape viewports, the viewer uses a compact side-by-side layout so the live caption feed takes about 75% of the width while the transcript remains available when enabled; transcript history scrolls inside its panel so it does not push the live feed down, and hiding the transcript lets the live feed use the full width.
+The public caption viewer is designed for phones and tablets. It uses a start-aligned, bottom-to-top caption stream: captions read from the left edge in left-to-right languages, wrap naturally, and use the available caption box from the bottom upward as new lines arrive. This avoids a middle-of-the-box caption feel and gives viewers a stable reading surface. If no confirmed caption is available yet, it can show a live draft so continuous speech does not leave viewers on the waiting screen. It includes an optional server-backed, scrollable, timestamped session transcript for the current app session with newest captions first, operator-only export controls with a privacy warning, font controls, automatic system light/dark theme with local override, transcript show/hide, pause/clear controls, lightweight UI language selection from `app/locales/client_ui.json`, a stable in-card language-loading notice for active language switches, AI accuracy notices, and optional translated-caption routing. Sensitive moment mode discards captions and transcript drafts while blanked, resets live transcription buffers, and briefly drops captions after resume so private speech is not retained or exported. A new app start keeps the visible transcript empty while pruning any saved local cache according to the retention window stored with that cache. On phone and tablet landscape viewports, the viewer uses a compact side-by-side layout so the live caption feed takes about 75% of the width while the transcript remains available when enabled; transcript history scrolls inside its panel so it does not push the live feed down, and hiding the transcript lets the live feed use the full width.
 
 Key files:
 
@@ -144,12 +144,14 @@ app/templates/operator.html
 
 ### Translation
 
-Translation support is experimental. The UI supports language selection, and Argos Translate can be installed locally. Only English is enabled by default; additional languages must be deliberately enabled by the operator.
+Translation support is experimental. Phone UI language selection is separate from caption translation: UI labels come from static strings in `app/locales/client_ui.json` via `app/localisation.py`. The catalogue includes manual fallback dictionaries for languages Argos does not cover, and missing keys fall back to English per label. If a selected UI language is not in the catalogue, `/api/client-ui/{language}` can translate the UI labels locally at runtime using installed Base / Argos packs, then falls back to English if Argos cannot translate that language. Caption translation can use Base / Argos Translate, optional Core / SMaLL-100, or Auto / Base + Core. The setup scripts and operator **Languages** page can install common Base packs, all Base packs, and the optional Core model. Visitor language availability is automatic by default; Church Cap translates the most-requested languages up to the operator's active limit, which defaults to 20 and can be raised up to the full supported language catalogue. Advanced operators can restrict the available language list or prioritise selected languages first.
 
 Key files:
 
 ```text
 app/i18n.py
+app/localisation.py
+app/locales/client_ui.json
 app/broadcast.py
 scripts/install-translation-models-argos.sh
 scripts/install-translation-models-argos.ps1
@@ -213,7 +215,7 @@ On Windows:
 
 The operator password is stored as a salted PBKDF2 hash. The session secret is stored locally because it is needed to verify signed session cookies. The backup auth file is written from the same data so the app can recover if the primary auth file is lost, corrupted, or left incomplete. These files must not be committed to GitHub.
 
-Runtime settings include the selected audio input, transcript retention, translation, profanity filter, security mode, and performance tuning. Performance changes from the operator dashboard are saved automatically and apply when the next caption session starts.
+Runtime settings include the selected audio input, transcript retention, translation, profanity filter, security mode, and performance tuning. Performance changes from the operator dashboard are saved automatically while captions are stopped and apply when the next caption session starts.
 
 Older project-local files are migrated from:
 

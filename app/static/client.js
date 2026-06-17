@@ -4,9 +4,16 @@
   const historyWrap = document.getElementById('historyWrap');
   const connection = document.getElementById('connection');
   const languageSelect = document.getElementById('languageSelect');
+  const languageSearch = document.getElementById('languageSearch');
   const languageFlag = document.getElementById('languageFlag');
+  const languagePickerButton = document.getElementById('languagePickerButton');
+  const languagePickerLabel = document.getElementById('languagePickerLabel');
+  const languagePickerOverlay = document.getElementById('languagePickerOverlay');
+  const languagePickerBackdrop = document.getElementById('languagePickerBackdrop');
+  const languagePickerClose = document.getElementById('languagePickerClose');
+  const languageList = document.getElementById('languageList');
   const translationNotice = document.getElementById('translationNotice');
-  const translationWarning = document.getElementById('translationWarning');
+  const captionLoadNotice = document.getElementById('captionLoadNotice');
   const viewerHint = document.getElementById('viewerHint');
   const isPhonePage = document.body.classList.contains('phone-page');
 
@@ -14,6 +21,7 @@
   const MAX_TRANSCRIPT_ITEMS = 1000;
   const SOURCE_LANGUAGE = 'en';
   const UI_STRINGS = window.CC_UI_STRINGS || {};
+  const UI_STRING_SOURCES = window.CC_UI_STRING_SOURCES || {};
   const LANGUAGES = window.CC_LANGUAGES || [{code: 'en', native: 'English', flag: '🇬🇧', dir: 'ltr'}];
   let translationState = window.CC_TRANSLATION_STATE || {enabled: false};
 
@@ -25,6 +33,9 @@
   let viewerTheme = resolveViewerTheme();
   let viewerLanguage = localStorage.getItem('captionLanguage') || navigator.language?.split('-')[0] || SOURCE_LANGUAGE;
   if (!LANGUAGES.find(l => l.code === viewerLanguage)) viewerLanguage = SOURCE_LANGUAGE;
+  if (Array.isArray(translationState.available_languages) && !translationState.available_languages.includes(viewerLanguage)) {
+    viewerLanguage = SOURCE_LANGUAGE;
+  }
   let pendingCurrentText = null;
   let rafScheduled = false;
   const seenIds = new Set();
@@ -44,6 +55,10 @@
   let socket = null;
   let reconnectTimer = null;
   let manualReconnect = false;
+  let captionLoadNoticeTimer = null;
+  let captionLoadNoticeShownAt = 0;
+  const uiStringRequests = new Set();
+  const uiStringResolved = new Set();
 
   const MIN_PARTIAL_UPDATE_MS = 1100;
   const TARGET_READING_CPS = 19;
@@ -52,6 +67,8 @@
   const BLOCK_BREATHING_ROOM_MS = 180;
   const SUBTITLE_GLIDE_MS = 260;
   const DRAFT_LOG_UPDATE_MS = 3000;
+  const MIN_CAPTION_LOAD_NOTICE_MS = 900;
+  const MAX_CAPTION_LOAD_NOTICE_MS = 8000;
   let lastDraftLogAt = 0;
 
   function t(key) {
@@ -59,26 +76,135 @@
            (UI_STRINGS.en && UI_STRINGS.en[key]) || key;
   }
 
-  function setConnection(text, ok) {
+  function setConnection(key, ok) {
     if (!connection) return;
-    connection.textContent = text;
+    connection.dataset.connectionKey = key;
+    connection.textContent = t(key) || key;
     connection.classList.toggle('ok', !!ok);
   }
 
-  function applyLanguage() {
+  function applyLanguage({fetchUiStrings = true} = {}) {
     const lang = LANGUAGES.find(l => l.code === viewerLanguage) || LANGUAGES[0];
+    const marker = languageMarker(lang);
     document.documentElement.lang = viewerLanguage;
     document.documentElement.dir = lang.dir || 'ltr';
     if (languageSelect) languageSelect.value = viewerLanguage;
-    if (languageFlag) languageFlag.textContent = lang.flag || '🌐';
+    if (languageFlag) {
+      languageFlag.textContent = marker.text;
+      languageFlag.classList.toggle('language-code-badge', marker.isBadge);
+    }
+    if (languagePickerLabel) languagePickerLabel.textContent = languageDisplayName(lang);
     document.querySelectorAll('[data-i18n]').forEach((el) => {
       const key = el.getAttribute('data-i18n');
       if (key) el.textContent = t(key);
     });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-placeholder');
+      if (key) el.setAttribute('placeholder', t(key));
+    });
+    document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-aria-label');
+      if (key) el.setAttribute('aria-label', t(key));
+    });
+    document.title = `Church Cap · ${t('live_captions')}`;
+    if (connection?.dataset.connectionKey) {
+      connection.textContent = t(connection.dataset.connectionKey);
+    }
     if (current && current.dataset.i18n === 'waiting') current.textContent = t('waiting');
     if (translationNotice) translationNotice.hidden = viewerLanguage === SOURCE_LANGUAGE;
     localStorage.setItem('captionLanguage', viewerLanguage);
+    applyViewerTheme();
+    applyComfortMode();
     updateTranscriptToggleButton();
+    renderLanguageList(languageSearch?.value || '');
+    renderSubtitleStack();
+    renderHistoryRoll();
+    if (fetchUiStrings) ensureLanguageUiStrings(viewerLanguage);
+  }
+
+  function languageDisplayName(lang) {
+    if (!lang) return 'English';
+    const native = lang.native || lang.name || lang.code?.toUpperCase();
+    const english = lang.name || native;
+    return native === english ? native : `${native} (${english})`;
+  }
+
+  function languageSearchText(lang) {
+    return `${lang.code || ''} ${lang.name || ''} ${lang.native || ''}`.toLowerCase();
+  }
+
+  function availableCaptionLanguageCodes() {
+    if (!translationState?.enabled) return null;
+    if (Array.isArray(translationState.available_languages)) {
+      return new Set(translationState.available_languages);
+    }
+    const provider = translationState.provider || 'disabled';
+    const resources = translationState.resources || {};
+    const codes = new Set([SOURCE_LANGUAGE]);
+    if (provider === 'argos' || provider === 'both') {
+      (resources.argos?.installed_languages || []).forEach(code => codes.add(code));
+    }
+    if ((provider === 'small100' || provider === 'both') && resources.small100?.status?.ready) {
+      (resources.small100?.languages || []).forEach(code => codes.add(code));
+    }
+    return codes;
+  }
+
+  function filteredLanguagesForCurrentMode() {
+    const available = availableCaptionLanguageCodes();
+    if (!available) return LANGUAGES;
+    return LANGUAGES.filter(lang => available.has(lang.code));
+  }
+
+  function ensureViewerLanguageIsAvailable() {
+    const available = availableCaptionLanguageCodes();
+    if (available && !available.has(viewerLanguage)) {
+      viewerLanguage = SOURCE_LANGUAGE;
+      return true;
+    }
+    return false;
+  }
+
+  function languageMarker(lang) {
+    const flag = String(lang?.flag || '').trim();
+    const generic = !flag || flag === '🌐' || flag === '🏳️' || flag === '🏴';
+    if (!generic) return {text: flag, isBadge: false};
+    return {text: String(lang?.code || 'cc').slice(0, 3).toUpperCase(), isBadge: true};
+  }
+
+  async function ensureLanguageUiStrings(code) {
+    if (!code || code === SOURCE_LANGUAGE) return;
+    if (uiStringResolved.has(code) || uiStringRequests.has(code)) return;
+    const source = UI_STRING_SOURCES[code] || 'fallback';
+    if (UI_STRINGS[code] && source !== 'fallback') {
+      uiStringResolved.add(code);
+      return;
+    }
+    uiStringRequests.add(code);
+    if (code === viewerLanguage) showCaptionLoadNotice('connecting');
+    try {
+      const response = await fetch(`/api/client-ui/${encodeURIComponent(code)}`, {
+        headers: {'Accept': 'application/json'},
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload?.strings && payload.language === code) {
+        UI_STRINGS[code] = {
+          ...(UI_STRINGS[SOURCE_LANGUAGE] || {}),
+          ...(UI_STRINGS[code] || {}),
+          ...payload.strings,
+        };
+        UI_STRING_SOURCES[code] = payload.source || UI_STRING_SOURCES[code] || 'fallback';
+        uiStringResolved.add(code);
+        if (viewerLanguage === code) applyLanguage({fetchUiStrings: false});
+      }
+    } catch (_) {
+      // Keep the bundled fallback if local UI translation is unavailable.
+    } finally {
+      uiStringRequests.delete(code);
+      if (code === viewerLanguage) hideCaptionLoadNotice();
+    }
   }
 
   function applyFontScale() {
@@ -110,7 +236,7 @@
     viewerTheme = resolveViewerTheme();
     document.body.classList.toggle('light-mode', viewerTheme === 'light');
     const btn = document.getElementById('toggleTheme');
-    if (btn) btn.textContent = viewerTheme === 'light' ? 'Dark' : t('theme');
+    if (btn) btn.textContent = viewerTheme === 'light' ? t('dark_theme') : t('theme');
     if (persist) {
       localStorage.setItem('captionTheme', viewerThemePreference);
       localStorage.setItem('captionThemeManual', '1');
@@ -163,6 +289,46 @@
       .trim()
       .split(' ')
       .filter(Boolean);
+  }
+
+  function cleanCaptionText(text) {
+    const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned) return '';
+    if (!/[\p{L}\p{N}]/u.test(cleaned)) return '';
+    if (/^[\s.·•…\-–—_,;:!?|\/\\()[\]{}"'`~*+=<>]+$/.test(cleaned)) return '';
+    return cleaned;
+  }
+
+  function captionContentAvailable() {
+    return !!(
+      cleanCaptionText(currentDraftText) ||
+      cleanCaptionText(activeBlock?.text) ||
+      finalSegments.some(seg => cleanCaptionText(seg?.text))
+    );
+  }
+
+  function showCaptionLoadNotice(key = 'connecting') {
+    if (!captionLoadNotice || !captionContentAvailable()) return;
+    if (captionLoadNoticeTimer) clearTimeout(captionLoadNoticeTimer);
+    captionLoadNotice.textContent = t(key);
+    captionLoadNotice.hidden = false;
+    captionLoadNoticeShownAt = Date.now();
+    captionLoadNoticeTimer = window.setTimeout(() => hideCaptionLoadNotice({force: true}), MAX_CAPTION_LOAD_NOTICE_MS);
+  }
+
+  function hideCaptionLoadNotice({force = false} = {}) {
+    if (!captionLoadNotice || captionLoadNotice.hidden) return;
+    const elapsed = Date.now() - captionLoadNoticeShownAt;
+    if (!force && elapsed < MIN_CAPTION_LOAD_NOTICE_MS) {
+      if (captionLoadNoticeTimer) clearTimeout(captionLoadNoticeTimer);
+      captionLoadNoticeTimer = window.setTimeout(() => hideCaptionLoadNotice({force: true}), MIN_CAPTION_LOAD_NOTICE_MS - elapsed);
+      return;
+    }
+    if (captionLoadNoticeTimer) {
+      clearTimeout(captionLoadNoticeTimer);
+      captionLoadNoticeTimer = null;
+    }
+    captionLoadNotice.hidden = true;
   }
 
   function bestLineBreakIndex(words, maxChars) {
@@ -273,8 +439,8 @@
 
   function renderSubtitleStack() {
     if (!isPhonePage) {
-      const latestFinal = finalSegments.length ? finalSegments[finalSegments.length - 1].text : '';
-      const fallbackText = currentDraftText || activeBlock?.text || latestFinal || t('waiting');
+      const latestFinal = finalSegments.length ? cleanCaptionText(finalSegments[finalSegments.length - 1].text) : '';
+      const fallbackText = cleanCaptionText(currentDraftText) || cleanCaptionText(activeBlock?.text) || latestFinal || t('waiting');
       if (current) current.textContent = fallbackText;
       return;
     }
@@ -465,17 +631,6 @@
     return date.toLocaleString([], options);
   }
 
-  function showTranslationWarning(message) {
-    if (!translationWarning) return;
-    if (!message) {
-      translationWarning.hidden = true;
-      translationWarning.textContent = '';
-      return;
-    }
-    translationWarning.textContent = message || t('translation_not_available');
-    translationWarning.hidden = false;
-  }
-
   function normaliseId(text, id) {
     if (id) return String(id);
     return 'text:' + String(text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 160);
@@ -585,7 +740,7 @@
     const segment = typeof segmentOrText === 'object' && segmentOrText !== null
       ? segmentOrText
       : {text: segmentOrText, id};
-    const text = segment.text || '';
+    const text = cleanCaptionText(segment.text);
     if (!text || paused) return;
     const key = normaliseId(text, segment.id);
     if (seenIds.has(key)) return;
@@ -613,9 +768,10 @@
   function applyTranscriptUpdates(items) {
     if (!Array.isArray(items) || !items.length || !historyLogEnabled) return false;
     for (const seg of items) {
-      if (!seg?.text) continue;
-      const key = normaliseId(seg.text, seg.id);
-      addLogEntry(seg.text, key, {
+      const text = cleanCaptionText(seg?.text);
+      if (!text) continue;
+      const key = normaliseId(text, seg.id);
+      addLogEntry(text, key, {
         draft: seg.is_final === false,
         createdAt: seg.created_at || seg.createdAt || null,
       });
@@ -634,9 +790,10 @@
     draftLogCounter = 0;
     const recent = (items || []).slice(-MAX_TRANSCRIPT_ITEMS);
     for (const seg of recent) {
-      if (!seg.text) continue;
-      const key = normaliseId(seg.text, seg.id);
-      addLogEntry(seg.text, key, {draft: seg.is_final === false, createdAt: seg.created_at || seg.createdAt || null});
+      const text = cleanCaptionText(seg.text);
+      if (!text) continue;
+      const key = normaliseId(text, seg.id);
+      addLogEntry(text, key, {draft: seg.is_final === false, createdAt: seg.created_at || seg.createdAt || null});
     }
     systemMessageText = '';
     renderHistoryRoll();
@@ -687,7 +844,7 @@
     const segment = typeof segmentOrText === 'object' && segmentOrText !== null
       ? segmentOrText
       : {text: segmentOrText};
-    const text = segment.text || '';
+    const text = cleanCaptionText(segment.text);
     if (paused) return;
     const displayText = stripCommittedPrefix(text);
     if (!displayText) {
@@ -714,7 +871,8 @@
     if (paused) return;
     historyLogEnabled = state.transcript_saving_enabled !== false && Number(state.transcript_retention_minutes ?? 1) > 0;
     if (Array.isArray(state.history)) renderHistoryFromState(state.history);
-    currentDraftText = state.current?.text ? stripCommittedPrefix(state.current.text) : '';
+    currentDraftText = state.current?.text ? stripCommittedPrefix(cleanCaptionText(state.current.text)) : '';
+    if (currentDraftText || finalSegments.length) hideCaptionLoadNotice();
     renderSubtitleStack();
   }
 
@@ -737,7 +895,7 @@
 
     ws.onopen = () => {
       manualReconnect = false;
-      setConnection(t('live'), true);
+      setConnection('live', true);
       ws.send('hello');
       pingTimer = setInterval(() => {
         try { ws.send('ping'); } catch (_) {}
@@ -749,18 +907,36 @@
       try { payload = JSON.parse(event.data); } catch (_) { return; }
 
       if (payload.type === 'state') renderState(payload.data);
-      if (payload.type === 'viewer_meta') translationState = payload.data || translationState;
+      if (payload.type === 'viewer_meta') {
+        translationState = payload.data || translationState;
+        if (ensureViewerLanguageIsAvailable()) {
+          applyLanguage();
+          connect();
+        } else {
+          renderLanguageList(languageSearch?.value || '');
+        }
+      }
 
       if (payload.type === 'retention') {
         applyRetentionState(payload.data);
+      }
+
+      if (payload.type === 'translation_status') {
+        applyRetentionState(payload);
       }
 
       if (payload.type === 'caption') {
         if (paused) return;
         applyRetentionState(payload);
         const seg = payload.data || {};
-        const text = seg.text || '';
-        showTranslationWarning(payload.translation_warning);
+        const text = cleanCaptionText(seg.text);
+        if (!text) {
+          currentDraftText = '';
+          renderSubtitleStack();
+          return;
+        }
+        hideCaptionLoadNotice();
+        seg.text = text;
         const hasTranscriptUpdates = applyTranscriptUpdates(payload.transcript_updates);
         if (seg.is_final) {
           addHistory(seg, null, {log: !hasTranscriptUpdates});
@@ -797,15 +973,21 @@
       if (ws !== socket) return;
       if (pingTimer) clearInterval(pingTimer);
       if (manualReconnect) return;
-      setConnection(t('reconnecting'), false);
+      setConnection('reconnecting', false);
       reconnectTimer = setTimeout(connect, 2000);
     };
 
-    ws.onerror = () => setConnection(t('connection_issue'), false);
+    ws.onerror = () => setConnection('connection_issue', false);
   }
 
   languageSelect?.addEventListener('change', () => {
-    viewerLanguage = languageSelect.value || SOURCE_LANGUAGE;
+    changeViewerLanguage(languageSelect.value || SOURCE_LANGUAGE);
+  });
+
+  function changeViewerLanguage(code) {
+    showCaptionLoadNotice('connecting');
+    viewerLanguage = code || SOURCE_LANGUAGE;
+    ensureLanguageUiStrings(viewerLanguage);
     applyLanguage();
     applyViewerTheme();
     applyComfortMode();
@@ -822,8 +1004,74 @@
     seenIds.clear();
     seenLogIds.clear();
     draftLogCounter = 0;
-    showTranslationWarning(null);
     connect();
+  }
+
+  function openLanguagePicker() {
+    if (!languagePickerOverlay) return;
+    languagePickerOverlay.hidden = false;
+    languagePickerButton?.setAttribute('aria-expanded', 'true');
+    renderLanguageList(languageSearch?.value || '');
+    window.setTimeout(() => languageSearch?.focus(), 0);
+  }
+
+  function closeLanguagePicker() {
+    if (!languagePickerOverlay) return;
+    languagePickerOverlay.hidden = true;
+    languagePickerButton?.setAttribute('aria-expanded', 'false');
+    languagePickerButton?.focus();
+  }
+
+  function renderLanguageList(query = '') {
+    if (!languageList) return;
+    const q = query.trim().toLowerCase();
+    const matches = filteredLanguagesForCurrentMode().filter(lang => !q || languageSearchText(lang).includes(q));
+    languageList.textContent = '';
+    if (!matches.length) {
+      const empty = document.createElement('p');
+      empty.className = 'language-empty';
+      empty.textContent = t('no_languages_found');
+      languageList.appendChild(empty);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    matches.forEach((lang) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `language-option${lang.code === viewerLanguage ? ' selected' : ''}`;
+      button.setAttribute('role', 'option');
+      button.setAttribute('aria-selected', lang.code === viewerLanguage ? 'true' : 'false');
+      button.dataset.code = lang.code;
+      const marker = languageMarker(lang);
+      const flag = document.createElement('span');
+      flag.className = 'language-option-flag';
+      flag.classList.toggle('language-code-badge', marker.isBadge);
+      flag.textContent = marker.text;
+      const text = document.createElement('span');
+      text.className = 'language-option-text';
+      const title = document.createElement('strong');
+      title.textContent = lang.native || lang.name || lang.code.toUpperCase();
+      const meta = document.createElement('small');
+      meta.textContent = lang.name && lang.name !== lang.native ? `${lang.name} · ${lang.code}` : lang.code;
+      text.append(title, meta);
+      button.append(flag, text);
+      button.addEventListener('click', () => {
+        changeViewerLanguage(lang.code);
+        closeLanguagePicker();
+      });
+      frag.appendChild(button);
+    });
+    languageList.appendChild(frag);
+  }
+
+  languagePickerButton?.addEventListener('click', openLanguagePicker);
+  languagePickerBackdrop?.addEventListener('click', closeLanguagePicker);
+  languagePickerClose?.addEventListener('click', closeLanguagePicker);
+  languageSearch?.addEventListener('input', () => renderLanguageList(languageSearch.value));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && languagePickerOverlay && !languagePickerOverlay.hidden) {
+      closeLanguagePicker();
+    }
   });
 
   document.getElementById('largerText')?.addEventListener('click', () => {
@@ -856,7 +1104,7 @@
     e.target.textContent = paused ? t('resume') : t('pause');
     if (paused && current) {
       const frozen = current.textContent || t('waiting');
-      current.textContent = frozen + '  ·  ' + t('pause');
+      current.textContent = frozen + '  ·  ' + t('paused_marker');
     } else {
       connect();
     }

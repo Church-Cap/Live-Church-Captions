@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v.0.2.3 public preview**
+Version: **v.0.3.0 public preview**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -42,7 +42,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - Sensitive blank/pause mode for private or pastoral moments.
 - Transcript retention controls, encrypted local transcript cache, and operator-only current-session transcript export as `.txt`, `.vtt`, `.srt`, and `.json` with a privacy warning.
 - OBS browser-source overlay and setup guide.
-- Local Argos Translate support for experimental translated captions.
+- Local multilingual support: phone UI labels use the lightweight catalogue in `app/locales/client_ui.json`, with Argos runtime fallback where needed. Experimental translated captions use **Base** Argos Translate packs, optional **Core** SMaLL-100, or **Auto** mode across both providers.
 - Local HTTPS helper scripts for testing and managed-device deployments.
 - macOS and Windows setup, start, permission repair/password reset, and macOS LaunchAgent helper scripts.
 
@@ -71,7 +71,7 @@ bash setup-macos.sh
 ./start-macos.sh
 ```
 
-Use `bash setup-macos.sh` for the first run because the setup script may not be executable yet after download or unzip. The setup script repairs permissions for the other Church Cap scripts, prepares a local `.venv`, installs the app dependencies, installs Argos Translate support and available language models, creates `.env` if needed, and can help set a friendly Bonjour hostname such as `church-cap.local`.
+Use `bash setup-macos.sh` for the first run because the setup script may not be executable yet after download or unzip. The setup script repairs permissions for the other Church Cap scripts, prepares a local `.venv`, installs the app dependencies, creates `.env` if needed, can help set a friendly Bonjour hostname such as `church-cap.local`, and offers translation-resource choices for common Base packs, all Base packs, optional Core, or skipping translation resources until later.
 
 The normal start command opens the password setup page first. If a password already exists, Church Cap redirects you onward to the operator flow:
 
@@ -103,7 +103,7 @@ powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1
 .\start-windows.ps1
 ```
 
-The setup script prepares `.venv`, installs the app dependencies, checks CUDA/GPU support, installs Argos Translate support and available language models, and creates `.env` if needed. If Python is missing and `winget` is available, it can offer to install Python 3.12 first.
+The setup script prepares `.venv`, installs the app dependencies, checks CUDA/GPU support, creates `.env` if needed, and offers translation-resource choices for common Base packs, all Base packs, optional Core, or skipping translation resources until later. If Python is missing and `winget` is available, it can offer to install Python 3.12 first.
 
 The normal start command opens the password setup page first. If a password already exists, Church Cap redirects you onward to the operator flow:
 
@@ -117,7 +117,7 @@ Audience viewers normally use the IP address shown in the terminal or QR code, f
 http://192.168.1.50:8080/
 ```
 
-Church Cap can use either the standard OpenAI Whisper backend or the lower-latency `faster-whisper` backend. The operator page includes a **Performance** section with a speed/accuracy slider and advanced controls for platform view, backend, model size, processor, compute type, caption refresh, listening window, silence timing, and stability checks. These settings are saved automatically in the per-user runtime config and apply the next time captions are started.
+Church Cap can use either the standard OpenAI Whisper backend or the lower-latency `faster-whisper` backend. The operator page includes a **Performance** section with a speed/accuracy slider and advanced controls for platform view, backend, model size, processor, compute type, caption refresh, listening window, silence timing, and stability checks. These settings are saved automatically in the per-user runtime config and apply the next time captions are started. To protect the live audience feed, performance controls are locked while captions are running.
 
 The **Performance platform** setting defaults to auto-detect. On Windows, `faster-whisper` can use CUDA through CTranslate2 when the GPU, drivers, and required CUDA runtime DLLs are available. If CUDA is not ready, setup can offer to install or force reinstall local NVIDIA CUDA 12 runtime packages inside `.venv`, or you can run `.\install-cuda-runtime-windows.cmd` later. The force reinstall clears pip's CUDA wheel cache and downloads fresh local runtime wheels. The operator Performance panel also shows a Windows CUDA troubleshooting area when Windows is selected, with **Check CUDA** and **Force reinstall CUDA runtime** buttons. Selecting **GPU / NVIDIA CUDA** forces a CUDA load attempt first for Faster Whisper; if the runtime cannot load CUDA, Church Cap falls back to CPU and reports the reason in the operator status. The built-in CUDA runtime installer targets Faster Whisper/CTranslate2 rather than PyTorch/OpenAI Whisper, so Windows CUDA recommendations stay on Faster Whisper. On macOS, the processor choices hide CUDA and can show Apple GPU / Metal for OpenAI Whisper when PyTorch supports MPS. Argos Translate remains local and experimental and may still run on CPU.
 
@@ -212,7 +212,7 @@ Open `/operator`, then use **Performance** on the dashboard.
 - Move the slider toward **Most accurate** when the computer has enough CPU/GPU headroom and wording matters more than delay. The far-right setting uses `medium.en` and can noticeably increase latency, so check it with the benchmark before a service.
 - Use **More settings** for deeper tuning. Easy mode shows platform, backend, model size, and processor. Advanced mode adds compute type, caption refresh, listening window, silence finalise timing, stability checks, and OpenAI Whisper beam size. The platform view is automatic by default, but can be set to macOS or Windows if detection is wrong.
 
-Performance adjustments save automatically. Stop and start captions after changing them because the model and audio stream are loaded when captions start. The Performance panel also includes a 15-second benchmark and a live monitor that sample live transcription time, estimated caption delay, audio level, model load time, runtime, and available system load. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
+Performance adjustments save automatically when captions are stopped. Stop captions before changing the model, backend, processor, or other performance settings because the model and audio stream are loaded when captions start. The Performance panel also includes a 15-second benchmark and a live monitor that sample live transcription time, estimated caption delay, audio level, model load time, runtime, and available system load. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
 
 ## Main Pages
 
@@ -237,11 +237,13 @@ Performance adjustments save automatically. Stop and start captions after changi
 
 ## Translation
 
-Phone UI language selection is local and lightweight. Translated captions are separate, experimental, and resource-heavy.
+Phone UI language selection is local and lightweight. The visitor page uses static strings from `app/locales/client_ui.json` first, including manual fallback strings for languages Argos does not cover. If a selected language is not in that file, Church Cap asks the local Base / Argos provider to translate the small set of UI labels at runtime, then falls back to English if the needed Argos pack is not installed. This UI path is separate from live caption translation routing and does not require captions to be running.
 
-Whisper performs speech-to-text. It does not translate one English caption stream into every viewer language by itself. Real translated captions require a translation provider such as Argos Translate.
+The operator dashboard shows a steady loading notice while captions start and the local speech model/audio input are being prepared. On visitor phones, changing language during an active caption stream shows a small in-card loading notice that does not move the caption layout; it is not shown on an empty waiting screen.
 
-The first-time macOS setup script installs Argos Translate support and available English-to-target models. To rerun that translation setup later:
+Translated captions are separate, experimental, and resource-heavy. Whisper performs speech-to-text; it does not translate one English caption stream into every viewer language by itself. Real translated captions require a translation provider. Church Cap supports **Base / Argos Translate**, optional **Core / SMaLL-100**, and **Auto / Base + Core** modes.
+
+The first-time setup scripts can install common Base Argos packs, all available Base packs, or common Base packs plus the heavier optional Core SMaLL-100 model. The operator **Languages** page can also install common Base packs, install all Base packs, or install Core later. To rerun common Base setup manually:
 
 ```bash
 ./scripts/install-translation-models-argos.sh
@@ -265,7 +267,21 @@ On Windows:
 powershell -ExecutionPolicy Bypass -File .\scripts\install-translation-models-argos.ps1 -Enable
 ```
 
-Keep the active translated language limit low at first. Translation may be inaccurate for Scripture, names, theology, pastoral details, and safeguarding-sensitive content. Use a qualified human interpreter where accuracy matters.
+Install optional Core / SMaLL-100 support:
+
+```bash
+./scripts/install-small100-core.sh
+```
+
+Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-small100-core.ps1
+```
+
+By default, translated-caption language availability is automatic: visitors can request any supported language shown by the selected provider, and Church Cap translates the most-requested languages up to the operator's active limit. The default active limit is 20 and the control can be raised up to the full supported language catalogue on powerful hardware. Lower the limit for weaker systems or when latency matters.
+
+Translation may be inaccurate for Scripture, names, theology, pastoral details, and safeguarding-sensitive content. Use a qualified human interpreter where accuracy matters.
 
 More detail: [docs/translation.md](docs/translation.md).
 
@@ -397,7 +413,7 @@ Before publishing a release, confirm:
 - `LICENSE`, `.github/SECURITY.md`, `.github/CONTRIBUTING.md`, `.github/CODE_OF_CONDUCT.md`, and `docs/legal/THIRD_PARTY_NOTICES.md` are included.
 - Third-party versions and licence notes are reviewed in `docs/legal/THIRD_PARTY_NOTICES.md`.
 - Script permissions are executable, or users can run `bash setup-macos.sh` to repair them during setup.
-- Windows scripts are included for setup, start, password reset, update, optional CUDA runtime force reinstall, and Argos model installation.
+- Windows scripts are included for setup, start, password reset, update, optional CUDA runtime force reinstall, Base Argos model installation, and optional Core SMaLL-100 installation.
 
 GitHub community files live in the standard `.github/` folder:
 

@@ -21,7 +21,7 @@ from faster_whisper import WhisperModel
 
 from app.models import CaptionSegment
 from app.metrics import update_metrics, reset_metrics, get_metrics
-from app.text_cleanup import collapse_repeated_phrase
+from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
 from app.hardware import detect_hardware_acceleration, resolve_whisper_runtime
 
@@ -197,7 +197,7 @@ class FasterWhisperTranscriber(Transcriber):
             without_timestamps=False,
         )
         text = " ".join(" ".join(seg.text.split()) for seg in segments).strip()
-        text = collapse_repeated_phrase(text)
+        text = clean_caption_text(collapse_repeated_phrase(text))
         update_metrics(last_transcription_seconds=time.monotonic() - started, transcriptions_completed=int(get_metrics().get("transcriptions_completed") or 0) + 1)
         return text
 

@@ -9,6 +9,7 @@ import json
 from threading import Lock
 from typing import Any
 
+from app.i18n import MAX_TRANSLATION_LANGUAGES
 from app.paths import data_path, migrate_project_data
 
 CONFIG_PATH = data_path("runtime_config.json")
@@ -31,8 +32,11 @@ DEFAULTS: dict[str, Any] = {
     "transcript_saving_enabled": True,
     "transcript_retention_minutes": 120,
     "translation_enabled": False,
+    "translation_provider": "argos",
     "translation_allowed_languages": ["en"],
-    "translation_max_active_languages": 1,
+    "translation_max_active_languages": 20,
+    "translation_language_policy": "automatic",
+    "translation_priority_mode": "most_viewers",
     "profanity_filter_enabled": True,
     "security_mode": "secure_operator",
     "lock_operator_to_localhost": True,
@@ -63,11 +67,17 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             cfg["transcript_retention_minutes"] = DEFAULTS["transcript_retention_minutes"]
         try:
-            cfg["translation_max_active_languages"] = max(1, min(8, int(cfg["translation_max_active_languages"])))
+            cfg["translation_max_active_languages"] = max(1, min(MAX_TRANSLATION_LANGUAGES, int(cfg["translation_max_active_languages"])))
         except Exception:
             cfg["translation_max_active_languages"] = DEFAULTS["translation_max_active_languages"]
         cfg["transcript_saving_enabled"] = bool(cfg["transcript_saving_enabled"])
         cfg["translation_enabled"] = bool(cfg["translation_enabled"])
+        if cfg.get("translation_provider") not in {"disabled", "argos", "small100", "both", "demo"}:
+            cfg["translation_provider"] = "argos"
+        if cfg.get("translation_language_policy") not in {"automatic", "restricted"}:
+            cfg["translation_language_policy"] = "automatic"
+        if cfg.get("translation_priority_mode") not in {"most_viewers", "pinned_first"}:
+            cfg["translation_priority_mode"] = "most_viewers"
         cfg["profanity_filter_enabled"] = bool(cfg["profanity_filter_enabled"])
         cfg["lock_operator_to_localhost"] = bool(cfg.get("lock_operator_to_localhost", True))
         if not isinstance(cfg.get("performance_preset"), str) or cfg.get("performance_preset") not in {"fastest", "fast", "balanced", "accurate", "most_accurate", "custom"}:
@@ -146,10 +156,24 @@ def set_privacy_config(save_transcripts: bool, retention_minutes: int) -> dict[s
     return save_runtime_config(cfg)
 
 
-def set_translation_config(enabled: bool, allowed_languages: list[str], max_active_languages: int) -> dict[str, Any]:
+def set_translation_config(
+    enabled: bool,
+    allowed_languages: list[str] | None,
+    max_active_languages: int,
+    provider: str | None = None,
+    language_policy: str | None = None,
+    priority_mode: str | None = None,
+) -> dict[str, Any]:
     cfg = load_runtime_config()
     cfg["translation_enabled"] = bool(enabled)
-    cfg["translation_allowed_languages"] = allowed_languages
+    if provider is not None:
+        cfg["translation_provider"] = provider
+    if language_policy is not None:
+        cfg["translation_language_policy"] = language_policy
+    if priority_mode is not None:
+        cfg["translation_priority_mode"] = priority_mode
+    if allowed_languages is not None:
+        cfg["translation_allowed_languages"] = allowed_languages
     cfg["translation_max_active_languages"] = max_active_languages
     return save_runtime_config(cfg)
 

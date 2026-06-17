@@ -1,4 +1,5 @@
-# Local Argos translation support.
+# Local Base / Argos translation support.
 # Keep this separate from requirements.txt because the installer also downloads
 # Argos language packages and updates translation runtime settings.
+# Core / SMaLL-100 is installed separately by scripts/install-small100-core.*
 argostranslate==1.9.6

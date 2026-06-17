@@ -15,34 +15,49 @@
         <h1 data-i18n="live_captions">Live captions</h1>
       </div>
       <div class="topbar-actions">
-        <label class="language-picker" aria-label="Caption language">
-          <span id="languageFlag">🇬🇧</span>
-          <select id="languageSelect">
+        <div class="language-picker" aria-label="Caption language" data-i18n-aria-label="caption_language">
+          <button id="languagePickerButton" class="language-picker-button" type="button" aria-haspopup="dialog" aria-expanded="false">
+            <span id="languageFlag">🇬🇧</span>
+            <span id="languagePickerLabel">English</span>
+          </button>
+          <select id="languageSelect" class="sr-only" aria-hidden="true" tabindex="-1">
             {% for lang in languages %}
-            <option value="{{ lang.code }}" data-flag="{{ lang.flag }}" data-dir="{{ lang.dir }}">{{ lang.native }}</option>
+            <option value="{{ lang.code }}" data-flag="{{ lang.flag }}" data-dir="{{ lang.dir }}" data-name="{{ lang.name }}" data-native="{{ lang.native }}">{{ lang.native }}</option>
             {% endfor %}
           </select>
-        </label>
-        <span id="connection" class="status-pill">Connecting</span>
+        </div>
+        <span id="connection" class="status-pill" data-i18n="connecting">Connecting</span>
       </div>
     </header>
 
+    <div id="languagePickerOverlay" class="language-picker-overlay" hidden>
+      <div class="language-picker-backdrop" id="languagePickerBackdrop"></div>
+      <section class="language-picker-dialog glass-card" role="dialog" aria-modal="true" aria-labelledby="languagePickerTitle">
+        <div class="language-picker-dialog-head">
+          <h2 id="languagePickerTitle" data-i18n="choose_language">Choose language</h2>
+          <button id="languagePickerClose" type="button" class="notice-close" aria-label="Close language picker" data-i18n-aria-label="close_language_picker">×</button>
+        </div>
+        <input id="languageSearch" class="language-search" type="search" placeholder="Search languages" autocomplete="off" data-i18n-placeholder="search_languages" data-i18n-aria-label="search_languages">
+        <div id="languageList" class="language-list" role="listbox" aria-label="Available caption languages" data-i18n-aria-label="available_caption_languages"></div>
+      </section>
+    </div>
+
     {% if dnd_reminder %}
     <section class="notice compact-notice glass-card" id="dndNotice">
-      <button class="notice-close" aria-label="Dismiss reminder" onclick="document.getElementById('dndNotice').remove()">×</button>
+      <button class="notice-close" aria-label="Dismiss reminder" data-i18n-aria-label="dismiss_reminder" onclick="document.getElementById('dndNotice').remove()">×</button>
       <strong data-i18n="dnd_title">Do Not Disturb</strong>
       <p data-i18n="dnd_text">Consider turning on Do Not Disturb so notifications do not distract you and you can focus on the Word of God.</p>
     </section>
     {% endif %}
 
     <section class="notice compact-notice accuracy-notice glass-card" id="accuracyNotice">
-      <button class="notice-close" aria-label="Dismiss accuracy notice" onclick="document.getElementById('accuracyNotice').remove()">×</button>
+      <button class="notice-close" aria-label="Dismiss accuracy notice" data-i18n-aria-label="dismiss_accuracy_notice" onclick="document.getElementById('accuracyNotice').remove()">×</button>
       <strong data-i18n="ai_notice_title">AI caption notice</strong>
       <p data-i18n="ai_notice_text">Captions are generated automatically and may be inaccurate at times. Please check with the speaker or church team if something seems unclear.</p>
     </section>
 
     <section class="notice compact-notice translation-notice glass-card" id="translationNotice" hidden>
-      <button class="notice-close" aria-label="Dismiss translation notice" onclick="document.getElementById('translationNotice').hidden = true">×</button>
+      <button class="notice-close" aria-label="Dismiss translation notice" data-i18n-aria-label="dismiss_translation_notice" onclick="document.getElementById('translationNotice').hidden = true">×</button>
       <strong data-i18n="translation_notice_title">Experimental translation</strong>
       <p data-i18n="translation_notice_text">Translated captions are experimental and may be inaccurate or unavailable. Scripture, names, theology, and pastoral details should be checked with the church team.</p>
     </section>
@@ -53,10 +68,10 @@
         <span id="viewerHint" class="caption-hint" data-i18n="line_by_line">Bottom-to-top caption stream</span>
       </div>
       <div id="currentCaption" class="current-caption compact-current" data-i18n="waiting">Waiting for captions…</div>
-      <p id="translationWarning" class="translation-warning" hidden></p>
+      <p id="captionLoadNotice" class="caption-load-notice" data-i18n="connecting" hidden>Connecting</p>
     </section>
 
-    <section class="controls compact-controls glass-card" aria-label="Caption controls">
+    <section class="controls compact-controls glass-card" aria-label="Caption controls" data-i18n-aria-label="caption_controls">
       <button id="smallerText" type="button">A−</button>
       <button id="largerText" type="button">A+</button>
       <button id="toggleTheme" type="button" data-i18n="theme">Theme</button>
@@ -82,6 +97,7 @@
   <script>
     window.CC_LANGUAGES = {{ languages | tojson }};
     window.CC_UI_STRINGS = {{ ui_strings | tojson }};
+    window.CC_UI_STRING_SOURCES = {{ ui_string_sources | tojson }};
     window.CC_TRANSLATION_STATE = {{ translation_state | tojson }};
   </script>
   <script src="/static/client.js"></script>

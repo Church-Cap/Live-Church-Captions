@@ -16,7 +16,7 @@ Run setup. Use `bash` for this first command because the setup script may not be
 bash setup-macos.sh
 ```
 
-Setup may take a while. It installs the local Python environment, audio dependencies, and Argos translation support/models.
+Setup may take a while. It installs the local Python environment and audio dependencies. It can also install common Base Argos translation packs, all Base packs, optional Core / SMaLL-100, or skip translation resources until later.
 
 ## First-Time Setup On Windows
 

@@ -1,5 +1,6 @@
 param(
-    [switch]$Enable
+    [switch]$Enable,
+    [switch]$All
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,20 +19,26 @@ if (-not (Test-Path $VenvPython)) {
 Write-Host ""
 Write-Host "Argos Translate is installed in the local .venv."
 Write-Host ""
-Write-Host "The next step attempts to download/install English -> target-language packages for:"
-Write-Host "Spanish, French, Portuguese, Polish, Ukrainian, Arabic, and Farsi/Persian where available."
+Write-Host "The next step attempts to download/install English -> target-language packages."
+Write-Host "Default scope: common church languages. Use -All to install every English -> target package in the Argos index."
 Write-Host "This requires internet access now, but live translation itself runs locally afterwards."
 Write-Host ""
 
-$pythonScript = @'
+$scope = if ($All) { "all" } else { "common" }
+$pythonScript = @"
 from argostranslate import package
-TARGETS = ["es", "fr", "pt", "pl", "uk", "ar", "fa"]
+SCOPE = "$scope"
+COMMON_TARGETS = ["es", "fr", "pt", "pl", "uk", "ar", "fa"]
 print("Updating Argos package index...")
 package.update_package_index()
 available = package.get_available_packages()
+if SCOPE == "all":
+    targets = sorted({p.to_code for p in available if p.from_code == "en" and p.to_code != "en"})
+else:
+    targets = COMMON_TARGETS
 installed = []
 missing = []
-for target in TARGETS:
+for target in targets:
     candidates = [p for p in available if p.from_code == "en" and p.to_code == target]
     if not candidates:
         missing.append(target)
@@ -45,7 +52,7 @@ for target in TARGETS:
 print("\nInstalled target languages:", ", ".join(installed) or "none")
 if missing:
     print("Missing packages:", ", ".join(missing))
-'@
+"@
 $pythonScript | & $VenvPython -
 
 $enableValue = if ($Enable) { "true" } else { "false" }
@@ -98,7 +105,7 @@ else:
 runtime.update({
     'translation_enabled': True if '$enableValue' == 'true' else False,
     'translation_allowed_languages': ['en'],
-    'translation_max_active_languages': 1,
+    'translation_max_active_languages': 20,
 })
 runtime_path.write_text(json.dumps(runtime, indent=2), encoding='utf-8')
 "@

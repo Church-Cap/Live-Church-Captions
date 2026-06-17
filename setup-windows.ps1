@@ -165,13 +165,29 @@ if ($GpuStatus -and $GpuStatus.nvidia_smi_available -and -not $GpuStatus.cuda_av
     }
 }
 
-Step "6/6 Installing local translation dependencies/models"
+Step "6/6 Installing Base translation dependencies/models"
 if ($SkipTranslation) {
     Write-Host "Skipping Argos Translate setup because -SkipTranslation was used."
 } else {
-    Write-Host "The app can use Argos Translate for local, offline text translation after models are downloaded."
+    Write-Host "Base translation uses Argos Translate for local, offline text translation after language packs are downloaded."
     Write-Host "Translation is experimental and may be inaccurate. It may still run on CPU even when Whisper uses CUDA."
-    & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1")
+    Write-Host "You can install all Base packs or the heavier Core SMaLL-100 model later from the operator Languages page."
+    Write-Host ""
+    Write-Host "Translation resource options:"
+    Write-Host "  1) Install common Base packs (recommended)"
+    Write-Host "  2) Install all available Base packs"
+    Write-Host "  3) Install common Base packs and optional Core model"
+    Write-Host "  4) Skip translation resources for now"
+    $translationAnswer = Read-Host "Choose translation setup [1]"
+    switch ($translationAnswer) {
+        "2" { & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1") -All }
+        "3" {
+            & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1")
+            & (Join-Path $AppDir "scripts\install-small100-core.ps1")
+        }
+        "4" { Write-Host "Skipping translation resources. You can install them later from the operator Languages page." }
+        default { & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1") }
+    }
 }
 
 Write-Host ""

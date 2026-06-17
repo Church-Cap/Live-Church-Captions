@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.util
+from pathlib import Path
+import sys
 from typing import Any
 
 SOURCE_LANGUAGE = "en"
 
-SUPPORTED_LANGUAGES: list[dict[str, str]] = [
+BASE_LANGUAGES: list[dict[str, str]] = [
     {"code": "en", "name": "English", "native": "English", "flag": "🇬🇧", "dir": "ltr"},
     {"code": "es", "name": "Spanish", "native": "Español", "flag": "🇪🇸", "dir": "ltr"},
     {"code": "fr", "name": "French", "native": "Français", "flag": "🇫🇷", "dir": "ltr"},
@@ -16,73 +19,94 @@ SUPPORTED_LANGUAGES: list[dict[str, str]] = [
     {"code": "fa", "name": "Farsi", "native": "فارسی", "flag": "🇮🇷", "dir": "rtl"},
 ]
 
-LANGUAGE_BY_CODE = {item["code"]: item for item in SUPPORTED_LANGUAGES}
 
-CLIENT_UI_STRINGS: dict[str, dict[str, str]] = {
-    "en": {
-        "live_captions": "Live captions",
-        "current": "Live",
-        "recent_captions": "Session transcript",
-        "newest_first": "Newest first",
-        "live_updates": "Live text updates automatically",
-        "line_by_line": "Bottom-to-top caption stream",
-        "history_log_hint": "Newest at top · scroll for earlier",
-        "history_off": "Caption history has been disabled by the operator.",
-        "history_empty": "Transcript captions will appear here.",
-        "waiting": "Waiting for captions…",
-        "dnd_title": "Do Not Disturb",
-        "dnd_text": "Consider turning on Do Not Disturb so notifications do not distract you and you can focus on the Word of God.",
-        "ai_notice_title": "AI caption notice",
-        "ai_notice_text": "Captions are generated automatically and may be inaccurate at times. Please check with the speaker or church team if something seems unclear.",
-        "translation_notice_title": "Experimental translation",
-        "translation_notice_text": "Translated captions are experimental and may be inaccurate or unavailable. Scripture, names, theology, and pastoral details should be checked with the church team.",
-        "language": "Language",
-        "theme": "Theme",
-        "comfort": "Comfort",
-        "compact": "Compact",
-        "show_transcript": "Show transcript",
-        "hide_transcript": "Hide transcript",
-        "pause": "Pause",
-        "resume": "Resume",
-        "clear": "Clear",
-        "live": "Live",
-        "reconnecting": "Reconnecting",
-        "connection_issue": "Connection issue",
-        "translation_not_available": "Translation is not available for this caption; showing the source language.",
-    },
-    "es": {
-        "live_captions": "Subtítulos en vivo", "current": "Actual", "recent_captions": "Transcripción de la sesión", "newest_first": "Más recientes primero", "live_updates": "El texto se actualiza automáticamente", "waiting": "Esperando subtítulos…", "dnd_title": "No molestar", "dnd_text": "Considera activar No molestar para evitar distracciones y poder concentrarte en la Palabra de Dios.", "ai_notice_title": "Aviso sobre subtítulos de IA", "ai_notice_text": "Los subtítulos se generan automáticamente y pueden ser inexactos. Consulta con el equipo de la iglesia si algo no está claro.", "translation_notice_title": "Traducción experimental", "translation_notice_text": "Los subtítulos traducidos son experimentales y pueden ser inexactos o no estar disponibles. Verifica Escritura, nombres, teología y detalles pastorales con la iglesia.", "language": "Idioma", "theme": "Tema", "comfort": "Cómodo", "compact": "Compacto", "show_transcript": "Mostrar transcripción", "hide_transcript": "Ocultar transcripción", "pause": "Pausar", "resume": "Reanudar", "clear": "Borrar", "live": "En vivo", "reconnecting": "Reconectando", "connection_issue": "Problema de conexión", "translation_not_available": "La traducción no está disponible para este subtítulo; se muestra el idioma original."
-    },
-    "fr": {
-        "live_captions": "Sous-titres en direct", "current": "Actuel", "recent_captions": "Transcription de la session", "newest_first": "Les plus récents d’abord", "live_updates": "Le texte se met à jour automatiquement", "waiting": "En attente des sous-titres…", "dnd_title": "Ne pas déranger", "dnd_text": "Pensez à activer Ne pas déranger pour éviter les notifications et vous concentrer sur la Parole de Dieu.", "ai_notice_title": "Avis sur les sous-titres IA", "ai_notice_text": "Les sous-titres sont générés automatiquement et peuvent être inexacts. Vérifiez avec l’équipe de l’église si quelque chose semble flou.", "translation_notice_title": "Traduction expérimentale", "translation_notice_text": "Les sous-titres traduits sont expérimentaux et peuvent être inexacts ou indisponibles. Vérifiez les Écritures, les noms, la théologie et les détails pastoraux avec l’église.", "language": "Langue", "theme": "Thème", "comfort": "Confort", "compact": "Compact", "show_transcript": "Afficher la transcription", "hide_transcript": "Masquer la transcription", "pause": "Pause", "resume": "Reprendre", "clear": "Effacer", "live": "En direct", "reconnecting": "Reconnexion", "connection_issue": "Problème de connexion", "translation_not_available": "La traduction n’est pas disponible pour ce sous-titre ; affichage de la langue source."
-    },
-    "pt": {
-        "live_captions": "Legendas ao vivo", "current": "Atual", "recent_captions": "Transcrição da sessão", "newest_first": "Mais recentes primeiro", "live_updates": "O texto é atualizado automaticamente", "waiting": "Aguardando legendas…", "dnd_title": "Não perturbe", "dnd_text": "Considere ativar Não perturbe para evitar notificações e focar na Palavra de Deus.", "ai_notice_title": "Aviso de legendas por IA", "ai_notice_text": "As legendas são geradas automaticamente e podem conter erros. Fale com a equipa da igreja se algo não estiver claro.", "translation_notice_title": "Tradução experimental", "translation_notice_text": "Legendas traduzidas são experimentais e podem ser imprecisas ou indisponíveis. Confirme Escritura, nomes, teologia e detalhes pastorais com a igreja.", "language": "Idioma", "theme": "Tema", "comfort": "Conforto", "compact": "Compacto", "show_transcript": "Mostrar transcrição", "hide_transcript": "Ocultar transcrição", "pause": "Pausar", "resume": "Retomar", "clear": "Limpar", "live": "Ao vivo", "reconnecting": "Reconectando", "connection_issue": "Problema de ligação", "translation_not_available": "A tradução não está disponível para esta legenda; mostrando o idioma original."
-    },
-    "pl": {
-        "live_captions": "Napisy na żywo", "current": "Aktualne", "recent_captions": "Transkrypcja sesji", "newest_first": "Najnowsze najpierw", "live_updates": "Tekst aktualizuje się automatycznie", "waiting": "Oczekiwanie na napisy…", "dnd_title": "Nie przeszkadzać", "dnd_text": "Rozważ włączenie trybu Nie przeszkadzać, aby skupić się na Słowie Bożym.", "ai_notice_title": "Informacja o napisach AI", "ai_notice_text": "Napisy są generowane automatycznie i czasem mogą być niedokładne. W razie niejasności zapytaj zespół kościoła.", "translation_notice_title": "Tłumaczenie eksperymentalne", "translation_notice_text": "Tłumaczone napisy są eksperymentalne i mogą być niedokładne lub niedostępne. Sprawdź Pismo, imiona, teologię i kwestie duszpasterskie z kościołem.", "language": "Język", "theme": "Motyw", "comfort": "Wygodny", "compact": "Kompaktowy", "show_transcript": "Pokaż transkrypcję", "hide_transcript": "Ukryj transkrypcję", "pause": "Pauza", "resume": "Wznów", "clear": "Wyczyść", "live": "Na żywo", "reconnecting": "Ponowne łączenie", "connection_issue": "Problem z połączeniem", "translation_not_available": "Tłumaczenie nie jest dostępne; wyświetlany jest język źródłowy."
-    },
-    "uk": {
-        "live_captions": "Субтитри наживо", "current": "Поточне", "recent_captions": "Транскрипт сесії", "newest_first": "Найновіші спочатку", "live_updates": "Текст оновлюється автоматично", "waiting": "Очікування субтитрів…", "dnd_title": "Не турбувати", "dnd_text": "Увімкніть режим Не турбувати, щоб не відволікатися й зосередитися на Божому Слові.", "ai_notice_title": "Попередження про AI-субтитри", "ai_notice_text": "Субтитри створюються автоматично й іноді можуть бути неточними. Якщо щось незрозуміло, зверніться до команди церкви.", "translation_notice_title": "Експериментальний переклад", "translation_notice_text": "Перекладені субтитри експериментальні й можуть бути неточними або недоступними. Перевіряйте Писання, імена, богослов’я та пасторські деталі з командою церкви.", "language": "Мова", "theme": "Тема", "comfort": "Зручний", "compact": "Компактний", "show_transcript": "Показати транскрипт", "hide_transcript": "Сховати транскрипт", "pause": "Пауза", "resume": "Продовжити", "clear": "Очистити", "live": "Наживо", "reconnecting": "Повторне з’єднання", "connection_issue": "Проблема з’єднання", "translation_not_available": "Переклад недоступний; показано мову оригіналу."
-    },
-    "ar": {
-        "live_captions": "تعليقات مباشرة", "current": "الحالي", "recent_captions": "نص الجلسة", "newest_first": "الأحدث أولاً", "live_updates": "يتم تحديث النص تلقائياً", "waiting": "في انتظار التعليقات…", "dnd_title": "عدم الإزعاج", "dnd_text": "فكّر في تشغيل عدم الإزعاج حتى لا تشتتك الإشعارات وتركز على كلمة الله.", "ai_notice_title": "تنبيه تعليقات الذكاء الاصطناعي", "ai_notice_text": "يتم إنشاء التعليقات تلقائياً وقد تكون غير دقيقة أحياناً. اسأل فريق الكنيسة إذا كان شيء غير واضح.", "translation_notice_title": "ترجمة تجريبية", "translation_notice_text": "التعليقات المترجمة تجريبية وقد تكون غير دقيقة أو غير متاحة. تحقق من النصوص والأسماء واللاهوت والتفاصيل الرعوية مع فريق الكنيسة.", "language": "اللغة", "theme": "المظهر", "comfort": "مريح", "compact": "مضغوط", "show_transcript": "إظهار النص", "hide_transcript": "إخفاء النص", "pause": "إيقاف", "resume": "استئناف", "clear": "مسح", "live": "مباشر", "reconnecting": "إعادة الاتصال", "connection_issue": "مشكلة اتصال", "translation_not_available": "الترجمة غير متاحة لهذا التعليق؛ يتم عرض لغة المصدر."
-    },
-    "fa": {
-        "live_captions": "زیرنویس زنده", "current": "فعلی", "recent_captions": "رونوشت جلسه", "newest_first": "جدیدترین‌ها اول", "live_updates": "متن به‌طور خودکار به‌روزرسانی می‌شود", "waiting": "در انتظار زیرنویس…", "dnd_title": "مزاحم نشوید", "dnd_text": "حالت مزاحم نشوید را روشن کنید تا اعلان‌ها حواس شما را پرت نکند و بر کلام خدا تمرکز کنید.", "ai_notice_title": "اطلاعیه زیرنویس هوش مصنوعی", "ai_notice_text": "زیرنویس‌ها خودکار تولید می‌شوند و ممکن است گاهی نادرست باشند. اگر چیزی نامشخص بود با تیم کلیسا بررسی کنید.", "translation_notice_title": "ترجمه آزمایشی", "translation_notice_text": "زیرنویس‌های ترجمه‌شده آزمایشی هستند و ممکن است نادرست یا در دسترس نباشند. کتاب‌مقدس، نام‌ها، الهیات و موارد شبانی را با تیم کلیسا بررسی کنید.", "language": "زبان", "theme": "ظاهر", "comfort": "راحت", "compact": "فشرده", "show_transcript": "نمایش رونوشت", "hide_transcript": "پنهان کردن رونوشت", "pause": "مکث", "resume": "ادامه", "clear": "پاک کردن", "live": "زنده", "reconnecting": "اتصال مجدد", "connection_issue": "مشکل اتصال", "translation_not_available": "ترجمه برای این زیرنویس در دسترس نیست؛ زبان اصلی نمایش داده می‌شود."
-    },
+SMALL100_LANGUAGE_NAMES: dict[str, str] = {
+    "af": "Afrikaans", "am": "Amharic", "ar": "Arabic", "ast": "Asturian", "az": "Azerbaijani",
+    "ba": "Bashkir", "be": "Belarusian", "bg": "Bulgarian", "bn": "Bengali", "br": "Breton",
+    "bs": "Bosnian", "ca": "Catalan", "ceb": "Cebuano", "cs": "Czech", "cy": "Welsh",
+    "da": "Danish", "de": "German", "el": "Greek", "en": "English", "es": "Spanish",
+    "et": "Estonian", "fa": "Persian", "ff": "Fulah", "fi": "Finnish", "fr": "French",
+    "fy": "Western Frisian", "ga": "Irish", "gd": "Scottish Gaelic", "gl": "Galician", "gu": "Gujarati",
+    "ha": "Hausa", "he": "Hebrew", "hi": "Hindi", "hr": "Croatian", "ht": "Haitian Creole",
+    "hu": "Hungarian", "hy": "Armenian", "id": "Indonesian", "ig": "Igbo", "ilo": "Iloko",
+    "is": "Icelandic", "it": "Italian", "ja": "Japanese", "jv": "Javanese", "ka": "Georgian",
+    "kk": "Kazakh", "km": "Khmer", "kn": "Kannada", "ko": "Korean", "lb": "Luxembourgish",
+    "lg": "Ganda", "ln": "Lingala", "lo": "Lao", "lt": "Lithuanian", "lv": "Latvian",
+    "mg": "Malagasy", "mk": "Macedonian", "ml": "Malayalam", "mn": "Mongolian", "mr": "Marathi",
+    "ms": "Malay", "my": "Burmese", "ne": "Nepali", "nl": "Dutch", "no": "Norwegian",
+    "ns": "Northern Sotho", "oc": "Occitan", "or": "Oriya", "pa": "Punjabi", "pl": "Polish",
+    "ps": "Pashto", "pt": "Portuguese", "ro": "Romanian", "ru": "Russian", "sd": "Sindhi",
+    "si": "Sinhala", "sk": "Slovak", "sl": "Slovenian", "so": "Somali", "sq": "Albanian",
+    "sr": "Serbian", "ss": "Swati", "su": "Sundanese", "sv": "Swedish", "sw": "Swahili",
+    "ta": "Tamil", "th": "Thai", "tl": "Tagalog", "tn": "Tswana", "tr": "Turkish",
+    "uk": "Ukrainian", "ur": "Urdu", "uz": "Uzbek", "vi": "Vietnamese", "wo": "Wolof",
+    "xh": "Xhosa", "yi": "Yiddish", "yo": "Yoruba", "zh": "Chinese", "zu": "Zulu",
 }
 
+NATIVE_LANGUAGE_NAMES: dict[str, str] = {
+    "de": "Deutsch", "el": "Ελληνικά", "he": "עברית", "hi": "हिन्दी", "id": "Bahasa Indonesia",
+    "it": "Italiano", "ja": "日本語", "ko": "한국어", "nl": "Nederlands", "ru": "Русский",
+    "sv": "Svenska", "sw": "Kiswahili", "ta": "தமிழ்", "th": "ไทย", "tr": "Türkçe",
+    "ur": "اردو", "vi": "Tiếng Việt", "zh": "中文",
+}
+
+LANGUAGE_FLAGS: dict[str, str] = {
+    "af": "🇿🇦", "am": "🇪🇹", "ar": "🇸🇦", "ast": "🇪🇸", "az": "🇦🇿", "ba": "🇷🇺", "be": "🇧🇾",
+    "bg": "🇧🇬", "bn": "🇧🇩", "br": "🇫🇷", "bs": "🇧🇦", "ca": "🇪🇸", "ceb": "🇵🇭", "cs": "🇨🇿",
+    "cy": "🇬🇧", "da": "🇩🇰", "de": "🇩🇪", "el": "🇬🇷", "en": "🇬🇧", "es": "🇪🇸", "et": "🇪🇪",
+    "fa": "🇮🇷", "ff": "🇸🇳", "fi": "🇫🇮", "fr": "🇫🇷", "fy": "🇳🇱", "ga": "🇮🇪", "gd": "🇬🇧",
+    "gl": "🇪🇸", "gu": "🇮🇳", "ha": "🇳🇬", "he": "🇮🇱", "hi": "🇮🇳", "hr": "🇭🇷", "ht": "🇭🇹",
+    "hu": "🇭🇺", "hy": "🇦🇲", "id": "🇮🇩", "ig": "🇳🇬", "ilo": "🇵🇭", "is": "🇮🇸", "it": "🇮🇹",
+    "ja": "🇯🇵", "jv": "🇮🇩", "ka": "🇬🇪", "kk": "🇰🇿", "km": "🇰🇭", "kn": "🇮🇳", "ko": "🇰🇷",
+    "lb": "🇱🇺", "lg": "🇺🇬", "ln": "🇨🇩", "lo": "🇱🇦", "lt": "🇱🇹", "lv": "🇱🇻", "mg": "🇲🇬",
+    "mk": "🇲🇰", "ml": "🇮🇳", "mn": "🇲🇳", "mr": "🇮🇳", "ms": "🇲🇾", "my": "🇲🇲", "ne": "🇳🇵",
+    "nl": "🇳🇱", "no": "🇳🇴", "ns": "🇿🇦", "oc": "🇫🇷", "or": "🇮🇳", "pa": "🇮🇳", "pl": "🇵🇱",
+    "ps": "🇦🇫", "pt": "🇵🇹", "ro": "🇷🇴", "ru": "🇷🇺", "sd": "🇵🇰", "si": "🇱🇰", "sk": "🇸🇰",
+    "sl": "🇸🇮", "so": "🇸🇴", "sq": "🇦🇱", "sr": "🇷🇸", "ss": "🇸🇿", "su": "🇮🇩", "sv": "🇸🇪",
+    "sw": "🇰🇪", "ta": "🇮🇳", "th": "🇹🇭", "tl": "🇵🇭", "tn": "🇧🇼", "tr": "🇹🇷", "uk": "🇺🇦",
+    "ur": "🇵🇰", "uz": "🇺🇿", "vi": "🇻🇳", "wo": "🇸🇳", "xh": "🇿🇦", "yi": "🇮🇱", "yo": "🇳🇬",
+    "zh": "🇨🇳", "zu": "🇿🇦",
+}
+
+
+def _language_dir(code: str) -> str:
+    return "rtl" if code in {"ar", "fa", "he", "ps", "ur", "yi"} else "ltr"
+
+
+def _merge_supported_languages() -> list[dict[str, str]]:
+    by_code = {item["code"]: dict(item) for item in BASE_LANGUAGES}
+    for code, name in SMALL100_LANGUAGE_NAMES.items():
+        if code not in by_code:
+            by_code[code] = {
+                "code": code,
+                "name": name,
+                "native": NATIVE_LANGUAGE_NAMES.get(code, name),
+                "flag": LANGUAGE_FLAGS.get(code, "🌐"),
+                "dir": _language_dir(code),
+            }
+    return sorted(by_code.values(), key=lambda item: (item["code"] != SOURCE_LANGUAGE, item["name"]))
+
+
+SUPPORTED_LANGUAGES: list[dict[str, str]] = _merge_supported_languages()
+LANGUAGE_BY_CODE = {item["code"]: item for item in SUPPORTED_LANGUAGES}
+MAX_TRANSLATION_LANGUAGES = len(SUPPORTED_LANGUAGES)
+ARGOS_ENGLISH_TARGET_LANGUAGE_CODES = {
+    "ar", "az", "bg", "bn", "ca", "cs", "da", "de", "el", "es", "et", "fa", "fi", "fr", "ga", "gl",
+    "he", "hi", "hu", "id", "it", "ja", "ko", "lt", "lv", "ms", "nl", "pl", "pt", "ro", "ru", "sk",
+    "sl", "sq", "sv", "th", "tl", "tr", "uk", "ur", "vi", "zh",
+    # Church Cap aliases for Argos package codes.
+    "no",
+}
+ARGOS_LANGUAGE_ALIASES = {
+    "no": "nb",
+}
+ARGOS_TO_CHURCH_LANGUAGE_ALIASES = {value: key for key, value in ARGOS_LANGUAGE_ALIASES.items()}
 
 def normalise_language(code: str | None) -> str:
     if not code:
         return SOURCE_LANGUAGE
     code = str(code).lower().split("-")[0].strip()
     return code if code in LANGUAGE_BY_CODE else SOURCE_LANGUAGE
-
-
-def get_client_ui_strings() -> dict[str, dict[str, str]]:
-    return CLIENT_UI_STRINGS
 
 
 @dataclass(frozen=True)
@@ -109,6 +133,8 @@ class LocalTranslator:
     def __init__(self, source_language: str = SOURCE_LANGUAGE):
         self.source_language = normalise_language(source_language)
         self._cache: dict[tuple[str, str, str], TranslationResult] = {}
+        self._small100_model: Any | None = None
+        self._small100_tokenizer: Any | None = None
 
     def provider_status(self, provider: str) -> dict:
         provider = (provider or "disabled").lower().strip()
@@ -116,9 +142,18 @@ class LocalTranslator:
             return {"provider": "disabled", "ready": False, "message": "Translation provider is disabled."}
         if provider == "demo":
             return {"provider": "demo", "ready": True, "message": "Demo routing provider only; not real translation."}
+        if provider == "both":
+            argos_status = self.provider_status("argos")
+            small_status = self.provider_status("small100")
+            return {
+                "provider": "both",
+                "ready": bool(argos_status.get("ready") or small_status.get("ready")),
+                "message": f"Auto mode uses Base / Argos first, then Core / SMaLL-100 when needed. Base: {argos_status.get('message', 'unknown')} Core: {small_status.get('message', 'unknown')}",
+                "argos": argos_status,
+                "small100": small_status,
+            }
         if provider == "argos":
             try:
-                from argostranslate import package as argos_package  # type: ignore
                 from argostranslate import translate as argos_translate  # type: ignore
                 installed = argos_translate.get_installed_languages()
                 pairs: list[str] = []
@@ -135,7 +170,80 @@ class LocalTranslator:
                 }
             except Exception as exc:
                 return {"provider": "argos", "ready": False, "message": f"Argos Translate is not installed or not ready: {exc}"}
+        if provider == "small100":
+            try:
+                from transformers import M2M100ForConditionalGeneration  # type: ignore  # noqa: F401
+                from transformers import AutoTokenizer  # type: ignore  # noqa: F401
+                import torch  # type: ignore  # noqa: F401
+                return {
+                    "provider": "small100",
+                    "ready": True,
+                    "message": "Core SMaLL-100 support is installed. The model loads on first use and may use noticeably more RAM/CPU.",
+                }
+            except Exception as exc:
+                return {
+                    "provider": "small100",
+                    "ready": False,
+                    "message": f"Core SMaLL-100 is not installed yet: {exc}",
+                }
         return {"provider": provider, "ready": False, "message": f"Unknown translation provider: {provider}"}
+
+    def translation_resources(self) -> dict[str, Any]:
+        argos_installed: list[str] = []
+        argos_pairs: list[str] = []
+        try:
+            from argostranslate import translate as argos_translate  # type: ignore
+            installed = argos_translate.get_installed_languages()
+            for source in installed:
+                for target in installed:
+                    if source.code == target.code:
+                        continue
+                    translation = source.get_translation(target)
+                    if translation is not None:
+                        argos_pairs.append(f"{source.code}->{target.code}")
+                        if source.code == self.source_language:
+                            argos_installed.append(ARGOS_TO_CHURCH_LANGUAGE_ALIASES.get(target.code, target.code))
+        except Exception:
+            pass
+        return {
+            "argos": {
+                "installed_languages": sorted(set(argos_installed)),
+                "installed_pairs": sorted(set(argos_pairs)),
+                "status": self.provider_status("argos"),
+            },
+            "small100": {
+                "languages": sorted(SMALL100_LANGUAGE_NAMES.keys()),
+                "status": self.provider_status("small100"),
+                "license": "MIT",
+            },
+        }
+
+    def supported_languages_for_provider(self, provider: str) -> list[str]:
+        provider = (provider or "disabled").lower().strip()
+        resources = self.translation_resources()
+        argos_languages = {
+            ARGOS_TO_CHURCH_LANGUAGE_ALIASES.get(language, language)
+            for language in resources.get("argos", {}).get("installed_languages", [])
+        }
+        small100_ready = bool(resources.get("small100", {}).get("status", {}).get("ready"))
+        small100_languages = set(resources.get("small100", {}).get("languages", [])) if small100_ready else set()
+        if provider == "argos":
+            languages = argos_languages
+        elif provider == "small100":
+            languages = small100_languages
+        elif provider == "both":
+            languages = argos_languages | small100_languages
+        elif provider == "demo":
+            languages = set(LANGUAGE_BY_CODE)
+        else:
+            languages = set()
+        languages.add(self.source_language)
+        return sorted(language for language in languages if language in LANGUAGE_BY_CODE)
+
+    def cached_result(self, text: str, target_language: str, *, provider: str) -> TranslationResult | None:
+        target_language = normalise_language(target_language)
+        provider = (provider or "disabled").lower().strip()
+        return self._cache.get((provider, target_language, text))
 
     def translate(self, text: str, target_language: str, *, enabled: bool, provider: str) -> TranslationResult:
         target_language = normalise_language(target_language)
@@ -159,6 +267,15 @@ class LocalTranslator:
             )
         elif provider == "argos":
             result = self._translate_with_argos(text, target_language)
+        elif provider == "small100":
+            result = self._translate_with_small100(text, target_language)
+        elif provider == "both":
+            result = self._translate_with_argos(text, target_language)
+            if not result.applied:
+                argos_warning = result.warning
+                result = self._translate_with_small100(text, target_language)
+                if not result.applied and argos_warning and result.warning:
+                    result = TranslationResult(text=text, applied=False, warning=f"{argos_warning} {result.warning}")
         else:
             result = TranslationResult(text=text, applied=False, warning=f"Unknown translation provider: {provider}")
 
@@ -178,12 +295,27 @@ class LocalTranslator:
             return TranslationResult(text=text, applied=False, warning=f"Argos Translate is not installed: {exc}")
 
         try:
-            translated = argos_translate.translate(text, self.source_language, target_language)
+            argos_target_language = ARGOS_LANGUAGE_ALIASES.get(target_language, target_language)
+            installed = argos_translate.get_installed_languages()
+            source = next((lang for lang in installed if getattr(lang, "code", None) == self.source_language), None)
+            target = next((lang for lang in installed if getattr(lang, "code", None) == argos_target_language), None)
+            if source is None or target is None:
+                return TranslationResult(
+                    text=text,
+                    applied=False,
+                    warning=f"No installed Argos model for {self.source_language}->{target_language}.",
+                )
+            translation = source.get_translation(target)
+            if translation is None:
+                return TranslationResult(
+                    text=text,
+                    applied=False,
+                    warning=f"No installed Argos model for {self.source_language}->{target_language}.",
+                )
+            translated = translation.translate(text)
             if translated and translated.strip() and translated != text:
                 return TranslationResult(text=translated, applied=True)
 
-            # Some Argos installs may not have a direct pair. Because the source
-            # language is normally English, direct en->target models are preferred.
             return TranslationResult(
                 text=text,
                 applied=False,
@@ -191,3 +323,54 @@ class LocalTranslator:
             )
         except Exception as exc:
             return TranslationResult(text=text, applied=False, warning=f"Argos Translate failed: {exc}")
+
+    def _load_small100(self) -> tuple[Any, Any]:
+        if self._small100_model is not None and self._small100_tokenizer is not None:
+            return self._small100_model, self._small100_tokenizer
+        try:
+            import torch  # type: ignore
+            from huggingface_hub import hf_hub_download  # type: ignore
+            from transformers import M2M100ForConditionalGeneration  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(f"Core SMaLL-100 dependencies are not installed: {exc}") from exc
+        model_name = "alirezamsh/small100"
+        tokenizer_file = Path(hf_hub_download(model_name, "tokenization_small100.py"))
+        module_name = "_church_cap_small100_tokenizer"
+        module = sys.modules.get(module_name)
+        if module is None:
+            spec = importlib.util.spec_from_file_location(module_name, tokenizer_file)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("Could not load SMaLL-100 tokenizer module.")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        tokenizer_cls = getattr(module, "SMALL100Tokenizer")
+        self._small100_tokenizer = tokenizer_cls.from_pretrained(model_name)
+        self._small100_model = M2M100ForConditionalGeneration.from_pretrained(model_name)
+        self._small100_model.eval()
+        if torch.cuda.is_available():
+            self._small100_model.to("cuda")
+        return self._small100_model, self._small100_tokenizer
+
+    def _translate_with_small100(self, text: str, target_language: str) -> TranslationResult:
+        target_language = normalise_language(target_language)
+        if target_language not in SMALL100_LANGUAGE_NAMES:
+            return TranslationResult(text=text, applied=False, warning=f"Core translation does not support {target_language}.")
+        try:
+            import torch  # type: ignore
+            model, tokenizer = self._load_small100()
+            tokenizer.tgt_lang = target_language
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=256)
+            try:
+                device = next(model.parameters()).device
+                inputs = {key: value.to(device) for key, value in inputs.items()}
+            except Exception:
+                pass
+            with torch.no_grad():
+                generated = model.generate(**inputs, max_length=256, num_beams=5)
+            translated = tokenizer.batch_decode(generated, skip_special_tokens=True)[0].strip()
+            if translated and translated != text:
+                return TranslationResult(text=translated, applied=True)
+            return TranslationResult(text=text, applied=False, warning="Core translation returned the source caption.")
+        except Exception as exc:
+            return TranslationResult(text=text, applied=False, warning=f"Core SMaLL-100 translation failed: {exc}")
