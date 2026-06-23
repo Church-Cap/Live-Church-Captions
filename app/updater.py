@@ -75,6 +75,8 @@ def update_script_for_system(project_root: Path, system_name: str | None = None)
         return project_root / "update-macos.sh"
     if system == "Windows":
         return project_root / "update-windows.ps1"
+    if system == "Linux":
+        return project_root / "update-linux.sh"
     return None
 
 
@@ -94,7 +96,7 @@ def launch_update_process(project_root: Path, target_version: str | None = None)
         env["CHURCH_CAP_UPDATE_TARGET_VERSION"] = normalise_version(target_version)
 
     server_pid = str(os.getpid())
-    if system == "Darwin":
+    if system in {"Darwin", "Linux"}:
         cmd = ["/usr/bin/env", "bash", str(script), "--yes", "--restart", "--server-pid", server_pid]
         creation_kwargs = {"start_new_session": True}
     else:

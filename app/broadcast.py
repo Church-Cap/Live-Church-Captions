@@ -17,6 +17,7 @@ class CaptionHub:
         transcript_store: TranscriptStore | None = None,
     ):
         self._clients: dict[WebSocket, str] = {}
+        self._viewer_clients: set[WebSocket] = set()
         self._history: list[CaptionSegment] = []
         self._history_draft: CaptionSegment | None = None
         self._current: CaptionSegment | None = None
@@ -45,23 +46,28 @@ class CaptionHub:
 
     @property
     def viewer_count(self) -> int:
-        return len(self._clients)
+        return len(self._viewer_clients)
 
     @property
     def sensitive_mode(self) -> bool:
         return self._sensitive_mode
 
-    async def connect(self, websocket: WebSocket, language: str = "en") -> None:
+    async def connect(self, websocket: WebSocket, language: str = "en", count_viewer: bool = True) -> None:
         await websocket.accept()
         language = normalise_language(language)
         async with self._lock:
             self._clients[websocket] = language
+            if count_viewer:
+                self._viewer_clients.add(websocket)
+            else:
+                self._viewer_clients.discard(websocket)
         await websocket.send_json({"type": "state", "data": self._state_for_language(language).model_dump(mode="json"), "language": language})
         await self._broadcast_viewer_meta()
 
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._clients.pop(websocket, None)
+            self._viewer_clients.discard(websocket)
         await self._broadcast_viewer_meta()
 
     def set_status(self, status: str) -> None:
@@ -86,10 +92,10 @@ class CaptionHub:
         self.translation_priority_mode = priority_mode if priority_mode in {"most_viewers", "pinned_first"} else "most_viewers"
 
     def language_counts(self) -> dict[str, int]:
-        return dict(Counter(self._clients.values()))
+        return dict(Counter(lang for ws, lang in self._clients.items() if ws in self._viewer_clients))
 
     def active_translated_languages(self) -> list[str]:
-        counts = Counter(lang for lang in self._clients.values() if lang != "en")
+        counts = Counter(lang for ws, lang in self._clients.items() if ws in self._viewer_clients and lang != "en")
         if self.translation_language_policy == "restricted":
             allowed = [lang for lang, _ in counts.most_common() if lang in self.translation_allowed_languages]
         else:

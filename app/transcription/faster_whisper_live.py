@@ -129,7 +129,7 @@ class FasterWhisperTranscriber(Transcriber):
         except Exception as exc:
             if self.audio_device is None:
                 raise RuntimeError(
-                    "Could not open the system default audio input. Check Windows microphone permissions, "
+                    "Could not open the system default audio input. Check operating-system microphone/audio permissions, "
                     "connect the USB audio interface, then refresh and choose an input on the operator page."
                 ) from exc
             update_metrics(

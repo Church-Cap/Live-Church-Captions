@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v.0.3.0 public preview
+Version: v.0.4.0 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -12,7 +12,7 @@ Visitors do not install an app. They scan a QR code and read captions in their b
 
 ## What You Need
 
-- An Apple Silicon Mac, or a Windows 10/11 computer. On Windows, setup can offer to install Python 3.12 if Windows Package Manager is available.
+- An Apple Silicon Mac, Windows 10/11 computer, or modern 64-bit Linux computer. On Windows and Linux, setup can install or select a supported Python where the platform package manager provides one.
 - Church Cap downloaded or copied to the caption computer.
 - Internet access for first setup.
 - A USB audio interface or mixer input from the sound desk.
@@ -20,9 +20,9 @@ Visitors do not install an app. They scan a QR code and read captions in their b
 
 ## Hardware Guidance
 
-Minimum for testing: Apple Silicon Mac, or Windows 10/11 with a modern 4-core CPU and 8 GB RAM. Use **Fastest** or **Fast** if captions lag.
+Minimum for testing: Apple Silicon Mac, Windows 10/11, or modern 64-bit Linux with a 4-core CPU and 8 GB RAM. Use **Fastest** or **Fast** if captions lag.
 
-Recommended for live services: Apple Silicon Mac with 16 GB RAM, or Windows 10/11 with a recent 6-8 core CPU and 16 GB RAM. Windows GPU acceleration needs an NVIDIA GPU, current NVIDIA drivers, and CUDA runtime files that CTranslate2 can use.
+Recommended for live services: Apple Silicon Mac with 16 GB RAM, or Windows/Linux with a recent 6-8 core CPU and 16 GB RAM. NVIDIA GPU acceleration needs current drivers and CUDA runtime files that CTranslate2 can use.
 
 Use **Benchmark** before selecting heavier models such as `small.en` or `medium.en`.
 
@@ -74,6 +74,22 @@ You can also run the optional GPU runtime installer later:
 
 If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came from another computer, use `setup-windows.cmd`. If it is still blocked, right-click the downloaded zip or Church Cap folder, choose **Properties**, tick **Unblock** if shown, then try again.
 
+## First-Time Setup On Linux
+
+From the Church Cap folder:
+
+```bash
+bash setup-linux.sh
+```
+
+The installer detects `apt`, `dnf`, `yum`, `zypper`, `pacman`, or `apk`. It installs only the system prerequisites and creates a project-local `.venv`. AlmaLinux and related RHEL-family systems use `dnf`/`yum`; the installer prefers Python 3.12 or 3.11 when available. It does not change repository configuration or install NVIDIA drivers/CUDA.
+
+Start later with:
+
+```bash
+./start-linux.sh
+```
+
 ## Start Church Cap
 
 For normal use after setup:
@@ -86,6 +102,12 @@ On Windows:
 
 ```powershell
 .\start-windows.cmd
+```
+
+On Linux:
+
+```bash
+./start-linux.sh
 ```
 
 Wait while the app starts. The operator page should open automatically:
@@ -139,7 +161,7 @@ In the operator page, use **Performance** on the dashboard.
 
 - Move the slider toward **Fastest** if captions are too delayed or the computer is older.
 - Move the slider toward **Most accurate** if the computer has enough headroom and better wording matters more than delay. The far-right setting uses `medium.en`, which may increase latency.
-- Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS or Windows, but can be changed manually if needed.
+- Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS, Windows, or Linux, but can be changed manually if needed.
 
 Adjustments save automatically while captions are stopped. Stop captions before changing performance settings because Church Cap loads the AI model when captions start, and the Performance panel is locked during a live caption session to protect the audience feed. Use **Run 15s benchmark** during normal speech to estimate live-caption delay and system load, or **Live monitor** to keep measuring while captions run. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
 
@@ -162,12 +184,26 @@ Visitors automatically get the light or dark theme from their device settings. T
 ## During A Service
 
 - Use **Start captions** when ready.
-- If the speech model or audio input takes a moment to load, the operator page shows a starting notice until captions are live.
+- If the speech model or audio input takes a moment to load, the operator page shows a polished status notice until captions are live. Start, Stop, Blank / pause, and Resume also show short action messages and a subtle active glow so the current caption state is visible at a glance.
 - Use **Stop** when captions should stop.
 - Use **Blank / pause** before private prayer, pastoral details, testimony, safeguarding, or anything sensitive. While blanked, captions are not shown, retained in the session transcript, or included in transcript exports; Church Cap also flushes the live transcription buffer and drops a short buffered-audio window when captions resume.
 - Use **Resume** when public captions should continue.
 - Watch the microphone level meter to confirm audio is coming in.
 - Use the privacy controls to choose whether transcript history is saved and how long to keep it. A fresh app start begins with an empty visible session transcript; older saved transcript cache is pruned on startup using the retention window saved with that cache. **Open transcript folder** reveals the per-user local cache folder on the Church Cap computer. **Export TXT/VTT/SRT/JSON** downloads the current-session transcript only and asks the operator to confirm the privacy warning first. Clearing the transcript deletes the retained local transcript cache.
+
+## Service Leader Controls
+
+Smaller churches can pair a trusted phone or tablet without exposing the full operator dashboard:
+
+1. On the Church Cap computer, use **Connect a service leader device** on the login page, or sign in and open **Service Leader** in the operator menu.
+2. Generate the one-use QR code.
+3. Scan it with the trusted device.
+
+The simple page can start/stop captions, blank/resume for sensitive moments, change the audio input while captions are stopped, show microphone and caption-health status, and enable translated captions in Automatic or Manual language mode. Language search matches native names, English names, and language codes. Its caption preview uses the same live feed as audience phones, but the page explains that a delayed control-device preview is not the main performance measure. It cannot access transcripts, passwords, updates, diagnostics, performance settings, or translation installation.
+
+The QR expires after 90 seconds and works once. The paired session lasts at most four hours and expires after two hours without activity. A warning offers to refresh the idle timer before it expires. The **Service Leader** operator section shows connected-device status and can replace or cancel an unused QR, open the restricted route, or disconnect all paired devices.
+
+For HTTP, use a private staff/AV Wi-Fi network rather than open or congregation guest Wi-Fi. HTTPS is preferred for a managed church phone or tablet.
 
 ## Translation
 
@@ -189,6 +225,12 @@ On Windows, it is stored in:
 
 ```text
 %APPDATA%\Church Cap\data\
+```
+
+On Linux, it is stored in:
+
+```text
+~/.local/share/church-cap/data/
 ```
 
 It should survive terminal restarts, computer restarts, and app folder updates.
@@ -260,6 +302,12 @@ Windows:
 
 ```powershell
 .\update-windows.cmd
+```
+
+Linux:
+
+```bash
+./update-linux.sh
 ```
 
 You can also use **Updates** on the operator page. Church Cap checks the latest GitHub release tag first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.

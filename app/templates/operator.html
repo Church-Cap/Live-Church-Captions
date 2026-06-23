@@ -35,6 +35,7 @@
       <nav class="operator-nav premium-nav">
         <p class="nav-category">Run service</p>
         <button type="button" class="nav-button active" data-section="dashboard"><span class="nav-icon">●</span><span class="nav-label">Dashboard</span></button>
+        <button type="button" class="nav-button" data-section="service-leader"><span class="nav-icon">◇</span><span class="nav-label">Service Leader</span></button>
         <button type="button" class="nav-button" data-section="languages"><span class="nav-icon">◐</span><span class="nav-label">Languages</span><span class="beta-pill mini">Beta</span></button>
         <button type="button" class="nav-button" data-section="audience"><span class="nav-icon">▣</span><span class="nav-label">Audience & OBS</span></button>
         <button type="button" class="nav-button" data-section="privacy"><span class="nav-icon">◆</span><span class="nav-label">Privacy & Security</span></button>
@@ -98,8 +99,8 @@
               <span id="serviceStatus" class="status-pill">Stopped</span>
             </div>
             <div class="button-row primary-actions spacious-actions">
-              <button onclick="api('/api/start')">Start captions</button>
-              <button onclick="api('/api/stop')" class="secondary-button">Stop</button>
+              <button id="operatorStartButton" data-operator-control-state="start" onclick="api('/api/start')" aria-pressed="false">Start captions</button>
+              <button id="operatorStopButton" data-operator-control-state="stop" onclick="api('/api/stop')" class="secondary-button" aria-pressed="false">Stop</button>
               <button onclick="api('/api/test-caption')" class="secondary-button">Send test</button>
             </div>
             <p id="captionStartNotice" class="operator-start-notice" aria-live="polite"></p>
@@ -115,8 +116,8 @@
             </div>
             <p class="muted">Blank captions during private prayer, pastoral details, testimony, safeguarding, or anything that should not be displayed or saved.</p>
             <div class="button-row spacious-actions">
-              <button class="danger-button" onclick="api('/api/sensitive-on')">Blank / pause</button>
-              <button onclick="api('/api/sensitive-off')">Resume</button>
+              <button id="operatorPauseButton" class="danger-button" data-operator-control-state="pause" onclick="api('/api/sensitive-on')" aria-pressed="false">Blank / pause</button>
+              <button id="operatorResumeButton" data-operator-control-state="resume" onclick="api('/api/sensitive-off')" aria-pressed="false">Resume</button>
             </div>
           </article>
 
@@ -216,16 +217,17 @@
               <div class="advanced-grid" id="performanceAdvancedGrid">
                 <label class="easy-setting">
                   Performance platform
-                  <span class="info-dot" data-tip="Auto uses the operating system detected by Church Cap. Choose macOS or Windows only if the detection is wrong or you are preparing settings for another supported computer.">i</span>
+                  <span class="info-dot" data-tip="Auto uses the operating system detected by Church Cap. Choose a platform only if detection is wrong or you are preparing settings for another supported computer.">i</span>
                   <select id="performancePlatform" onchange="handlePerformancePlatformChanged()">
                     <option value="auto" {% if performance.effective.performance_platform == 'auto' %}selected{% endif %}>Auto-detect</option>
                     <option value="macos" {% if performance.effective.performance_platform == 'macos' %}selected{% endif %}>macOS</option>
                     <option value="windows" {% if performance.effective.performance_platform == 'windows' %}selected{% endif %}>Windows</option>
+                    <option value="linux" {% if performance.effective.performance_platform == 'linux' %}selected{% endif %}>Linux</option>
                   </select>
                 </label>
                 <label class="easy-setting">
                   Backend
-                  <span class="info-dot" data-tip="Faster Whisper usually gives lower delay. OpenAI Whisper can use Apple Metal on macOS or CUDA on Windows when the local runtime supports it.">i</span>
+                  <span class="info-dot" data-tip="Faster Whisper usually gives lower delay. OpenAI Whisper can use Apple Metal on macOS or NVIDIA CUDA on Windows and Linux when the local runtime supports it.">i</span>
                   <select id="transcriberMode" onchange="handleTranscriberModeChanged()">
                     <option value="faster_whisper" {% if performance.effective.transcriber_mode == 'faster_whisper' %}selected{% endif %}>Faster Whisper</option>
                     <option value="whisper" {% if performance.effective.transcriber_mode == 'whisper' %}selected{% endif %}>OpenAI Whisper</option>
@@ -239,7 +241,7 @@
                     <option value="{{ model }}" {% if performance.effective.whisper_model == model %}selected{% endif %}>{{ model }}</option>
                     {% endfor %}
                   </select>
-                  <p id="mediumModelWarning" class="model-warning" hidden>Medium can improve accuracy, but it may add noticeable delay. Use it on a powerful Mac or Windows GPU system, then run the benchmark or live monitor during real speech.</p>
+                  <p id="mediumModelWarning" class="model-warning" hidden>Medium can improve accuracy, but it may add noticeable delay. Use it on a powerful system, then run the benchmark or live monitor during real speech.</p>
                 </label>
                 <label class="easy-setting">
                   <span id="processorLabel">Processor</span>
@@ -397,8 +399,15 @@
               </select>
               <fieldset class="language-fieldset premium-language-fieldset">
                 <legend>Restricted-language list</legend>
+                <div class="language-list-toolbar">
+                  <input id="operatorLanguageSearch" type="search" placeholder="Search languages" oninput="filterOperatorLanguages()">
+                  <div class="button-row">
+                    <button type="button" class="secondary-button compact-button" onclick="selectAllOperatorLanguages(true)">Select all</button>
+                    <button type="button" class="secondary-button compact-button" onclick="selectAllOperatorLanguages(false)">Clear all</button>
+                  </div>
+                </div>
                 {% for lang in languages %}
-                <label class="language-toggle premium-language-toggle">
+                <label class="language-toggle premium-language-toggle" data-language-search="{{ lang.name|lower }} {{ lang.native|lower }} {{ lang.code }}">
                   <input type="checkbox" name="translationLang" value="{{ lang.code }}" {% if lang.code in runtime.translation_allowed_languages %}checked{% endif %} {% if lang.code == 'en' %}disabled checked{% endif %}>
                   <span class="toggle-slider small" aria-hidden="true"></span>
                   <span class="language-toggle-label"><span class="language-flag">{{ lang.flag }}</span><span>{{ lang.native }}</span></span>
@@ -480,6 +489,52 @@
         </div>
       </section>
 
+      <section class="operator-section" id="operator-section-service-leader" data-title="Service Leader" data-description="Pair and manage restricted service-control devices.">
+        <div class="operator-grid two-card-grid">
+          <article class="operator-panel glass-card service-leader-operator-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Restricted controls</p>
+                <h2>Pair a service leader device</h2>
+              </div>
+              <span id="serviceLeaderPairingStatus" class="status-pill">Ready</span>
+            </div>
+            <p class="muted">Create a short-lived QR code for a trusted church phone or tablet. A replacement QR invalidates the previous unused code but keeps already-paired devices connected.</p>
+            <div class="service-leader-operator-status">
+              <div><span>Connected devices</span><strong id="serviceLeaderActiveSessions">{{ service_leader_access.active_sessions }}</strong></div>
+              <div><span>Pairing window</span><strong id="serviceLeaderPairingWindow">{{ "Active" if service_leader_access.pairing_active else "Closed" }}</strong></div>
+              <div><span>Idle timeout</span><strong>2 hours</strong></div>
+              <div><span>Maximum session</span><strong>4 hours</strong></div>
+            </div>
+            <div id="serviceLeaderPairingDisplay" class="service-leader-operator-pairing" hidden>
+              <img id="serviceLeaderOperatorQr" class="service-leader-pairing-qr" alt="One-use QR code for Service Leader controls">
+              <p id="serviceLeaderPairingCountdown" class="muted"></p>
+            </div>
+            <div class="button-row spacious-actions">
+              <button type="button" id="serviceLeaderPairingButton" onclick="createServiceLeaderPairing()">Start pairing session</button>
+              <button type="button" class="secondary-button" onclick="cancelServiceLeaderPairing()">Cancel unused QR</button>
+            </div>
+            <p id="serviceLeaderPairingResult" class="muted small-result"></p>
+          </article>
+
+          <article class="operator-panel glass-card">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Access management</p>
+                <h2>Connected controls</h2>
+              </div>
+            </div>
+            <p class="muted">The restricted page can start or stop captions, blank sensitive moments, change audio input while stopped, manage enabled languages, and view caption health.</p>
+            <p class="muted">Service Leader URL: <code>{{ security.service_leader_url }}</code></p>
+            <div class="button-row spacious-actions">
+              <a class="button-link secondary" href="{{ security.service_leader_url }}" target="_blank" rel="noopener">Open Service Leader page</a>
+              <button type="button" class="danger-button" onclick="revokeServiceLeaderAccess()">Disconnect all devices</button>
+            </div>
+            <p id="serviceLeaderAccessResult" class="muted small-result"></p>
+          </article>
+        </div>
+      </section>
+
       <section class="operator-section" id="operator-section-privacy" data-title="Privacy" data-description="Control transcript storage and remove content when needed.">
         <div class="operator-grid two-card-grid">
 <article class="operator-panel glass-card security-status-card ">
@@ -497,6 +552,7 @@
               <div class="security-status-item"><span>Viewer port</span><strong>{{ security.viewer_port }}</strong></div>
               <div class="security-status-item"><span>Operator port</span><strong>{{ security.operator_port }}</strong></div>
               <div class="security-status-item"><span>Operator localhost lock</span><strong>{{ "On" if security.lock_operator_to_localhost else "Off" }}</strong></div>
+              <div class="security-status-item"><span>Paired service leader path</span><strong>{{ security.service_leader_url }}</strong></div>
               <div class="security-status-item"><span>Dual-port mode</span><strong>{{ "On" if security.dual_port_mode else "Off" }}</strong></div>
             </div>
             <div class="warning-panel slim-warning glass-card">
@@ -579,7 +635,7 @@
         </div>
       </section>
 
-      <section class="operator-section" id="operator-section-diagnostics" data-title="Diagnostics" data-description="Download local troubleshooting details for Mac or Windows support.">
+      <section class="operator-section" id="operator-section-diagnostics" data-title="Diagnostics" data-description="Download local troubleshooting details for macOS, Windows, or Linux support.">
         <div class="operator-grid two-card-grid">
           <article class="operator-panel glass-card wide-card">
             <div class="panel-heading-row">
@@ -587,7 +643,7 @@
                 <p class="eyebrow">Support</p>
                 <h2>Diagnostics export</h2>
               </div>
-              <span class="status-pill">Mac / Windows</span>
+              <span class="status-pill">Mac / Windows / Linux</span>
             </div>
             <p class="muted">Download a diagnostics JSON file for troubleshooting or support. It can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and updater/CUDA logs with local paths redacted.</p>
             <div class="warning-panel slim-warning glass-card diagnostics-warning">
@@ -663,6 +719,9 @@
     window.CC_LANGUAGES = {{ languages | tojson }};
     let pendingUpdate = null;
     let updatePollTimer = null;
+    let serviceLeaderPairingTimer = null;
+    let serviceLeaderPairingExpiresAt = 0;
+    let serviceLeaderPairingSessionBaseline = 0;
 
     const sectionCopy = {};
     document.querySelectorAll('.operator-section').forEach((section) => {
@@ -808,17 +867,64 @@
     let captionSettingsLocked = false;
     let captionStartPending = false;
     let captionStartNoticeTimer = null;
+    let operatorTranslationEditing = false;
+    let operatorTranslationSignature = '';
 
-    function setCaptionStartNotice(message = '') {
+    function operatorCaptionActionLabel(path) {
+      const labels = {
+        '/api/start': {
+          busy: 'Starting captions — loading the speech model and audio input. This can take a moment.',
+          done: 'Captions are live.',
+          already: 'Captions are already live.',
+          error: 'Could not start captions. Check the audio input and try again.',
+          keepUntilLive: true,
+          notice: true
+        },
+        '/api/stop': {
+          busy: 'Stopping captions — audience pages will return to the waiting screen shortly.',
+          done: 'Captions have stopped.',
+          error: 'Could not stop captions. Please try again.',
+          notice: true
+        },
+        '/api/sensitive-on': {
+          busy: 'Blanking captions for a private moment…',
+          done: 'Captions are blanked for a private moment.',
+          error: 'Could not blank captions. Please try again.',
+          notice: true
+        },
+        '/api/sensitive-off': {
+          busy: 'Resuming captions — new speech will appear after the private-moment buffer clears.',
+          done: 'Captions are resuming.',
+          error: 'Could not resume captions. Please try again.',
+          notice: true
+        },
+        '/api/test-caption': {
+          busy: 'Sending a test caption…',
+          done: 'Test caption sent to connected viewers.',
+          error: 'Could not send the test caption.',
+          notice: true
+        }
+      };
+      return labels[path] || null;
+    }
+
+    function setCaptionStartNotice(message = '', {tone = 'info', busy = false, clearAfterMs = 0} = {}) {
       const notice = document.getElementById('captionStartNotice');
       if (!notice) return;
       if (captionStartNoticeTimer) {
         clearTimeout(captionStartNoticeTimer);
         captionStartNoticeTimer = null;
       }
+      notice.classList.remove('busy', 'success', 'error');
       if (message) {
         notice.textContent = message;
         notice.classList.add('visible');
+        notice.classList.toggle('busy', !!busy);
+        notice.classList.toggle('success', tone === 'success');
+        notice.classList.toggle('error', tone === 'error');
+        if (clearAfterMs > 0) {
+          captionStartNoticeTimer = setTimeout(() => setCaptionStartNotice(''), clearAfterMs);
+        }
         return;
       }
       notice.classList.remove('visible');
@@ -829,7 +935,7 @@
 
     function showCaptionStartingNotice() {
       captionStartPending = true;
-      setCaptionStartNotice('Starting captions. Loading the speech model and audio input; please wait.');
+      setCaptionStartNotice(operatorCaptionActionLabel('/api/start').busy, {busy: true});
     }
 
     function clearCaptionStartingNotice() {
@@ -840,12 +946,22 @@
     function updateCaptionStartNoticeFromStatus(status) {
       if (!captionStartPending) return;
       if (status === 'listening' || status === 'sensitive') {
-        setCaptionStartNotice('Captions are live.');
+        setCaptionStartNotice(operatorCaptionActionLabel('/api/start').done, {tone: 'success', clearAfterMs: 1800});
         captionStartPending = false;
-        captionStartNoticeTimer = setTimeout(() => setCaptionStartNotice(''), 1400);
       } else if (status === 'stopped') {
         clearCaptionStartingNotice();
       }
+    }
+
+    function setActiveOperatorControl(status, sensitiveMode) {
+      let active = 'stop';
+      if (sensitiveMode || status === 'sensitive') active = 'pause';
+      else if (status === 'listening' || status === 'starting' || status === 'running') active = 'start';
+      document.querySelectorAll('[data-operator-control-state]').forEach((button) => {
+        const selected = button.dataset.operatorControlState === active;
+        button.classList.toggle('operator-control-active', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
     }
 
     function captionSettingsAreLocked(status) {
@@ -986,9 +1102,23 @@
         ];
         if (processorInfo) processorInfo.dataset.tip = 'Auto can use Apple Metal/MPS with OpenAI Whisper when PyTorch supports it. Faster Whisper uses CPU on macOS in this app.';
         if (computeInfo) computeInfo.dataset.tip = 'On macOS, Faster Whisper normally uses CPU-efficient int8. Apple Metal/MPS uses OpenAI Whisper and does not need CUDA float16 settings.';
+      } else if (platform === 'linux') {
+        deviceOptions = [
+          {value: 'auto', label: 'Auto'},
+          {value: 'cuda', label: 'GPU / NVIDIA CUDA'},
+          {value: 'cpu', label: 'CPU only'}
+        ];
+        computeOptions = [
+          {value: 'auto', label: 'Auto'},
+          {value: 'int8', label: 'CPU efficient / int8'},
+          {value: 'float16', label: 'GPU fast / float16'},
+          {value: 'float32', label: 'CPU precise / float32'}
+        ];
+        if (processorInfo) processorInfo.dataset.tip = 'Auto uses NVIDIA CUDA when CTranslate2 can access a working system CUDA runtime; otherwise it safely uses CPU.';
+        if (computeInfo) computeInfo.dataset.tip = 'Auto uses float16 on CUDA and int8 on CPU for Faster Whisper.';
       } else {
-        if (processorInfo) processorInfo.dataset.tip = 'This operating system is not an official Church Cap target. Choose macOS or Windows if you are preparing settings for a supported computer.';
-        if (computeInfo) computeInfo.dataset.tip = 'Auto chooses a safe CPU compute mode when the detected operating system is not an official Church Cap target.';
+        if (processorInfo) processorInfo.dataset.tip = 'Auto chooses a safe CPU mode on this operating system.';
+        if (computeInfo) computeInfo.dataset.tip = 'Auto chooses a safe CPU compute mode.';
       }
       setSelectOptions(deviceSelect, deviceOptions, currentDevice);
       setSelectOptions(computeSelect, computeOptions, currentCompute);
@@ -1384,6 +1514,47 @@
       }
     }
 
+    function syncOperatorTranslationControls(translation) {
+      if (!translation) return;
+      const signature = JSON.stringify({
+        enabled: !!translation.enabled,
+        provider: translation.provider || 'disabled',
+        allowed: translation.allowed_languages || ['en'],
+        max: translation.max_active_languages || 1,
+        policy: translation.language_policy || 'automatic',
+        priority: translation.priority_mode || 'most_viewers'
+      });
+      if (signature === operatorTranslationSignature || operatorTranslationEditing) return;
+      operatorTranslationSignature = signature;
+      const provider = document.getElementById('translationProvider');
+      if (provider) provider.value = translation.enabled ? (translation.provider || 'argos') : 'disabled';
+      const policy = document.getElementById('translationLanguagePolicy');
+      if (policy) policy.value = translation.language_policy || 'automatic';
+      const priority = document.getElementById('translationPriorityMode');
+      if (priority) priority.value = translation.priority_mode || 'most_viewers';
+      const allowed = new Set(translation.allowed_languages || ['en']);
+      document.querySelectorAll('input[name="translationLang"]').forEach((input) => {
+        input.checked = input.disabled || allowed.has(input.value);
+      });
+      const maximum = String(translation.max_active_languages || 1);
+      const slider = document.getElementById('translationMaxSlider');
+      const input = document.getElementById('translationMax');
+      if (slider) slider.value = maximum;
+      if (input) input.value = maximum;
+      syncTranslationModeCopy();
+    }
+
+    function syncOperatorAudioSelection(selected) {
+      const select = document.getElementById('audioDevice');
+      if (!select || document.activeElement === select) return;
+      const current = String(selected ?? '');
+      const match = Array.from(select.options).find((option) => (
+        option.value === current || option.dataset.deviceName === current
+      ));
+      if (match) select.value = match.value;
+      else if (!current) select.value = '';
+    }
+
     async function installTranslationResources(kind) {
       const result = document.getElementById('translationInstallResult');
       if (result) result.textContent = kind === 'small100' ? 'Starting Core model install…' : 'Starting Base language pack install…';
@@ -1436,8 +1607,16 @@
 
     async function api(path) {
       const result = document.getElementById('apiResult');
-      if (path === '/api/start') showCaptionStartingNotice();
-      if (path === '/api/stop') clearCaptionStartingNotice();
+      const actionLabel = operatorCaptionActionLabel(path);
+      if (actionLabel?.notice) {
+        if (path === '/api/start') {
+          showCaptionStartingNotice();
+        } else {
+          captionStartPending = false;
+          setCaptionStartNotice(actionLabel.busy, {busy: true});
+        }
+        if (result) result.textContent = '';
+      }
       if (path === '/api/start' && performanceSaveTimer) {
         await savePerformanceSettings({automatic: true});
       }
@@ -1445,17 +1624,18 @@
         const res = await fetch(path, { method: 'POST' });
         if (res.status === 401) { location.href = '/login'; return; }
         const data = await res.json();
-        if (result) result.textContent = JSON.stringify(data);
+        if (result && !actionLabel?.notice) result.textContent = JSON.stringify(data);
         if (path === '/api/start' && data.status === 'already_running') {
-          setCaptionStartNotice('Captions are already running.');
+          setCaptionStartNotice(actionLabel.already, {tone: 'success', clearAfterMs: 1800});
           captionStartPending = false;
-          captionStartNoticeTimer = setTimeout(() => setCaptionStartNotice(''), 1400);
+        } else if (actionLabel?.notice && !actionLabel.keepUntilLive) {
+          setCaptionStartNotice(actionLabel.done, {tone: 'success', clearAfterMs: 2200});
         }
         refreshStatus();
       } catch (error) {
-        if (path === '/api/start') {
+        if (actionLabel?.notice) {
           captionStartPending = false;
-          setCaptionStartNotice('Could not start captions. Check the audio input and try again.');
+          setCaptionStartNotice(actionLabel.error, {tone: 'error'});
         }
         if (result) result.textContent = String(error);
       }
@@ -1482,6 +1662,7 @@
       for (const device of data.devices) {
         const option = document.createElement('option');
         option.value = String(device.id);
+        option.dataset.deviceName = device.name;
         option.textContent = device.label;
         if (String(data.selected) === String(device.id) || data.selected === device.name) option.selected = true;
         select.appendChild(option);
@@ -1528,6 +1709,8 @@
       if (res.status === 401) { location.href = '/login'; return; }
       const data = await res.json();
       if (result) result.textContent = `Saved. Enabled: ${data.enabled}. Provider: ${data.provider}. Max active languages: ${data.max_active_languages}. ${data.provider_status?.message || ''}`;
+      operatorTranslationEditing = false;
+      operatorTranslationSignature = '';
       syncTranslationModeCopy();
       renderTranslationResources(data);
       refreshStatus();
@@ -1546,6 +1729,111 @@
       if (res.status === 401) { location.href = '/login'; return; }
       const data = await res.json();
       if (result) result.textContent = `Saved. Transcript saving: ${data.transcript_saving_enabled}. Retention: ${data.transcript_retention_minutes} minute(s).`;
+    }
+
+    async function revokeServiceLeaderAccess() {
+      const result = document.getElementById('serviceLeaderAccessResult');
+      if (!confirm('Disconnect every paired service leader device?')) return;
+      const res = await fetch('/api/service-leader/revoke', {method: 'POST'});
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (result) result.textContent = res.ok ? 'All service leader devices have been disconnected.' : (data.error || 'Could not revoke service leader access.');
+      if (res.ok) {
+        hideServiceLeaderPairing();
+        renderServiceLeaderAccess(data);
+      }
+    }
+
+    function renderServiceLeaderAccess(access) {
+      if (!access) return;
+      const active = document.getElementById('serviceLeaderActiveSessions');
+      const windowStatus = document.getElementById('serviceLeaderPairingWindow');
+      const pill = document.getElementById('serviceLeaderPairingStatus');
+      const pairingButton = document.getElementById('serviceLeaderPairingButton');
+      if (active) active.textContent = String(access.active_sessions || 0);
+      if (windowStatus) windowStatus.textContent = access.pairing_active ? 'Active' : 'Closed';
+      if (pill) pill.textContent = access.pairing_active ? 'QR active' : `${access.active_sessions || 0} connected`;
+      if (pairingButton) pairingButton.textContent = access.pairing_active ? 'Regenerate pairing QR' : 'Start pairing session';
+      if (!access.pairing_active && serviceLeaderPairingExpiresAt) {
+        const result = document.getElementById('serviceLeaderPairingResult');
+        hideServiceLeaderPairing();
+        if (result) result.textContent = Number(access.active_sessions || 0) > serviceLeaderPairingSessionBaseline
+          ? 'The pairing code was used. The device is connected.'
+          : 'The pairing code is no longer active.';
+      }
+    }
+
+    function updateServiceLeaderPairingCountdown() {
+      const countdown = document.getElementById('serviceLeaderPairingCountdown');
+      if (!countdown || !serviceLeaderPairingExpiresAt) return;
+      const remaining = Math.max(0, Math.ceil((serviceLeaderPairingExpiresAt - Date.now()) / 1000));
+      countdown.textContent = remaining
+        ? `This one-use code expires in ${remaining} second${remaining === 1 ? '' : 's'}.`
+        : 'This pairing code has expired. Generate a new one if it was not scanned.';
+      if (!remaining) {
+        clearInterval(serviceLeaderPairingTimer);
+        serviceLeaderPairingTimer = null;
+        renderServiceLeaderAccess({active_sessions: Number(document.getElementById('serviceLeaderActiveSessions')?.textContent || 0), pairing_active: false});
+      }
+    }
+
+    function hideServiceLeaderPairing() {
+      document.getElementById('serviceLeaderPairingDisplay').hidden = true;
+      document.getElementById('serviceLeaderOperatorQr').removeAttribute('src');
+      serviceLeaderPairingExpiresAt = 0;
+      if (serviceLeaderPairingTimer) clearInterval(serviceLeaderPairingTimer);
+      serviceLeaderPairingTimer = null;
+    }
+
+    async function createServiceLeaderPairing() {
+      const result = document.getElementById('serviceLeaderPairingResult');
+      if (result) result.textContent = 'Creating a one-use pairing code…';
+      const res = await fetch('/api/service-leader/pairing', {method: 'POST'});
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Could not create a pairing code.';
+        return;
+      }
+      const display = document.getElementById('serviceLeaderPairingDisplay');
+      const qr = document.getElementById('serviceLeaderOperatorQr');
+      qr.src = data.pairing_qr;
+      display.hidden = false;
+      serviceLeaderPairingExpiresAt = Date.now() + Number(data.pairing_seconds || 90) * 1000;
+      serviceLeaderPairingSessionBaseline = Number(data.active_sessions || 0);
+      if (serviceLeaderPairingTimer) clearInterval(serviceLeaderPairingTimer);
+      serviceLeaderPairingTimer = setInterval(updateServiceLeaderPairingCountdown, 1000);
+      updateServiceLeaderPairingCountdown();
+      renderServiceLeaderAccess(data);
+      if (result) result.textContent = 'Pairing QR ready. Let the trusted device scan it now.';
+    }
+
+    async function cancelServiceLeaderPairing() {
+      const result = document.getElementById('serviceLeaderPairingResult');
+      const res = await fetch('/api/service-leader/pairing/cancel', {method: 'POST'});
+      if (res.status === 401) { location.href = '/login'; return; }
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Could not cancel the pairing code.';
+        return;
+      }
+      hideServiceLeaderPairing();
+      renderServiceLeaderAccess(data);
+      if (result) result.textContent = 'The unused pairing code has been cancelled.';
+    }
+
+    function filterOperatorLanguages() {
+      const query = document.getElementById('operatorLanguageSearch')?.value.trim().toLowerCase() || '';
+      document.querySelectorAll('.premium-language-toggle[data-language-search]').forEach((item) => {
+        item.hidden = !!query && !item.dataset.languageSearch.includes(query);
+      });
+    }
+
+    function selectAllOperatorLanguages(checked) {
+      document.querySelectorAll('input[name="translationLang"]').forEach((input) => {
+        if (!input.disabled) input.checked = checked;
+      });
+      operatorTranslationEditing = true;
     }
 
     function updateTranscriptExportButtons(count) {
@@ -1759,6 +2047,7 @@
         const serviceStatus = document.getElementById('serviceStatus');
         if (serviceStatus) serviceStatus.textContent = data.status || 'stopped';
         updateCaptionStartNoticeFromStatus(data.status || 'stopped');
+        setActiveOperatorControl(data.status || 'stopped', !!data.sensitive_mode);
         setCaptionSettingsLocked(data.performance_locked ?? captionSettingsAreLocked(data.status));
         const sensitiveStatus = document.getElementById('sensitiveStatus');
         if (sensitiveStatus) sensitiveStatus.textContent = data.sensitive_mode ? 'Blanked' : 'Normal';
@@ -1770,6 +2059,8 @@
         if (activeTranslationLanguages) activeTranslationLanguages.textContent = activeText;
         renderViewerLanguageTable(data.translation);
         renderTranslationResources({...data.translation, install: data.translation_install});
+        syncOperatorTranslationControls(data.translation);
+        renderServiceLeaderAccess(data.service_leader_access);
         const providerStatus = document.getElementById('translationProviderStatus');
         if (providerStatus && data.translation?.provider_status) providerStatus.textContent = data.translation.provider_status.message || '';
         const rms = Number(data.metrics?.audio_rms || 0);
@@ -1803,6 +2094,7 @@
         if (liveLatency) liveLatency.textContent = latencyText;
         const inputText = data.settings?.audio_device ?? 'system default';
         document.getElementById('selectedInputPill').textContent = inputText;
+        syncOperatorAudioSelection(data.settings?.audio_device);
         const strip = data.operator_strip || {};
         const stripMic = document.getElementById('stripMic');
         const stripCpu = document.getElementById('stripCpu');
@@ -1858,9 +2150,18 @@
     syncTranslationModeCopy();
     const initialSection = window.location.hash ? window.location.hash.slice(1) : localStorage.getItem('operatorSection');
     showOperatorSection(initialSection || 'dashboard');
-    document.getElementById('translationMaxSlider')?.addEventListener('input', (event) => syncTranslationMax(event.target));
-    document.getElementById('translationMax')?.addEventListener('input', (event) => syncTranslationMax(event.target));
+    document.getElementById('translationMaxSlider')?.addEventListener('input', (event) => {
+      operatorTranslationEditing = true;
+      syncTranslationMax(event.target);
+    });
+    document.getElementById('translationMax')?.addEventListener('input', (event) => {
+      operatorTranslationEditing = true;
+      syncTranslationMax(event.target);
+    });
     document.getElementById('translationMax')?.addEventListener('blur', (event) => syncTranslationMax(event.target));
+    document.querySelectorAll('#translationProvider, #translationLanguagePolicy, #translationPriorityMode, #translationMaxSlider, #translationMax, input[name="translationLang"]').forEach((control) => {
+      control.addEventListener('change', () => { operatorTranslationEditing = true; });
+    });
     syncTranslationMax(document.getElementById('translationMax'));
     loadAudioDevices();
     updateTranscriptExportButtons(0);

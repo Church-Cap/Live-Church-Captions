@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v.0.3.0 public preview**
+Version: **v.0.4.0 public preview**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -15,6 +15,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - `START_HERE.md` — simplest setup guide for non-technical users.
 - `setup-macos.sh`, `start-macos.sh`, `reset-operator-password.sh` — main Mac operator scripts.
 - `setup-windows.cmd`, `start-windows.cmd`, `reset-operator-password.cmd` — easiest Windows operator launchers.
+- `setup-linux.sh`, `start-linux.sh`, `update-linux.sh` — Linux setup, normal start, and updater scripts with package-manager detection.
 - `install-cuda-runtime-windows.cmd` — optional Windows NVIDIA CUDA runtime force reinstall helper.
 - `update-macos.sh`, `update-windows.cmd` — replace the current folder with the latest GitHub release tag after checking the remote version.
 - `setup-windows.ps1`, `start-windows.ps1`, `reset-operator-password.ps1` — Windows PowerShell scripts used by the launchers.
@@ -31,6 +32,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - QR codes for audience access, including hostname and IP fallback links.
 - Mobile caption page with a left-to-right, bottom-to-top caption stream, optional server-backed scrollable session transcript with newest captions first, timestamps, font size, automatic system light/dark theme with local override, comfort/compact, pause, and local clear controls.
 - Operator login, first-run password setup, and account/password page.
+- One-use QR pairing for a restricted service-leader page with start/stop, private-moment, status, and multi-language controls.
 - Operator feedback page with version-aware email link, plus a dedicated diagnostics menu item for support exports.
 - Secure dual-port mode: public viewer port and localhost-focused operator port.
 - Audio input selection from the operator page.
@@ -44,19 +46,19 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - OBS browser-source overlay and setup guide.
 - Local multilingual support: phone UI labels use the lightweight catalogue in `app/locales/client_ui.json`, with Argos runtime fallback where needed. Experimental translated captions use **Base** Argos Translate packs, optional **Core** SMaLL-100, or **Auto** mode across both providers.
 - Local HTTPS helper scripts for testing and managed-device deployments.
-- macOS and Windows setup, start, permission repair/password reset, and macOS LaunchAgent helper scripts.
+- macOS, Windows, and Linux setup/start support, permission repair/password reset, and macOS LaunchAgent helper scripts.
 
 ## Hardware Guidance
 
 Minimum for testing and small services:
 
-- Apple Silicon Mac, or Windows 10/11 with a modern 4-core CPU and 8 GB RAM.
+- Apple Silicon Mac, Windows 10/11, or a modern 64-bit Linux system with a 4-core CPU and 8 GB RAM.
 - USB audio interface or sound desk feed.
 - Use **Fastest** or **Fast** presets on lower-power systems.
 
 Recommended for live church use:
 
-- Apple Silicon Mac with 16 GB RAM, or Windows 10/11 with a recent 6-8 core CPU and 16 GB RAM.
+- Apple Silicon Mac with 16 GB RAM, or Windows/Linux with a recent 6-8 core CPU and 16 GB RAM.
 - For Windows GPU acceleration, use an NVIDIA GPU with current drivers and the local CUDA runtime packages installed by Church Cap.
 - Use the built-in benchmark before selecting `small.en` or `medium.en`.
 
@@ -123,6 +125,23 @@ The **Performance platform** setting defaults to auto-detect. On Windows, `faste
 
 The local CUDA runtime installer is usually easier than installing the full NVIDIA CUDA Toolkit. Windows users who already manage NVIDIA tooling can instead install CUDA 12.x and cuDNN system-wide from NVIDIA, then rerun `.\start-windows.cmd`.
 
+## Quick Start On Linux
+
+From the project folder:
+
+```bash
+bash setup-linux.sh
+./start-linux.sh
+```
+
+The setup script detects `apt`, `dnf`, `yum`, `zypper`, `pacman`, or `apk`, installs Python/build/audio prerequisites through that package manager, and keeps all Python packages inside `.venv`. It is intended for AlmaLinux, Rocky Linux, RHEL-family systems, Fedora, Ubuntu, Debian, openSUSE, Arch Linux, Alpine Linux, and close derivatives.
+
+On AlmaLinux, Church Cap prefers an available Python 3.12 or 3.11 because the operating system's default `python3` may be too old. The installer does not enable extra repositories automatically. If `dnf` cannot find PortAudio development packages, enable the normal AppStream/CRB repositories according to your system policy and rerun setup.
+
+Linux NVIDIA acceleration uses the system-managed driver/CUDA runtime. Church Cap detects CUDA through CTranslate2 and falls back to CPU safely; it does not install NVIDIA drivers or CUDA on Linux.
+
+More detail: [docs/linux.md](docs/linux.md).
+
 ## Normal Use
 
 After the first setup, use:
@@ -135,6 +154,12 @@ On Windows:
 
 ```powershell
 .\start-windows.cmd
+```
+
+On Linux:
+
+```bash
+./start-linux.sh
 ```
 
 Do not recreate `.venv` or overwrite `.env` for normal Sunday use.
@@ -150,6 +175,14 @@ On Windows, the equivalent folder is:
 ```text
 %APPDATA%\Church Cap\data\
 ```
+
+On Linux, the default is:
+
+```text
+~/.local/share/church-cap/data/
+```
+
+`XDG_DATA_HOME` and `CHURCH_CAP_DATA_DIR` are respected.
 
 The password is stored as a salted hash in `operator_auth.json`. Church Cap also keeps `operator_auth.backup.json` in the same folder and can restore from it if the primary auth file is lost or incomplete.
 
@@ -210,7 +243,7 @@ Open `/operator`, then use **Performance** on the dashboard.
 
 - Move the slider toward **Fastest** for older CPUs or lower delay.
 - Move the slider toward **Most accurate** when the computer has enough CPU/GPU headroom and wording matters more than delay. The far-right setting uses `medium.en` and can noticeably increase latency, so check it with the benchmark before a service.
-- Use **More settings** for deeper tuning. Easy mode shows platform, backend, model size, and processor. Advanced mode adds compute type, caption refresh, listening window, silence finalise timing, stability checks, and OpenAI Whisper beam size. The platform view is automatic by default, but can be set to macOS or Windows if detection is wrong.
+- Use **More settings** for deeper tuning. Easy mode shows platform, backend, model size, and processor. Advanced mode adds compute type, caption refresh, listening window, silence finalise timing, stability checks, and OpenAI Whisper beam size. The platform view is automatic by default, but can be set to macOS, Windows, or Linux if detection is wrong.
 
 Performance adjustments save automatically when captions are stopped. Stop captions before changing the model, backend, processor, or other performance settings because the model and audio stream are loaded when captions start. The Performance panel also includes a 15-second benchmark and a live monitor that sample live transcription time, estimated caption delay, audio level, model load time, runtime, and available system load. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
 
@@ -222,6 +255,7 @@ Performance adjustments save automatically when captions are stopped. Stop capti
 /obs               OBS browser-source overlay
 /obs/help          OBS setup guide, operator login required
 /operator          operator controls, login required
+/service-leader    restricted service-leader controls, one-use pairing required
 /feedback          feedback email guidance, login required
 /account           change operator password, login required
 /setup/network     local hostname/HTTPS/Wi-Fi guidance, login required
@@ -296,6 +330,7 @@ Recommended church setup:
 - Keep operator controls password-protected.
 - Use the default dual-port start script.
 - Keep operator access on localhost where possible.
+- Pair a church-managed service-leader device from the local operator login page or the operator dashboard's **Service Leader** section instead of sharing the full operator login over HTTP.
 - Use sensitive blank/pause mode for private prayer, testimony, safeguarding, or pastoral details.
 - Set transcript retention appropriately for the service. Retained caption text is cached in the per-user Church Cap data folder and is deleted when the transcript is cleared or the retention window expires.
 - Use clear notices so people know AI captions are being generated.
@@ -310,6 +345,16 @@ docs/legal/NOTICE_TEMPLATE_FOR_CHURCHES.md
 ```
 
 AI-generated captions may be inaccurate. For high-stakes, confidential, legal, safeguarding, or pastoral contexts, use qualified human support and appropriate church policies.
+
+## Service Leader Controls
+
+On the Church Cap computer, either select **Connect a service leader device** on the operator login page or open **Service Leader** in the operator menu. Generate a one-use QR code, then scan it with the church phone or tablet. The operator section can replace or cancel an unused QR, show connected-device status, and disconnect all paired devices.
+
+The paired page can start, stop, blank, resume, change the audio input while captions are stopped, monitor caption health, and manage translated captions in Automatic or Manual language mode. Its searchable language list matches native names, English names, and language codes. Language and audio choices stay synchronised with the operator page. The operator and Service Leader controls show a subtle active-state glow, and short action messages explain when captions are starting, stopping, blanked, resuming, or sending a test caption. The caption preview uses the same live feed as audience phones, but the page warns that a control-device delay is not the main performance measure. It cannot access transcripts, diagnostics, updates, passwords, performance settings, or model installation. Pairing expires after 90 seconds and the restricted session expires after four hours or two hours of inactivity, with an on-device warning before the inactivity timer runs out.
+
+The page uses the configured operator port, normally `9090`. In secure operator mode, full operator routes remain localhost-only while `/service-leader` is available to paired devices. On HTTP, use a trusted staff/AV network; HTTPS is preferred for managed church devices.
+
+More detail: [docs/service_leader_controls.md](docs/service_leader_controls.md).
 
 ## HTTPS
 
@@ -373,9 +418,15 @@ On Windows:
 .\update-windows.cmd
 ```
 
+On Linux:
+
+```bash
+./update-linux.sh
+```
+
 ## Docker
 
-Docker is useful for web-only server-style testing, but Church Cap is officially supported on macOS and Windows. For a container smoke test:
+Docker is useful for web-only server-style testing. Native audio operation is supported on macOS, Windows, and common Linux distributions. For a container smoke test:
 
 ```bash
 cp env.example .env
@@ -414,6 +465,7 @@ Before publishing a release, confirm:
 - Third-party versions and licence notes are reviewed in `docs/legal/THIRD_PARTY_NOTICES.md`.
 - Script permissions are executable, or users can run `bash setup-macos.sh` to repair them during setup.
 - Windows scripts are included for setup, start, password reset, update, optional CUDA runtime force reinstall, Base Argos model installation, and optional Core SMaLL-100 installation.
+- Linux scripts are included for package-manager-aware setup, start, update, password reset, Base Argos model installation, and optional Core SMaLL-100 installation.
 
 GitHub community files live in the standard `.github/` folder:
 

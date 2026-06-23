@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="service-leader-csrf" content="{{ csrf_token }}">
+  <title>Church Cap · Service leader</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="service-leader-page glass-page">
+  <main class="service-leader-shell">
+    <header class="service-leader-header glass-card">
+      <div>
+        <p class="eyebrow">Church Cap</p>
+        <h1>Service leader controls</h1>
+      </div>
+      <button type="button" class="secondary-button compact-button" onclick="confirmServiceLeaderLogout()">Disconnect</button>
+    </header>
+
+    {% if not secure_transport %}
+    <div id="serviceLeaderHttpNotice" class="service-leader-dismissible notice compact-notice glass-card" data-dismissible-key="serviceLeaderHttpNoticeDismissed">
+      <button type="button" class="notice-close" aria-label="Dismiss HTTP notice" onclick="dismissServiceLeaderNotice('serviceLeaderHttpNotice')">×</button>
+      <p><strong>Local HTTP notice:</strong> this session uses local HTTP. Use only on the church’s trusted staff or AV network.</p>
+    </div>
+    {% endif %}
+
+    <div id="serviceLeaderPreviewNotice" class="service-leader-dismissible notice compact-notice glass-card" data-dismissible-key="serviceLeaderPreviewNoticeDismissed">
+      <button type="button" class="notice-close" aria-label="Dismiss preview notice" onclick="dismissServiceLeaderNotice('serviceLeaderPreviewNotice')">×</button>
+      <p><strong>Preview note:</strong> captions may appear a moment later on this control page. Audience phones and displays use the live caption feed, so this preview is not the main performance measure.</p>
+    </div>
+
+    <section class="service-leader-card glass-card" aria-live="polite">
+      <div class="service-leader-status-row">
+        <span id="serviceLeaderStatusPill" class="status-pill">Checking…</span>
+        <span id="serviceLeaderViewerCount" class="muted">0 viewers</span>
+      </div>
+      <p id="serviceLeaderCurrentCaption" class="service-leader-current-caption">Waiting for caption status…</p>
+      <div class="service-leader-mic-panel">
+        <div class="panel-heading-row service-leader-mic-heading">
+          <div>
+            <p class="eyebrow">Monitor</p>
+            <h2>Microphone level</h2>
+          </div>
+          <span id="serviceLeaderAudioPercent" class="status-pill">0%</span>
+        </div>
+        <div class="large-meter service-leader-large-meter"><div id="serviceLeaderMeterFill" class="meter-fill"></div></div>
+      </div>
+    </section>
+
+    <p id="serviceLeaderControlNotice" class="service-leader-control-notice" aria-live="polite"></p>
+    <section class="service-leader-control-grid">
+      <button type="button" class="service-leader-action service-leader-start glass-card" data-control-button data-control-state="start" onclick="serviceLeaderAction('/service-leader/api/start')" aria-label="Start captions" aria-pressed="false">
+        <span class="service-leader-action-icon">▶</span><strong>Start</strong><small>Captions</small>
+      </button>
+      <button type="button" class="service-leader-action service-leader-stop glass-card" data-control-button data-control-state="stop" onclick="serviceLeaderAction('/service-leader/api/stop')" aria-label="Stop captions" aria-pressed="false">
+        <span class="service-leader-action-icon">■</span><strong>Stop</strong><small>Captions</small>
+      </button>
+      <button type="button" class="service-leader-action service-leader-blank glass-card" data-control-button data-control-state="pause" onclick="serviceLeaderAction('/service-leader/api/sensitive-on')" aria-label="Pause captions for a private moment" aria-pressed="false">
+        <span class="service-leader-action-icon">●</span><strong>Pause</strong><small>Private moment</small>
+      </button>
+      <button type="button" class="service-leader-action service-leader-resume glass-card" data-control-button data-control-state="resume" onclick="serviceLeaderAction('/service-leader/api/sensitive-off')" aria-label="Resume captions" aria-pressed="false">
+        <span class="service-leader-action-icon">↻</span><strong>Resume</strong><small>Captions</small>
+      </button>
+    </section>
+
+    <section class="service-leader-card glass-card">
+      <div class="panel-heading-row">
+        <div><p class="eyebrow">Live health</p><h2>Caption performance</h2></div>
+        <span id="serviceLeaderHealthPill" class="status-pill health-unknown">Waiting</span>
+      </div>
+      <div class="service-leader-health-grid">
+        <div><span>Estimated live delay</span><strong id="serviceLeaderLiveDelay">—</strong></div>
+        <div><span>Transcription pass</span><strong id="serviceLeaderTranscription">—</strong></div>
+        <div><span>System load</span><strong id="serviceLeaderSystemLoad">—</strong></div>
+        <div><span>Runtime</span><strong id="serviceLeaderRuntime">—</strong></div>
+      </div>
+      <p id="serviceLeaderHealthCopy" class="muted">Start captions and speak normally to build a useful health estimate.</p>
+      <button type="button" class="secondary-button full-width" onclick="document.getElementById('healthGuide').showModal()">How to improve caption health</button>
+    </section>
+
+    <section class="service-leader-card glass-card service-leader-form-card">
+      <div class="panel-heading-row"><div><p class="eyebrow">Audio source</p><h2>Microphone / interface</h2></div></div>
+      <div class="service-leader-field-stack">
+        <label for="serviceLeaderAudioDevice">Input device</label>
+        <select id="serviceLeaderAudioDevice"></select>
+        <button type="button" class="secondary-button full-width" onclick="saveServiceLeaderAudio()">Save audio input</button>
+      </div>
+      <p id="serviceLeaderAudioResult" class="muted small-result"></p>
+    </section>
+
+    <section class="service-leader-card glass-card service-leader-form-card">
+      <div class="panel-heading-row">
+        <div><p class="eyebrow">Audience languages</p><h2>Translated captions</h2></div>
+        <label class="service-leader-translation-switch"><input id="serviceLeaderTranslationEnabled" type="checkbox"><span>Enabled</span></label>
+      </div>
+      <div class="service-leader-field-stack service-leader-language-policy-stack">
+        <label for="serviceLeaderLanguagePolicy">Language selection</label>
+        <select id="serviceLeaderLanguagePolicy" onchange="syncServiceLeaderLanguagePolicyCopy()">
+          <option value="automatic">Automatic — visitors can request supported languages</option>
+          <option value="restricted">Manual — only selected languages are enabled</option>
+        </select>
+      </div>
+      <p id="serviceLeaderLanguagePolicyCopy" class="muted small-result"></p>
+      <p id="serviceLeaderLanguageHelp" class="muted">Language choices follow the operator’s installed resources and current limits.</p>
+      <input id="serviceLeaderLanguageSearch" class="language-search service-leader-language-search" type="search" placeholder="Search by language or code" autocomplete="off" aria-label="Search languages">
+      <div class="service-leader-language-grid language-list" id="serviceLeaderLanguageGrid" role="listbox" aria-label="Available translated languages"></div>
+      <button type="button" class="primary-button full-width" onclick="saveServiceLeaderLanguages()">Save languages</button>
+      <p id="serviceLeaderLanguageResult" class="muted small-result"></p>
+    </section>
+
+    <p id="serviceLeaderResult" class="service-leader-result muted" aria-live="polite"></p>
+    <p class="auth-footer centered-version">{{ app_version_label }}</p>
+  </main>
+
+  <dialog id="healthGuide" class="service-leader-dialog glass-card">
+    <form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form>
+    <h2>Improve caption health</h2>
+    <ul>
+      <li>Ask the operator to move the Performance slider toward <strong>Fast</strong> or <strong>Fastest</strong>.</li>
+      <li>Use Faster Whisper and a smaller model when delay matters more than maximum accuracy.</li>
+      <li>Run the 15-second benchmark on the operator page during normal speech.</li>
+      <li>Reduce the number of active translated languages.</li>
+      <li>Use a direct sound-desk feed and close other demanding programs.</li>
+      <li>For regular live use, aim for a recent 6–8 core CPU and 16 GB RAM, or supported GPU acceleration.</li>
+    </ul>
+  </dialog>
+
+  <dialog id="sessionWarning" class="service-leader-dialog glass-card">
+    <h2>Still using Church Cap?</h2>
+    <p>This control session will expire soon. Refresh the two-hour inactivity timer?</p>
+    <div class="button-row">
+      <button type="button" class="primary-button" onclick="extendServiceLeaderSession()">Keep me connected</button>
+      <button type="button" class="secondary-button" onclick="document.getElementById('sessionWarning').close()">Not now</button>
+    </div>
+  </dialog>
+
+  <dialog id="disconnectDialog" class="service-leader-dialog service-leader-confirm-dialog glass-card">
+    <form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form>
+    <p class="eyebrow">Disconnect device</p>
+    <h2>Disconnect Service Leader controls?</h2>
+    <p class="muted">This phone or tablet will lose access. To reconnect, the operator will need to generate a new pairing QR code.</p>
+    <div class="button-row spacious-actions">
+      <button type="button" class="service-leader-danger-button" onclick="serviceLeaderLogout()">Disconnect this device</button>
+      <button type="button" class="secondary-button" onclick="document.getElementById('disconnectDialog').close()">Stay connected</button>
+    </div>
+  </dialog>
+
+  <script>
+    const serviceLeaderCsrf = document.querySelector('meta[name="service-leader-csrf"]').content;
+    let serviceLeaderLanguageLimit = 1;
+    let serviceLeaderLanguages = [];
+    let serviceLeaderSelectedLanguages = new Set();
+    let lastSettingsSignature = '';
+    let sessionWarningShown = false;
+    let serviceLeaderWs = null;
+    let serviceLeaderWsReconnectTimer = null;
+    let serviceLeaderControlNoticeTimer = null;
+
+    function serviceLeaderActionLabel(path) {
+      if (path.endsWith('/start')) return {busy: 'Starting captions — loading the speech model and audio input. This can take a moment.', done: 'Captions are live.'};
+      if (path.endsWith('/stop')) return {busy: 'Stopping captions — audience pages will return to the waiting screen shortly.', done: 'Captions have stopped.'};
+      if (path.endsWith('/sensitive-on')) return {busy: 'Blanking captions for a private moment…', done: 'Captions are blanked for a private moment.'};
+      if (path.endsWith('/sensitive-off')) return {busy: 'Resuming captions — new speech will appear after the private-moment buffer clears.', done: 'Captions are resuming.'};
+      return {busy: 'Sending control…', done: 'Control updated.'};
+    }
+
+    function setServiceLeaderControlNotice(message, {clearAfterMs = 0, busy = false} = {}) {
+      const notice = document.getElementById('serviceLeaderControlNotice');
+      if (!notice) return;
+      if (serviceLeaderControlNoticeTimer) {
+        clearTimeout(serviceLeaderControlNoticeTimer);
+        serviceLeaderControlNoticeTimer = null;
+      }
+      notice.textContent = message || '';
+      notice.classList.toggle('visible', !!message);
+      notice.classList.toggle('busy', !!busy);
+      document.querySelectorAll('[data-control-button]').forEach((button) => {
+        button.disabled = !!busy;
+        button.setAttribute('aria-disabled', busy ? 'true' : 'false');
+      });
+      if (message && clearAfterMs > 0) {
+        serviceLeaderControlNoticeTimer = setTimeout(() => {
+          notice.textContent = '';
+          notice.classList.remove('visible', 'busy');
+          serviceLeaderControlNoticeTimer = null;
+        }, clearAfterMs);
+      }
+    }
+
+    function dismissServiceLeaderNotice(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const key = el.dataset.dismissibleKey;
+      if (key) localStorage.setItem(key, '1');
+      el.hidden = true;
+    }
+
+    function restoreServiceLeaderNotices() {
+      document.querySelectorAll('.service-leader-dismissible[data-dismissible-key]').forEach((el) => {
+        el.hidden = localStorage.getItem(el.dataset.dismissibleKey) === '1';
+      });
+    }
+
+    async function serviceLeaderFetch(path, options = {}) {
+      const response = await fetch(path, {...options, headers: {...(options.headers || {}), 'X-CSRF-Token': serviceLeaderCsrf}});
+      if (response.status === 401) {
+        location.replace('/service-leader/pair');
+        throw new Error('This service-leader session has expired.');
+      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || data.detail || 'Church Cap could not complete that action.');
+      return data;
+    }
+
+    async function serviceLeaderAction(path) {
+      const result = document.getElementById('serviceLeaderResult');
+      const label = serviceLeaderActionLabel(path);
+      result.textContent = '';
+      setServiceLeaderControlNotice(label.busy, {busy: true});
+      try {
+        const data = await serviceLeaderFetch(path, {method: 'POST'});
+        const alreadyRunning = path.endsWith('/start') && data.status === 'already_running';
+        setServiceLeaderControlNotice(alreadyRunning ? 'Captions are already running.' : label.done, {clearAfterMs: 2500});
+        await refreshServiceLeaderStatus();
+      } catch (error) {
+        setServiceLeaderControlNotice('');
+        result.textContent = error.message;
+      }
+    }
+
+    function renderHealth(health) {
+      const pill = document.getElementById('serviceLeaderHealthPill');
+      pill.textContent = health.label;
+      pill.className = `status-pill health-${health.level}`;
+      document.getElementById('serviceLeaderLiveDelay').textContent = health.live_delay_seconds == null ? '—' : `${health.live_delay_seconds.toFixed(2)}s`;
+      document.getElementById('serviceLeaderTranscription').textContent = health.transcription_seconds == null ? '—' : `${health.transcription_seconds.toFixed(2)}s`;
+      document.getElementById('serviceLeaderSystemLoad').textContent = health.system_load_percent == null ? '—' : `${Math.round(health.system_load_percent)}%`;
+      document.getElementById('serviceLeaderRuntime').textContent = health.runtime_label || '—';
+      document.getElementById('serviceLeaderHealthCopy').textContent = health.message;
+    }
+
+    function setActiveServiceLeaderControl(status, sensitiveMode) {
+      let active = 'stop';
+      if (sensitiveMode) active = 'pause';
+      else if (status === 'listening' || status === 'starting' || status === 'running') active = 'start';
+      else if (status === 'sensitive') active = 'pause';
+      document.querySelectorAll('[data-control-state]').forEach((button) => {
+        const selected = button.dataset.controlState === active;
+        button.classList.toggle('active', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+    }
+
+    function renderLanguages(translation) {
+      const signature = JSON.stringify(translation);
+      if (signature === lastSettingsSignature) return;
+      lastSettingsSignature = signature;
+      serviceLeaderLanguageLimit = translation.translation_max_active_languages || 1;
+      serviceLeaderLanguages = translation.available_languages || [];
+      serviceLeaderSelectedLanguages = new Set(translation.selected_languages || []);
+      document.getElementById('serviceLeaderTranslationEnabled').checked = !!translation.translation_enabled;
+      document.getElementById('serviceLeaderLanguagePolicy').value = translation.translation_language_policy || 'automatic';
+      syncServiceLeaderLanguagePolicyCopy();
+      document.getElementById('serviceLeaderLanguageHelp').textContent = `Manual mode can use up to ${serviceLeaderLanguageLimit} selected language(s). English source captions are always available.`;
+      renderServiceLeaderLanguageList(document.getElementById('serviceLeaderLanguageSearch').value);
+    }
+
+    function syncServiceLeaderLanguagePolicyCopy() {
+      const policy = document.getElementById('serviceLeaderLanguagePolicy')?.value || 'automatic';
+      const copy = document.getElementById('serviceLeaderLanguagePolicyCopy');
+      const grid = document.getElementById('serviceLeaderLanguageGrid');
+      const search = document.getElementById('serviceLeaderLanguageSearch');
+      if (copy) {
+        copy.textContent = policy === 'restricted'
+          ? 'Manual mode enables only the languages selected below.'
+          : 'Automatic mode lets visitors request any supported installed language up to the active-language limit.';
+      }
+      if (grid) grid.classList.toggle('language-grid-muted', policy !== 'restricted');
+      if (search) search.disabled = policy !== 'restricted';
+    }
+
+    function serviceLeaderLanguageSearchText(language) {
+      return `${language.code || ''} ${language.name || ''} ${language.native || ''}`.toLowerCase();
+    }
+
+    function renderServiceLeaderLanguageList(query = '') {
+      const q = query.trim().toLowerCase();
+      const grid = document.getElementById('serviceLeaderLanguageGrid');
+      const matches = serviceLeaderLanguages.filter(language => !q || serviceLeaderLanguageSearchText(language).includes(q));
+      grid.textContent = '';
+      if (!matches.length) {
+        const empty = document.createElement('p');
+        empty.className = 'language-empty';
+        empty.textContent = 'No languages found.';
+        grid.appendChild(empty);
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      for (const language of matches) {
+        const label = document.createElement('label');
+        label.className = `service-leader-language-option language-option${serviceLeaderSelectedLanguages.has(language.code) ? ' selected' : ''}`;
+        label.setAttribute('role', 'option');
+        label.setAttribute('aria-selected', serviceLeaderSelectedLanguages.has(language.code) ? 'true' : 'false');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.name = 'serviceLeaderLanguage';
+        input.value = language.code;
+        input.checked = serviceLeaderSelectedLanguages.has(language.code);
+        input.addEventListener('change', () => {
+          if (input.checked) serviceLeaderSelectedLanguages.add(language.code);
+          else serviceLeaderSelectedLanguages.delete(language.code);
+          label.classList.toggle('selected', input.checked);
+          label.setAttribute('aria-selected', input.checked ? 'true' : 'false');
+        });
+        const flag = document.createElement('span');
+        flag.className = 'language-option-flag';
+        flag.textContent = language.flag;
+        const text = document.createElement('span');
+        text.className = 'language-option-text';
+        const title = document.createElement('strong');
+        title.textContent = language.native || language.name || language.code.toUpperCase();
+        const meta = document.createElement('small');
+        meta.textContent = language.name && language.name !== language.native ? `${language.name} · ${language.code}` : language.code;
+        text.append(title, meta);
+        label.append(input, flag, text);
+        fragment.appendChild(label);
+      }
+      grid.appendChild(fragment);
+    }
+
+    function renderAudio(audio) {
+      const select = document.getElementById('serviceLeaderAudioDevice');
+      const current = String(audio.selected ?? '');
+      const signature = `${current}:${(audio.devices || []).map(device => `${device.id}:${device.label}`).join('|')}`;
+      if (select.dataset.signature === signature) return;
+      select.dataset.signature = signature;
+      select.innerHTML = '<option value="">System default input</option>';
+      for (const device of audio.devices || []) {
+        const option = document.createElement('option');
+        option.value = String(device.id);
+        option.textContent = device.label;
+        if (String(device.id) === current || device.name === current) option.selected = true;
+        select.appendChild(option);
+      }
+    }
+
+    async function refreshServiceLeaderStatus() {
+      try {
+        const response = await fetch('/service-leader/api/status', {cache: 'no-store'});
+        if (response.status === 401) { location.replace('/service-leader/pair'); return; }
+        const data = await response.json();
+        const status = data.sensitive_mode ? 'Private moment' : (data.status || 'idle');
+        document.getElementById('serviceLeaderStatusPill').textContent = status;
+        setActiveServiceLeaderControl(data.status || 'idle', !!data.sensitive_mode);
+        document.getElementById('serviceLeaderViewerCount').textContent = `${data.viewers || 0} viewer${data.viewers === 1 ? '' : 's'}`;
+        if (!serviceLeaderWs || serviceLeaderWs.readyState !== WebSocket.OPEN) updateServiceLeaderPreview(data.current || '');
+        const level = Math.max(0, Math.min(1, Number(data.audio_peak || data.audio_rms || 0) * 4));
+        const pct = Math.round(level * 100);
+        document.getElementById('serviceLeaderMeterFill').style.width = `${pct}%`;
+        document.getElementById('serviceLeaderAudioPercent').textContent = `${pct}%`;
+        renderHealth(data.health);
+        renderLanguages(data.translation);
+        renderAudio(data.audio);
+        if (data.session.idle_remaining_seconds <= 600 && !sessionWarningShown) {
+          sessionWarningShown = true;
+          document.getElementById('sessionWarning').showModal();
+        }
+      } catch (_) {
+        document.getElementById('serviceLeaderStatusPill').textContent = 'Reconnecting…';
+      }
+    }
+
+    async function saveServiceLeaderAudio() {
+      const result = document.getElementById('serviceLeaderAudioResult');
+      try {
+        const data = await serviceLeaderFetch('/service-leader/api/audio-device', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({audio_device: document.getElementById('serviceLeaderAudioDevice').value})
+        });
+        result.textContent = data.restart_required ? 'Audio input saved. Stop and start captions to use it.' : 'Audio input saved.';
+        await refreshServiceLeaderStatus();
+      } catch (error) { result.textContent = error.message; }
+    }
+
+    async function saveServiceLeaderLanguages() {
+      const result = document.getElementById('serviceLeaderLanguageResult');
+      const selected = Array.from(serviceLeaderSelectedLanguages);
+      const policy = document.getElementById('serviceLeaderLanguagePolicy')?.value || 'automatic';
+      const enabled = document.getElementById('serviceLeaderTranslationEnabled').checked;
+      if (policy === 'restricted' && selected.length > serviceLeaderLanguageLimit) {
+        result.textContent = `Choose no more than ${serviceLeaderLanguageLimit} languages.`;
+        return;
+      }
+      if (enabled && policy === 'restricted' && selected.length === 0) {
+        result.textContent = 'Choose at least one language or switch to Automatic.';
+        return;
+      }
+      try {
+        const data = await serviceLeaderFetch('/service-leader/api/languages', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            translation_enabled: enabled,
+            translation_language_policy: policy,
+            languages: selected
+          })
+        });
+        lastSettingsSignature = '';
+        renderLanguages(data);
+        result.textContent = data.translation_enabled
+          ? `Translated captions enabled in ${data.translation_language_policy === 'restricted' ? 'manual' : 'automatic'} mode.`
+          : 'Translated captions disabled.';
+      } catch (error) { result.textContent = error.message; }
+    }
+
+    function serviceLeaderCaptionTextFromState(state) {
+      if (!state) return '';
+      const current = state.current || {};
+      return current.text || '';
+    }
+
+    function updateServiceLeaderPreview(text) {
+      document.getElementById('serviceLeaderCurrentCaption').textContent = text || 'No caption text yet.';
+    }
+
+    function serviceLeaderWsUrl() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${location.host}/ws/captions?lang=en&role=service-leader`;
+    }
+
+    function connectServiceLeaderCaptionStream() {
+      if (serviceLeaderWs) {
+        try { serviceLeaderWs.close(); } catch (_) {}
+      }
+      serviceLeaderWs = new WebSocket(serviceLeaderWsUrl());
+      serviceLeaderWs.onmessage = (event) => {
+        let payload;
+        try { payload = JSON.parse(event.data); } catch (_) { return; }
+        if (payload.type === 'state') updateServiceLeaderPreview(serviceLeaderCaptionTextFromState(payload.data));
+        if (payload.type === 'caption') updateServiceLeaderPreview(payload.data?.text || '');
+        if (payload.type === 'sensitive') updateServiceLeaderPreview(payload.message || 'Captions are paused for a private or sensitive moment.');
+        if (payload.type === 'clear') updateServiceLeaderPreview('');
+      };
+      serviceLeaderWs.onclose = () => {
+        serviceLeaderWs = null;
+        if (serviceLeaderWsReconnectTimer) clearTimeout(serviceLeaderWsReconnectTimer);
+        serviceLeaderWsReconnectTimer = setTimeout(connectServiceLeaderCaptionStream, 2000);
+      };
+      serviceLeaderWs.onerror = () => {
+        try { serviceLeaderWs.close(); } catch (_) {}
+      };
+    }
+
+    async function extendServiceLeaderSession() {
+      await serviceLeaderFetch('/service-leader/api/session/extend', {method: 'POST'});
+      sessionWarningShown = false;
+      document.getElementById('sessionWarning').close();
+      await refreshServiceLeaderStatus();
+    }
+
+    async function serviceLeaderLogout() {
+      try { await serviceLeaderFetch('/service-leader/logout', {method: 'POST'}); }
+      finally { location.replace('/service-leader/pair'); }
+    }
+
+    function confirmServiceLeaderLogout() {
+      const dialog = document.getElementById('disconnectDialog');
+      if (dialog?.showModal) dialog.showModal();
+      else if (confirm('Disconnect this device from Service Leader controls? A new pairing QR will be required to reconnect.')) serviceLeaderLogout();
+    }
+
+    document.getElementById('serviceLeaderLanguageSearch').addEventListener('input', (event) => {
+      renderServiceLeaderLanguageList(event.target.value);
+    });
+    restoreServiceLeaderNotices();
+    connectServiceLeaderCaptionStream();
+    refreshServiceLeaderStatus();
+    setInterval(refreshServiceLeaderStatus, 2500);
+  </script>
+</body>
+</html>

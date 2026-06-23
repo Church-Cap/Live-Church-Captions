@@ -4,6 +4,8 @@ set -Eeuo pipefail
 LATEST_RELEASE_URL="https://api.github.com/repos/Church-Cap/Live-Church-Captions/releases/latest"
 REPO_TAG_ZIP_BASE_URL="https://github.com/Church-Cap/Live-Church-Captions/archive/refs/tags"
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+START_SCRIPT="${CHURCH_CAP_UPDATE_START_SCRIPT:-start-macos.sh}"
+SETUP_SCRIPT="${CHURCH_CAP_UPDATE_SETUP_SCRIPT:-setup-macos.sh}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 TMP_DIR="$(mktemp -d)"
 ZIP_PATH="$TMP_DIR/church-cap-release.zip"
@@ -129,6 +131,11 @@ validate_release_tree() {
     "app/main.py"
     "app/settings.py"
     "app/updater.py"
+    "app/platforms.py"
+    "app/service_leader_auth.py"
+    "app/templates/service_leader.html"
+    "app/templates/service_leader_pair.html"
+    "app/templates/service_leader_pairing.html"
     "app/templates/operator.html"
     "app/static/styles.css"
     "requirements.txt"
@@ -137,6 +144,10 @@ validate_release_tree() {
     "update-macos.sh"
     "setup-windows.cmd"
     "update-windows.ps1"
+    "setup-linux.sh"
+    "start-linux.sh"
+    "update-linux.sh"
+    "scripts/linux-system-packages.sh"
     "env.example"
   )
   for required in "${required_files[@]}"; do
@@ -150,14 +161,22 @@ validate_release_tree() {
 build_manifest() {
   (
     cd "$STAGE_DIR"
-    find . -type f -print0 | sort -z | xargs -0 shasum -a 256 > "$MANIFEST_PATH"
+    if command -v shasum >/dev/null 2>&1; then
+      find . -type f -print0 | sort -z | xargs -0 shasum -a 256 > "$MANIFEST_PATH"
+    else
+      find . -type f -print0 | sort -z | xargs -0 sha256sum > "$MANIFEST_PATH"
+    fi
   )
 }
 
 verify_manifest_in_app() {
   (
     cd "$APP_DIR"
-    shasum -a 256 -c "$MANIFEST_PATH" >/dev/null
+    if command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 -c "$MANIFEST_PATH" >/dev/null
+    else
+      sha256sum -c "$MANIFEST_PATH" >/dev/null
+    fi
   )
 }
 
@@ -270,7 +289,11 @@ chmod +x "$STAGE_DIR"/*.sh "$STAGE_DIR"/scripts/*.sh "$STAGE_DIR"/scripts/*.py 2
 
 echo "Checking staged release files..."
 build_manifest
-python3 -m py_compile "$STAGE_DIR/app/settings.py" "$STAGE_DIR/app/main.py" "$STAGE_DIR/app/updater.py"
+COMPILE_PYTHON="python3"
+if [[ -x "$APP_DIR/.venv/bin/python" ]]; then
+  COMPILE_PYTHON="$APP_DIR/.venv/bin/python"
+fi
+"$COMPILE_PYTHON" -m py_compile "$STAGE_DIR/app/settings.py" "$STAGE_DIR/app/main.py" "$STAGE_DIR/app/updater.py" "$STAGE_DIR/app/platforms.py" "$STAGE_DIR/app/service_leader_auth.py"
 
 if [[ -x "$APP_DIR/.venv/bin/python" ]]; then
   echo "Updating Python packages before replacing app files..."
@@ -279,7 +302,7 @@ if [[ -x "$APP_DIR/.venv/bin/python" ]]; then
     "$APP_DIR/.venv/bin/python" -m pip install -r "$STAGE_DIR/requirements-translation.txt"
   fi
 else
-  echo "No existing .venv found. Run setup-macos.sh before starting Church Cap."
+  echo "No existing .venv found. Run $SETUP_SCRIPT before starting Church Cap."
 fi
 
 backup_current_files
@@ -314,8 +337,8 @@ echo ""
 if [[ "$RESTART" -eq 1 ]]; then
   mkdir -p "$APP_DIR/logs"
   echo "Restarting Church Cap..."
-  nohup "$APP_DIR/start-macos.sh" > "$APP_DIR/logs/update-restart.log" 2>&1 &
+  nohup "$APP_DIR/$START_SCRIPT" > "$APP_DIR/logs/update-restart.log" 2>&1 &
 else
   echo "Start Church Cap:"
-  echo "  ./start-macos.sh"
+  echo "  ./$START_SCRIPT"
 fi

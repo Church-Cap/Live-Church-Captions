@@ -28,6 +28,8 @@ Protected pages/routes include:
 /api/sensitive-off
 ```
 
+The restricted `/service-leader` role uses a separate session and dedicated `/service-leader/api/*` routes. It is not accepted by operator dependencies and cannot be used on the protected routes above.
+
 Audience caption pages remain open:
 
 ```text
@@ -77,7 +79,13 @@ On Windows, they are stored under:
 %APPDATA%\Church Cap\data\
 ```
 
-Older project-local files from `data/` are migrated there when needed. Transcript retention is enforced when captions are written, when settings change, and when the app starts; if every retained caption is older than the retention window saved with that cache, the transcript cache is deleted. The operator page includes **Open transcript folder**, which opens this per-user data folder in Finder on macOS or File Explorer on Windows when used from the Church Cap computer.
+On Linux, they are stored under:
+
+```text
+${XDG_DATA_HOME:-~/.local/share}/church-cap/data/
+```
+
+Older project-local files from `data/` are migrated there when needed. Transcript retention is enforced when captions are written, when settings change, and when the app starts; if every retained caption is older than the retention window saved with that cache, the transcript cache is deleted. The operator page includes **Open transcript folder**, which opens this per-user data folder in Finder on macOS, File Explorer on Windows, or the configured desktop file manager on Linux when used from the Church Cap computer.
 
 ## HTTPS / local certificate
 
@@ -117,6 +125,16 @@ You can generate a self-signed certificate:
 ```
 
 Browsers will warn unless the certificate is trusted on that device. This is acceptable for development, but not ideal for visitors.
+
+## Service leader pairing
+
+The operator login page and the authenticated **Service Leader** operator section can create a one-use QR for a trusted service leader. Pairing generation is restricted to the Church Cap computer. The login flow keeps the operator password on that computer; the signed-in flow does not ask for it again. The QR secret expires after 90 seconds, works once, and is exchanged for a restricted session lasting no more than four hours with a two-hour idle timeout.
+
+Generating a replacement invalidates the previous unused QR but does not revoke established sessions. The operator can separately cancel an unused QR or disconnect all paired devices.
+
+The restricted session can control caption start/stop, sensitive blank/resume, audio input while stopped, caption-health viewing, and translated-caption availability in Automatic or Manual mode. It cannot read transcripts, alter performance settings, install translation models, or use full operator APIs. Its caption preview observes the public caption stream without being counted as an audience viewer. See `docs/service_leader_controls.md`.
+
+When secure operator mode is enabled, the operator listener must be reachable on the LAN for `/service-leader`, but middleware blocks remote access to every other operator path. Restrict the operator port to a trusted staff/AV subnet at the host firewall or router where practical.
 
 ## Local hostname: `church-cap.local`
 

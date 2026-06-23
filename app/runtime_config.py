@@ -82,7 +82,7 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         cfg["lock_operator_to_localhost"] = bool(cfg.get("lock_operator_to_localhost", True))
         if not isinstance(cfg.get("performance_preset"), str) or cfg.get("performance_preset") not in {"fastest", "fast", "balanced", "accurate", "most_accurate", "custom"}:
             cfg["performance_preset"] = "balanced"
-        if not isinstance(cfg.get("performance_platform"), str) or cfg.get("performance_platform") not in {"auto", "macos", "windows"}:
+        if not isinstance(cfg.get("performance_platform"), str) or cfg.get("performance_platform") not in {"auto", "macos", "windows", "linux"}:
             cfg["performance_platform"] = "auto"
         if cfg.get("transcriber_mode") is not None and (not isinstance(cfg.get("transcriber_mode"), str) or cfg.get("transcriber_mode") not in {"whisper", "faster_whisper"}):
             cfg["transcriber_mode"] = None

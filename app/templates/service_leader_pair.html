@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Church Cap · Pairing</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-page glass-page">
+  <main class="auth-shell">
+    <section class="auth-card glass-card">
+      <p class="eyebrow">Service leader controls</p>
+      <h1 id="pairTitle">Connecting…</h1>
+      <p id="pairMessage" class="muted">Church Cap is exchanging this one-use pairing code.</p>
+      <a id="pairRetry" class="button-link secondary-button full-width" href="/service-leader/pair" hidden>Try another pairing code</a>
+    </section>
+  </main>
+  <script>
+    (async () => {
+      const token = location.hash.slice(1);
+      history.replaceState(null, '', '/service-leader/pair');
+      const title = document.getElementById('pairTitle');
+      const message = document.getElementById('pairMessage');
+      const retry = document.getElementById('pairRetry');
+      if (!token) {
+        title.textContent = 'Pairing code missing';
+        message.textContent = 'Ask the Church Cap operator to create a new QR code.';
+        return;
+      }
+      try {
+        const response = await fetch('/service-leader/pair/exchange', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({token})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Pairing failed.');
+        location.replace('/service-leader');
+      } catch (error) {
+        title.textContent = 'Could not connect';
+        message.textContent = error.message || 'Ask the operator to create a new QR code.';
+        retry.hidden = false;
+      }
+    })();
+  </script>
+</body>
+</html>

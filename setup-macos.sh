@@ -10,7 +10,7 @@ DEFAULT_LOCALHOST="church-cap"
 cd "$APP_DIR"
 
 repair_script_permissions() {
-  chmod +x setup-macos.sh start-macos.sh start-macos-https.sh reset-operator-password.sh fix-permissions.sh update-macos.sh 2>/dev/null || true
+  chmod +x setup-macos.sh start-macos.sh start-macos-https.sh setup-linux.sh start-linux.sh update-linux.sh reset-operator-password.sh fix-permissions.sh update-macos.sh 2>/dev/null || true
   chmod +x scripts/*.sh 2>/dev/null || true
   chmod +x scripts/*.py 2>/dev/null || true
 }

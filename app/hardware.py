@@ -198,6 +198,10 @@ def detect_hardware_acceleration() -> HardwareAccelerationStatus:
         else:
             ctranslate2_cuda_status = "not_detected"
         cuda_runtime_status = "ready" if cuda_runtime_ready else "missing_dlls"
+    elif system_name == "Linux":
+        nvidia_driver_status = "detected" if nvidia_smi_available else "not_detected"
+        ctranslate2_cuda_status = "usable" if cuda_count > 0 else ("not_exposed" if nvidia_smi_available else "not_detected")
+        cuda_runtime_status = "ready" if cuda_count > 0 else "system_managed"
     else:
         nvidia_driver_status = "not_applicable"
         ctranslate2_cuda_status = "not_applicable"
@@ -207,7 +211,8 @@ def detect_hardware_acceleration() -> HardwareAccelerationStatus:
 
     if cuda_ready:
         names = f" ({', '.join(nvidia_gpu_names)})" if nvidia_gpu_names else ""
-        message = f"CUDA ready: NVIDIA driver detected{names}, CTranslate2 sees {cuda_count} CUDA device(s), and required runtime DLLs are available. Church Cap can use faster-whisper on CUDA."
+        runtime_note = " and required runtime DLLs are available" if system_name == "Windows" else ""
+        message = f"CUDA ready: NVIDIA driver detected{names}, CTranslate2 sees {cuda_count} CUDA device(s){runtime_note}. Church Cap can use faster-whisper on CUDA."
     elif cuda_count > 0 and not cuda_runtime_ready:
         missing = ", ".join(missing_cuda_libraries)
         message = (

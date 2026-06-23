@@ -13,7 +13,7 @@ for arg in "$@"; do
 done
 
 if [[ ! -d ".venv" ]]; then
-  echo "No .venv found. Run ./setup-macos.sh first."
+  echo "No .venv found. Run the setup script for this operating system first."
   exit 1
 fi
 

@@ -13,6 +13,8 @@ This folder keeps reference material out of the project root.
 - `android_networking.md`
 - `internal_https.md`
 - `translation.md`
+- `linux.md`
+- `service_leader_controls.md`
 
 ## Legal And Notices
 

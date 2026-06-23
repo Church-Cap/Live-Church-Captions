@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import io
 import json
 import os
 import platform
@@ -29,6 +31,8 @@ from app.runtime_config import load_runtime_config, set_audio_device, set_perfor
 from app.i18n import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, normalise_language
 from app.localisation import get_client_ui_language_strings, get_client_ui_sources, get_client_ui_strings, get_runtime_translated_client_ui_strings
 from app.paths import app_support_dir
+from app.service_leader_auth import SERVICE_LEADER_COOKIE_NAME, ServiceLeaderAccessManager, ServiceLeaderSession
+from app.platforms import performance_platform_key
 from app.transcript_store import TranscriptStore
 from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, update_script_for_system, version_label
 
@@ -75,6 +79,7 @@ _translation_install_state = {"status": "idle"}
 _translation_install_process: subprocess.Popen | None = None
 CUDA_RUNTIME_LOG_LABEL = "logs/cuda-runtime-install.log"
 TRANSLATION_INSTALL_LOG_LABEL = "logs/translation-install.log"
+service_leader_access = ServiceLeaderAccessManager()
 
 
 def base_url(request: Request | None = None) -> str:
@@ -91,6 +96,12 @@ def operator_base_url(request: Request | None = None) -> str:
     host = "localhost" if bool(load_runtime_config().get("lock_operator_to_localhost", settings.lock_operator_to_localhost)) else detected_local_hostname()
     port = settings.operator_port if settings.dual_port_mode else (request.url.port if request is not None and request.url.port else settings.port)
     return f"{scheme}://{host}:{port}"
+
+
+def service_leader_base_url(request: Request | None = None) -> str:
+    scheme = "https" if request is not None and request.url.scheme == "https" else "http"
+    port = settings.operator_port if settings.dual_port_mode else (request.url.port if request is not None and request.url.port else settings.port)
+    return f"{scheme}://{local_ip()}:{port}"
 
 
 def ip_base_url(request: Request | None = None) -> str:
@@ -201,15 +212,6 @@ PERFORMANCE_PRESETS = {
 }
 
 
-def performance_platform_key(system_name: str | None = None) -> str:
-    system_name = system_name or platform.system()
-    if system_name == "Darwin":
-        return "macos"
-    if system_name == "Windows":
-        return "windows"
-    return "unsupported"
-
-
 def effective_performance_config(runtime: dict | None = None) -> dict:
     runtime = runtime or load_runtime_config()
     preset_key = runtime.get("performance_preset")
@@ -220,7 +222,7 @@ def effective_performance_config(runtime: dict | None = None) -> dict:
         preset = PERFORMANCE_PRESETS[preset_key]
     cfg = {
         "performance_preset": preset_key,
-        "performance_platform": runtime.get("performance_platform") if runtime.get("performance_platform") in {"auto", "macos", "windows"} else "auto",
+        "performance_platform": runtime.get("performance_platform") if runtime.get("performance_platform") in {"auto", "macos", "windows", "linux"} else "auto",
         "performance_label": preset["label"],
         "performance_description": preset["description"],
         "transcriber_mode": settings.transcriber_mode,
@@ -283,7 +285,119 @@ def base_template_context(request: Request | None = None) -> dict:
     return context
 
 
+def _no_store(response: Response) -> Response:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def _qr_data_uri(value: str) -> str:
+    image = qrcode.make(value)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode('ascii')}"
+
+
+def require_service_leader(request: Request) -> ServiceLeaderSession:
+    touch = request.method != "GET" or request.url.path == "/service-leader"
+    session = service_leader_access.verify_session(request.cookies.get(SERVICE_LEADER_COOKIE_NAME), touch=touch)
+    if session is None:
+        if request.url.path == "/service-leader":
+            raise HTTPException(status_code=303, headers={"Location": "/service-leader/pair"})
+        raise HTTPException(status_code=401, detail="Service leader pairing required")
+    return session
+
+
+def require_service_leader_mutation(request: Request, session: ServiceLeaderSession) -> None:
+    csrf = request.headers.get("x-csrf-token")
+    if not service_leader_access.csrf_is_valid(session, csrf):
+        raise HTTPException(status_code=403, detail="Invalid service leader request token")
+    origin = request.headers.get("origin")
+    if not origin:
+        raise HTTPException(status_code=403, detail="Missing request origin")
+    expected_origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
+    if origin.rstrip("/") != expected_origin.rstrip("/"):
+        raise HTTPException(status_code=403, detail="Request origin did not match Church Cap")
+
+
+def service_leader_language_context() -> dict:
+    runtime = load_runtime_config()
+    provider = str(runtime.get("translation_provider") or settings.translation_provider or "disabled")
+    available_codes = hub.translator.supported_languages_for_provider(provider)
+    available = [language for language in SUPPORTED_LANGUAGES if language["code"] in available_codes and language["code"] != SOURCE_LANGUAGE]
+    selected = [
+        code
+        for code in runtime.get("translation_allowed_languages", ["en"])
+        if code != SOURCE_LANGUAGE and code in available_codes
+    ]
+    return {
+        "translation_enabled": bool(runtime.get("translation_enabled")) and provider != "disabled",
+        "translation_provider": provider,
+        "translation_provider_ready": bool(hub.translator.provider_status(provider).get("ready")),
+        "translation_max_active_languages": int(runtime.get("translation_max_active_languages", 20)),
+        "translation_language_policy": str(runtime.get("translation_language_policy") or "automatic"),
+        "available_languages": available,
+        "selected_languages": selected,
+    }
+
+
+def service_leader_audio_context() -> dict:
+    selected = selected_audio_device()
+    if sd is None:
+        return {"ok": False, "selected": selected, "devices": [], "error": "Audio support is not available."}
+    try:
+        devices = [
+            _device_to_api(index, device)
+            for index, device in enumerate(sd.query_devices())
+            if int(device.get("max_input_channels", 0)) > 0
+        ]
+        return {"ok": True, "selected": selected, "devices": devices}
+    except Exception as exc:
+        return {"ok": False, "selected": selected, "devices": [], "error": str(exc)}
+
+
+def caption_health_snapshot() -> dict:
+    metrics = get_metrics()
+    performance = effective_performance_config()
+    system_perf = system_performance_snapshot()
+    transcription = metrics.get("last_transcription_seconds")
+    transcription = float(transcription) if transcription is not None else None
+    update_interval = float(performance.get("stream_update_interval_seconds") or 0)
+    live_delay = None if transcription is None else transcription + update_interval
+    if live_delay is None:
+        level, label = "unknown", "Waiting"
+        message = "Start captions and speak normally to build a useful delay estimate."
+    elif live_delay < 2.5:
+        level, label = "healthy", "Healthy"
+        message = "Caption delay is in a healthy range for live use."
+    elif live_delay <= 3.5:
+        level, label = "attention", "Needs attention"
+        message = "Captions are usable, but the operator may be able to reduce the delay."
+    else:
+        level, label = "poor", "Slow"
+        message = "Caption delay is high. Open the improvement guide and ask the operator to tune performance."
+    backend = "Faster Whisper" if performance.get("transcriber_mode") == "faster_whisper" else "OpenAI Whisper"
+    return {
+        "level": level,
+        "label": label,
+        "message": message,
+        "live_delay_seconds": live_delay,
+        "transcription_seconds": transcription,
+        "system_load_percent": system_perf.get("load_1m_percent"),
+        "runtime_label": f"{backend} · {performance.get('whisper_model', 'unknown')}",
+    }
+
+
 def _request_port(request: Request) -> int | None:
+    server = request.scope.get("server")
+    if isinstance(server, (tuple, list)) and len(server) >= 2:
+        try:
+            return int(server[1])
+        except (TypeError, ValueError):
+            pass
     if request.url.port:
         return request.url.port
     host = request.headers.get("host", "")
@@ -298,10 +412,20 @@ def _request_port(request: Request) -> int | None:
 PUBLIC_PREFIXES = ("/static/",)
 PUBLIC_EXACT_PATHS = {"/", "/display", "/obs", "/qr.png", "/qr-ip.png", "/health", "/api/languages"}
 PUBLIC_WS_PATHS = {"/ws/captions"}
+REMOTE_SERVICE_LEADER_PREFIXES = ("/service-leader/", "/static/")
 
 
 def is_public_viewer_path(path: str) -> bool:
     return path in PUBLIC_EXACT_PATHS or path in PUBLIC_WS_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+
+
+def is_remote_service_leader_path(path: str) -> bool:
+    return (
+        path == "/service-leader"
+        or path == "/pastor"
+        or path.startswith("/pastor/")
+        or any(path.startswith(prefix) for prefix in REMOTE_SERVICE_LEADER_PREFIXES)
+    )
 
 
 def is_local_client(request: Request) -> bool:
@@ -322,6 +446,7 @@ def security_state(request: Request | None = None) -> dict:
         "viewer_url": base_url(request),
         "viewer_ip_url": ip_base_url(request),
         "operator_url": operator_base_url(request),
+        "service_leader_url": f"{service_leader_base_url(request)}/service-leader",
         "offline_https_note": "Fully offline trusted HTTPS on visitor phones is not possible unless their device already trusts the certificate.",
         "data_dir": str(app_support_dir()),
     }
@@ -421,7 +546,7 @@ def recommended_performance_config(status: dict | None = None) -> dict:
     hardware = status["hardware_acceleration"]
     effective_platform = status["effective_platform"]
     cpu_count = os.cpu_count() or 1
-    if effective_platform == "windows" and hardware.get("cuda_available"):
+    if effective_platform in {"windows", "linux"} and hardware.get("cuda_available"):
         config = {
             "performance_preset": "balanced",
             "performance_platform": "auto",
@@ -939,9 +1064,9 @@ async def security_boundary_middleware(request: Request, call_next):
     lock_localhost = bool(runtime.get("lock_operator_to_localhost", settings.lock_operator_to_localhost))
 
     # Operator port can optionally be restricted to the local machine only.
-    if port == settings.operator_port and lock_localhost and not is_local_client(request):
+    if port == settings.operator_port and lock_localhost and not is_local_client(request) and not is_remote_service_leader_path(path):
         return JSONResponse(
-            {"detail": "Operator controls are locked to localhost on this installation."},
+            {"detail": "Full operator controls are locked to localhost on this installation."},
             status_code=403,
         )
 
@@ -1054,6 +1179,117 @@ async def login_page(request: Request):
     return response
 
 
+@app.post("/service-leader/pairing/create", response_class=HTMLResponse)
+async def create_service_leader_pairing(request: Request, service_leader_password: str = Form(...)):
+    if not is_local_client(request):
+        return JSONResponse({"detail": "Create service-leader pairing codes on the Church Cap computer."}, status_code=403)
+    config = auth_config()
+    if not password_is_valid(service_leader_password, config):
+        response = templates.TemplateResponse(
+            "login.html",
+            {
+                **base_template_context(request),
+                "error": None,
+                "service_leader_error": "Incorrect operator password.",
+            },
+            status_code=401,
+        )
+        response.delete_cookie(COOKIE_NAME)
+        return _no_store(response)
+    token = service_leader_access.create_pairing()
+    pairing_url = f"{service_leader_base_url(request)}/service-leader/pair#{token}"
+    response = templates.TemplateResponse(
+        "service_leader_pairing.html",
+        {
+            **base_template_context(request),
+            "pairing_qr": _qr_data_uri(pairing_url),
+            "pairing_seconds": service_leader_access.pairing_ttl_seconds,
+            "service_leader_url": f"{service_leader_base_url(request)}/service-leader",
+        },
+    )
+    return _no_store(response)
+
+
+@app.get("/service-leader/pair", response_class=HTMLResponse)
+async def service_leader_pair_page(request: Request):
+    return _no_store(templates.TemplateResponse("service_leader_pair.html", base_template_context(request)))
+
+
+@app.post("/service-leader/pair/exchange")
+async def service_leader_pair_exchange(request: Request):
+    origin = request.headers.get("origin")
+    expected_origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
+    if not origin or origin.rstrip("/") != expected_origin.rstrip("/"):
+        return JSONResponse({"status": "error", "error": "Invalid pairing origin."}, status_code=403)
+    body = await request.json()
+    exchanged = service_leader_access.exchange_pairing(str(body.get("token") or ""))
+    if exchanged is None:
+        return JSONResponse(
+            {"status": "error", "error": "This pairing code has expired or has already been used."},
+            status_code=401,
+        )
+    session_token, _session = exchanged
+    response = JSONResponse({"status": "paired"})
+    response.set_cookie(
+        SERVICE_LEADER_COOKIE_NAME,
+        session_token,
+        httponly=True,
+        samesite="strict",
+        secure=request.url.scheme == "https",
+        max_age=service_leader_access.session_max_age_seconds,
+        path="/service-leader",
+    )
+    return _no_store(response)
+
+
+@app.get("/service-leader", response_class=HTMLResponse)
+async def service_leader_page(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    response = templates.TemplateResponse(
+        "service_leader.html",
+        {
+            **base_template_context(request),
+            "csrf_token": session.csrf_token,
+            "secure_transport": request.url.scheme == "https",
+            **service_leader_language_context(),
+        },
+    )
+    return _no_store(response)
+
+
+@app.get("/service-leader/api/status")
+async def service_leader_status(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    state = hub.state()
+    metrics = get_metrics()
+    runtime = load_runtime_config()
+    return {
+        "status": state.status,
+        "sensitive_mode": state.sensitive_mode,
+        "current": state.current.text if state.current else "",
+        "audio_rms": metrics.get("audio_rms"),
+        "audio_peak": metrics.get("audio_peak"),
+        "viewers": state.viewers,
+        "translation": service_leader_language_context(),
+        "audio": service_leader_audio_context(),
+        "health": caption_health_snapshot(),
+        "session": service_leader_access.session_timing(session),
+    }
+
+
+@app.post("/service-leader/logout")
+async def service_leader_logout(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    service_leader_access.revoke_session(request.cookies.get(SERVICE_LEADER_COOKIE_NAME))
+    response = JSONResponse({"status": "logged_out"})
+    response.delete_cookie(SERVICE_LEADER_COOKIE_NAME, path="/service-leader")
+    return _no_store(response)
+
+
+@app.get("/pastor")
+@app.get("/pastor/{legacy_path:path}")
+async def legacy_pastor_redirect(legacy_path: str = ""):
+    return RedirectResponse("/service-leader", status_code=308)
+
+
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
     config = auth_config()
@@ -1102,6 +1338,7 @@ async def change_operator_password(
         return templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": "New passwords do not match.", "success": None}, status_code=400)
     try:
         set_operator_password(new_password)
+        service_leader_access.revoke_all()
     except ValueError as exc:
         return templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": str(exc), "success": None}, status_code=400)
     response = templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": None, "success": "Password changed. Please sign in again."})
@@ -1129,6 +1366,7 @@ async def operator(request: Request, _: None = Depends(require_operator)):
             "translation_state": hub.translation_state(),
             "translation_provider": settings.translation_provider,
             "security": security_state(request),
+            "service_leader_access": service_leader_access.access_state(),
         },
     )
 
@@ -1220,10 +1458,16 @@ async def audio_devices(_: None = Depends(require_operator)):
 async def set_audio_device_api(request: Request, _: None = Depends(require_operator)):
     body = await request.json()
     device = body.get("audio_device")
-    if isinstance(device, str) and device.isdigit():
-        device = int(device)
-    if device in {"", "default"}:
-        device = None
+    if isinstance(device, str):
+        device = device.strip()
+        if device.isdigit():
+            device = int(device)
+        elif device in {"", "default"}:
+            device = None
+    if isinstance(device, bool) or not isinstance(device, (int, str, type(None))):
+        return JSONResponse({"status": "error", "error": "Choose a valid audio input."}, status_code=400)
+    if sd is None and device is not None:
+        return JSONResponse({"status": "error", "error": "Audio support is not available."}, status_code=503)
     if sd is not None and device is not None:
         try:
             info = sd.query_devices(device)
@@ -1346,6 +1590,7 @@ async def api_status(_: None = Depends(require_operator)):
         },
         "translation": translation_state,
         "security": security_state(),
+        "service_leader_access": service_leader_access.access_state(),
         "performance_locked": captions_are_running(),
         "update": {**update_capability_state(), "state": _update_state},
         "cuda_runtime": cuda_runtime_capability_state(),
@@ -1520,8 +1765,7 @@ async def start_update(request: Request, _: None = Depends(require_operator)):
     }
 
 
-@app.post("/api/start")
-async def start(_: None = Depends(require_operator)):
+async def start_captions_action() -> dict:
     global _transcription_task
     if _transcription_task and not _transcription_task.done():
         return {"status": "already_running"}
@@ -1529,8 +1773,7 @@ async def start(_: None = Depends(require_operator)):
     return {"status": "started"}
 
 
-@app.post("/api/stop")
-async def stop(_: None = Depends(require_operator)):
+async def stop_captions_action() -> dict:
     global _transcription_task
     if _transcription_task and not _transcription_task.done():
         _transcription_task.cancel()
@@ -1540,6 +1783,36 @@ async def stop(_: None = Depends(require_operator)):
             pass
     hub.set_status("stopped")
     return {"status": "stopped"}
+
+
+async def set_sensitive_action(enabled: bool) -> dict:
+    reset_transcriber_buffer()
+    await hub.set_sensitive_mode(enabled)
+    if not enabled:
+        reset_transcriber_buffer()
+    return {"status": "sensitive_on" if enabled else "sensitive_off"}
+
+
+@app.post("/api/start")
+async def start(_: None = Depends(require_operator)):
+    return await start_captions_action()
+
+
+@app.post("/api/stop")
+async def stop(_: None = Depends(require_operator)):
+    return await stop_captions_action()
+
+
+@app.post("/service-leader/api/start")
+async def service_leader_start(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    return await start_captions_action()
+
+
+@app.post("/service-leader/api/stop")
+async def service_leader_stop(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    return await stop_captions_action()
 
 
 @app.post("/api/clear")
@@ -1582,17 +1855,152 @@ def reset_transcriber_buffer() -> None:
 
 @app.post("/api/sensitive-on")
 async def sensitive_on(_: None = Depends(require_operator)):
-    reset_transcriber_buffer()
-    await hub.set_sensitive_mode(True)
-    return {"status": "sensitive_on"}
+    return await set_sensitive_action(True)
 
 
 @app.post("/api/sensitive-off")
 async def sensitive_off(_: None = Depends(require_operator)):
-    reset_transcriber_buffer()
-    await hub.set_sensitive_mode(False)
-    reset_transcriber_buffer()
-    return {"status": "sensitive_off"}
+    return await set_sensitive_action(False)
+
+
+@app.post("/service-leader/api/sensitive-on")
+async def service_leader_sensitive_on(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    return await set_sensitive_action(True)
+
+
+@app.post("/service-leader/api/sensitive-off")
+async def service_leader_sensitive_off(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    return await set_sensitive_action(False)
+
+
+@app.post("/service-leader/api/languages")
+async def service_leader_update_languages(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    body = await request.json()
+    runtime = load_runtime_config()
+    provider = str(runtime.get("translation_provider") or settings.translation_provider or "disabled")
+    requested_enabled = bool(body.get("translation_enabled"))
+    language_policy = str(body.get("translation_language_policy") or runtime.get("translation_language_policy") or "automatic")
+    if language_policy not in {"automatic", "restricted"}:
+        language_policy = "automatic"
+    if provider == "disabled" and requested_enabled:
+        return JSONResponse(
+            {"status": "error", "error": "An operator must configure a translation provider before service leaders can enable languages."},
+            status_code=409,
+        )
+    available = set(hub.translator.supported_languages_for_provider(provider))
+    submitted = body.get("languages") or []
+    if not isinstance(submitted, list):
+        submitted = []
+    selected = sorted(
+        {
+            normalise_language(code)
+            for code in submitted
+            if normalise_language(code) != SOURCE_LANGUAGE and normalise_language(code) in available
+        }
+    )
+    max_active = int(runtime.get("translation_max_active_languages", 20))
+    if language_policy == "restricted" and len(selected) > max_active:
+        return JSONResponse(
+            {"status": "error", "error": f"Choose no more than {max_active} translated languages on this installation."},
+            status_code=400,
+        )
+    if requested_enabled and language_policy == "restricted" and not selected:
+        return JSONResponse(
+            {"status": "error", "error": "Choose at least one available translated language or switch to Automatic before enabling translation."},
+            status_code=400,
+        )
+    enabled = requested_enabled and (language_policy == "automatic" or bool(selected))
+    cfg = set_translation_config(
+        enabled,
+        [SOURCE_LANGUAGE, *selected],
+        max_active,
+        provider,
+        language_policy,
+        str(runtime.get("translation_priority_mode") or "most_viewers"),
+    )
+    hub.configure_translation(
+        enabled=bool(cfg["translation_enabled"]),
+        provider=cfg["translation_provider"],
+        allowed_languages=cfg["translation_allowed_languages"],
+        max_active_languages=int(cfg["translation_max_active_languages"]),
+        language_policy=cfg["translation_language_policy"],
+        priority_mode=cfg["translation_priority_mode"],
+    )
+    return {"status": "saved", **service_leader_language_context()}
+
+
+@app.post("/service-leader/api/audio-device")
+async def service_leader_update_audio(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    if captions_are_running():
+        return JSONResponse(
+            {"status": "error", "error": "Stop captions before changing the audio input."},
+            status_code=409,
+        )
+    body = await request.json()
+    device = body.get("audio_device")
+    if isinstance(device, str) and device.isdigit():
+        device = int(device)
+    if device in {"", "default"}:
+        device = None
+    if sd is not None and device is not None:
+        try:
+            info = sd.query_devices(device)
+            if int(info.get("max_input_channels", 0)) <= 0:
+                raise ValueError("That device is not an audio input.")
+        except Exception as exc:
+            return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+    cfg = set_audio_device(device)
+    return {"status": "saved", "audio_device": cfg.get("audio_device"), "restart_required": True}
+
+
+@app.post("/service-leader/api/session/extend")
+async def extend_service_leader_session(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    extended = service_leader_access.extend_session(request.cookies.get(SERVICE_LEADER_COOKIE_NAME))
+    if extended is None:
+        return JSONResponse({"status": "error", "error": "This service-leader session has expired."}, status_code=401)
+    return {"status": "extended", "session": service_leader_access.session_timing(extended)}
+
+
+@app.post("/api/service-leader/revoke")
+async def revoke_service_leader_access(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse({"status": "error", "error": "Revoke service-leader access from the Church Cap computer."}, status_code=403)
+    service_leader_access.revoke_all()
+    return {"status": "revoked", **service_leader_access.access_state()}
+
+
+@app.post("/api/service-leader/pairing")
+async def create_operator_service_leader_pairing(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Create service-leader pairing codes from the Church Cap computer."},
+            status_code=403,
+        )
+    token = service_leader_access.create_pairing()
+    pairing_url = f"{service_leader_base_url(request)}/service-leader/pair#{token}"
+    return {
+        "status": "pairing",
+        "pairing_qr": _qr_data_uri(pairing_url),
+        "pairing_seconds": service_leader_access.pairing_ttl_seconds,
+        "service_leader_url": f"{service_leader_base_url(request)}/service-leader",
+        **service_leader_access.access_state(),
+    }
+
+
+@app.post("/api/service-leader/pairing/cancel")
+async def cancel_operator_service_leader_pairing(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Cancel service-leader pairing from the Church Cap computer."},
+            status_code=403,
+        )
+    service_leader_access.cancel_pairings()
+    return {"status": "cancelled", **service_leader_access.access_state()}
 
 
 @app.post("/api/security")
@@ -1765,7 +2173,8 @@ async def test_caption(_: None = Depends(require_operator)):
 @app.websocket("/ws/captions")
 async def ws_captions(websocket: WebSocket):
     language = normalise_language(websocket.query_params.get("lang"))
-    await hub.connect(websocket, language=language)
+    count_viewer = websocket.query_params.get("role") != "service-leader"
+    await hub.connect(websocket, language=language, count_viewer=count_viewer)
     try:
         while True:
             await websocket.receive_text()

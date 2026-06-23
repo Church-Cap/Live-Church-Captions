@@ -28,9 +28,9 @@ TRANSLATION_PROVIDER=argos
 
 Base mode uses Argos Translate language packs. It is usually more literal and lighter on system resources than Core mode. It runs locally after packs are installed, but package installation requires internet access.
 
-The macOS and Windows setup scripts offer to install common Base packs, install all available English-to-target Base packs, install common Base packs plus Core, or skip translation resources. Operators can also install common Base packs or all Base packs later from the **Languages** page.
+The macOS, Windows, and Linux setup scripts offer to install common Base packs, install all available English-to-target Base packs, install common Base packs plus Core, or skip translation resources. Operators can also install common Base packs or all Base packs later from the **Languages** page.
 
-To rerun common Base installation manually on macOS:
+To rerun common Base installation manually on macOS or Linux:
 
 ```bash
 ./scripts/install-translation-models-argos.sh
@@ -96,7 +96,7 @@ The visitor language picker is a custom searchable list. It shows the languages 
 - **Core** — SMaLL-100 supported languages when Core is installed.
 - **Auto** — the union of installed Base languages and Core-supported languages.
 
-By default, visitor language availability is **Automatic**. Visitors can request any language shown by the current mode, and Church Cap translates the most-requested languages up to the active limit. Advanced operators can switch to **Restricted** and select a smaller list, or prioritise selected languages first.
+By default, visitor language availability is **Automatic**. Visitors can request any language shown by the current mode, and Church Cap translates the most-requested languages up to the active limit. Advanced operators can switch to **Restricted** and select a smaller list, or prioritise selected languages first. The operator list includes search, **Select all**, and **Clear all** controls for quicker setup.
 
 ## Resource safeguard
 
@@ -114,9 +114,11 @@ Result: the two most-used languages are translated; the remaining language recei
 
 This is intentional. It prevents one computer from trying to run too many translation streams on a Sunday morning.
 
+The restricted service-leader page can enable or disable translated captions and choose Automatic or Manual language availability from resources already installed by the operator. Its search results follow the audience picker pattern and include native names, English names, and language codes. It cannot change the provider, install models, or exceed the operator-configured active-language limit. Manual mode saves a restricted language list containing English plus the selected languages; Automatic mode lets visitor demand choose languages up to the active limit. Changes made on either page are reflected on the other page during its normal live-status refresh.
+
 ## GPU note
 
-The operator page **Performance** controls can switch between standard local OpenAI Whisper and the lower-latency `faster-whisper` backend without editing `.env`. The platform view auto-detects macOS or Windows and can be changed manually if needed. On Windows, faster-whisper/CTranslate2 uses the NVIDIA GPU automatically only when `WHISPER_DEVICE=auto` or the saved operator setting is `auto`, the GPU is visible, and required CUDA runtime DLLs such as `cublas64_12.dll` are available. Choosing **GPU / NVIDIA CUDA** forces a CUDA load attempt first, then falls back to CPU if the runtime cannot load it. On macOS, CUDA choices are hidden and OpenAI Whisper can attempt Apple Metal/MPS when PyTorch supports it. Setup can offer to install or force reinstall local CUDA 12 runtime packages into `.venv`; Windows users who already manage NVIDIA tooling can install CUDA 12.x and cuDNN system-wide from NVIDIA instead. Argos Translate is still treated as local experimental translation and may run on CPU even when Whisper uses GPU acceleration.
+The operator page **Performance** controls can switch between standard local OpenAI Whisper and the lower-latency `faster-whisper` backend without editing `.env`. The platform view auto-detects macOS, Windows, or Linux and can be changed manually if needed. Windows and Linux can use NVIDIA CUDA when CTranslate2 sees a working runtime; Windows includes an optional local runtime installer, while Linux leaves drivers and CUDA under the system administrator's package policy. On macOS, CUDA choices are hidden and OpenAI Whisper can attempt Apple Metal/MPS when PyTorch supports it. Argos Translate may still run on CPU even when Whisper uses GPU acceleration.
 
 ## Accuracy warning
 

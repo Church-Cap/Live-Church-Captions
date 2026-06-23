@@ -4,7 +4,7 @@
 This keeps transcription state in one Python process while exposing two local
 HTTP listeners:
 - viewer port: public read-only caption/display/OBS pages
-- operator port: password-protected controls, optionally localhost-only
+- operator port: localhost-focused full controls plus restricted paired devices
 """
 from __future__ import annotations
 
@@ -32,7 +32,10 @@ async def main() -> None:
     settings = get_settings()
     runtime = load_runtime_config()
     lock_operator = bool(runtime.get("lock_operator_to_localhost", settings.lock_operator_to_localhost))
-    operator_host = "127.0.0.1" if lock_operator else settings.host
+    # The operator listener stays reachable on the LAN so a separately scoped
+    # service-leader session can use /service-leader. The application middleware keeps
+    # the full operator dashboard localhost-only when that lock is enabled.
+    operator_host = settings.host
 
     viewer_config = uvicorn.Config(
         app,
@@ -54,7 +57,8 @@ async def main() -> None:
 
     print("Church Cap dual-port mode")
     print(f"  Viewer:   http://0.0.0.0:{settings.viewer_port}/")
-    print(f"  Operator: http://{operator_host}:{settings.operator_port}/operator")
+    print(f"  Operator listener: http://{operator_host}:{settings.operator_port}/")
+    print(f"  Local operator page: http://127.0.0.1:{settings.operator_port}/operator")
     print(f"  Operator localhost lock: {'on' if lock_operator else 'off'}")
 
     await asyncio.gather(viewer_server.serve(), operator_server.serve())

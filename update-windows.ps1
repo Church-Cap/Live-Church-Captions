@@ -107,6 +107,11 @@ function Assert-ReleaseTree {
         "app\main.py",
         "app\settings.py",
         "app\updater.py",
+        "app\platforms.py",
+        "app\service_leader_auth.py",
+        "app\templates\service_leader.html",
+        "app\templates\service_leader_pair.html",
+        "app\templates\service_leader_pairing.html",
         "app\templates\operator.html",
         "app\static\styles.css",
         "requirements.txt",
@@ -115,6 +120,10 @@ function Assert-ReleaseTree {
         "update-macos.sh",
         "setup-windows.cmd",
         "update-windows.ps1",
+        "setup-linux.sh",
+        "start-linux.sh",
+        "update-linux.sh",
+        "scripts\linux-system-packages.sh",
         "env.example"
     )
     foreach ($file in $requiredFiles) {
@@ -267,7 +276,7 @@ try {
     New-ReleaseManifest -ReleaseDir $StageDir -ManifestFile $ManifestPath
     $VenvPython = Join-Path $AppDir ".venv\Scripts\python.exe"
     $CompilePython = if (Test-Path $VenvPython) { $VenvPython } else { "python" }
-    & $CompilePython -m py_compile (Join-Path $StageDir "app\settings.py") (Join-Path $StageDir "app\main.py") (Join-Path $StageDir "app\updater.py")
+    & $CompilePython -m py_compile (Join-Path $StageDir "app\settings.py") (Join-Path $StageDir "app\main.py") (Join-Path $StageDir "app\updater.py") (Join-Path $StageDir "app\platforms.py") (Join-Path $StageDir "app\service_leader_auth.py")
 
     if (Test-Path $VenvPython) {
         Write-Host "Updating Python packages before replacing app files..."

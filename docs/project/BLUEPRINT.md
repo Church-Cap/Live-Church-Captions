@@ -6,7 +6,7 @@ This document describes the first public GitHub preview.
 
 ## Current Release
 
-Version: `v.0.3.0 public preview`
+Version: `v.0.4.0 public preview`
 
 Status: early public prototype suitable for local testing and pilot churches. It is not a finished compliance-certified product, and churches remain responsible for their own privacy, safeguarding, accessibility, and copyright policies.
 
@@ -45,6 +45,7 @@ Church microphones
 - `/docs/disclaimer` — operator-only disclaimer notes.
 - Operator **Diagnostics** section — operator-only local support export with confirmation, system specs, runtime status, metrics, and redacted updater/CUDA logs.
 - Operator **Updates** section — operator-only GitHub release-tag check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
+- `/service-leader` — restricted service-leader controls reached through a one-use QR pairing flow on the operator port.
 - `/api/diagnostics/export` — local diagnostics JSON export, operator login and local computer required.
 
 ## Main Components
@@ -135,6 +136,22 @@ The operator dashboard includes:
 - transcript retention controls and a local transcript-folder reveal action
 - dedicated diagnostics support export with confirmation and privacy wording
 - account/password controls
+- one-use QR pairing and revocation for restricted service-leader devices
+
+### Service Leader Controls
+
+The service-leader page is a separate least-privilege, denomination-neutral role. Pairing begins locally either from the login page with the existing operator password or from the authenticated **Service Leader** operator section. A 90-second single-use token is exchanged for a server-side session with a four-hour absolute timeout and two-hour idle timeout.
+
+The operator section reports active sessions and pairing-window state, generates or replaces the pairing QR, cancels unused pairing codes, and revokes established sessions. The restricted role can start/stop captions, blank/resume sensitive mode, change audio input while stopped, view benchmark-derived health, and manage translated captions with Automatic or Manual language availability using already-supported translation languages. Operator and service-leader controls share active-state feedback with subtle glows and concise action notices, so state changes made on either page are reflected on the other during normal status refresh. Its caption preview observes the live caption WebSocket without being counted as an audience viewer. It cannot access the full operator dashboard, transcripts, exports, performance configuration, diagnostics, updates, credentials, or model installation.
+
+Key files:
+
+```text
+app/service_leader_auth.py
+app/templates/service_leader.html
+app/templates/service_leader_pair.html
+app/templates/service_leader_pairing.html
+```
 
 Key file:
 
@@ -161,7 +178,7 @@ docs/translation.md
 
 ## Local-First Security Model
 
-The default macOS and Windows start scripts run in dual-port mode:
+The default macOS, Windows, and Linux start scripts run in dual-port mode:
 
 ```text
 Viewer port:   8080
@@ -180,7 +197,7 @@ The viewer port is intended for public read-only caption pages:
 /ws/captions
 ```
 
-The operator port is intended for password-protected controls, transcript exports, and operator documentation. When localhost lock is enabled, operator routes are only served to the local machine.
+The operator port is intended for password-protected controls, transcript exports, operator documentation, and the restricted `/service-leader` role. When localhost lock is enabled, full operator routes are served only to the local machine; remote clients can reach only paired service-leader paths and static assets.
 
 Recommended controls:
 
@@ -211,6 +228,14 @@ On Windows:
 %APPDATA%\Church Cap\data\operator_auth.json
 %APPDATA%\Church Cap\data\operator_auth.backup.json
 %APPDATA%\Church Cap\data\runtime_config.json
+```
+
+On Linux:
+
+```text
+~/.local/share/church-cap/data/operator_auth.json
+~/.local/share/church-cap/data/operator_auth.backup.json
+~/.local/share/church-cap/data/runtime_config.json
 ```
 
 The operator password is stored as a salted PBKDF2 hash. The session secret is stored locally because it is needed to verify signed session cookies. The backup auth file is written from the same data so the app can recover if the primary auth file is lost, corrupted, or left incomplete. These files must not be committed to GitHub.
@@ -264,12 +289,16 @@ Before publishing the repository publicly:
   - `setup-macos.sh`
   - `start-macos.sh`
   - `start-macos-https.sh`
+  - `setup-linux.sh`
+  - `start-linux.sh`
+  - `update-linux.sh`
   - `reset-operator-password.sh`
   - `fix-permissions.sh`
   - `update-macos.sh`
   - `scripts/*.sh`
   - `scripts/*.py`
   - Windows `.cmd` launchers are present for setup, start, password reset, update, and optional CUDA runtime force reinstall.
+- Confirm Linux package detection remains isolated in `scripts/linux-system-packages.sh` and works with `apt`, `dnf`/`yum`, `zypper`, `pacman`, and `apk`.
 - Confirm updater scripts preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, and local config while refreshing app-owned release metadata.
 - Confirm updater scripts validate downloaded ZIPs, required release files, release version, staged Python syntax, and SHA-256 installed-file checksums before reporting success.
 
@@ -286,6 +315,13 @@ bash fix-permissions.sh
 - Confirm **Download diagnostics** names included system specs clearly and excludes transcripts, `.env`, passwords, session secrets, and unredacted local paths.
 - Confirm `setup-windows.cmd`, `start-windows.cmd`, `update-windows.cmd`, and the operator-page update flow work from a clean folder.
 - Revisit minimum and recommended hardware after real service benchmarks from several churches.
+
+## Linux Reliability QA Targets
+
+- Test AlmaLinux and Ubuntu first, then one representative system for the remaining package-manager families.
+- Confirm setup selects Python 3.10 or newer and never installs Python packages globally.
+- Confirm PortAudio can list a USB audio interface and the dual-port start script reports the correct LAN URL.
+- Keep distro-specific package names in one helper rather than adding per-distro application branches.
 
 ## Suggested Repository Description
 

@@ -42,6 +42,18 @@ You can also run the optional GPU runtime installer later:
 
 If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came from another computer, use `setup-windows.cmd`. If it is still blocked, right-click the downloaded zip or Church Cap folder, choose **Properties**, tick **Unblock** if shown, then try again.
 
+## First-Time Setup On Linux
+
+Open a terminal in this folder and run:
+
+```bash
+bash setup-linux.sh
+```
+
+The script detects common Linux package managers and installs the required Python, build, PortAudio, and download tools. It supports AlmaLinux/Rocky/RHEL/Fedora (`dnf`/`yum`), Ubuntu/Debian (`apt`), openSUSE (`zypper`), Arch (`pacman`), and Alpine (`apk`).
+
+The installer keeps Python packages inside `.venv` and does not enable extra repositories or install NVIDIA drivers. On AlmaLinux, if a package is unavailable, check that AppStream and CRB are enabled according to your system policy.
+
 ## Normal Sunday Start
 
 After the first setup, start Church Cap on Mac with:
@@ -54,6 +66,12 @@ On Windows:
 
 ```powershell
 .\start-windows.cmd
+```
+
+On Linux:
+
+```bash
+./start-linux.sh
 ```
 
 Please wait while it starts. The operator page should open automatically:
@@ -85,6 +103,18 @@ If that does not work on a phone, use the Android/IP fallback QR code shown on t
 5. Click **Start captions**.
 6. Show the audience QR code.
 7. Use **Blank / pause** for private or sensitive moments.
+
+The operator and Service Leader control buttons show a subtle active glow for the current state, and the pages show short status messages while captions start, stop, blank, resume, or send a test caption.
+
+## Optional Service Leader Device
+
+On the Church Cap computer, use either route:
+
+1. Select **Connect a service leader device** on the operator login page and enter the operator password; or sign in and open **Service Leader** in the operator menu.
+2. Generate the one-use QR code.
+3. Let the service leader scan it.
+
+Their phone/tablet receives a simpler page for start, stop, blank, resume, audio input, caption health, and Automatic/Manual translated-language control. The current action has a subtle glow and status messages explain when captions are starting, stopping, blanked, or resuming. It does not receive full operator access. Use a trusted staff/AV Wi-Fi network, especially when running over HTTP. The page includes dismissible local-HTTP and caption-preview notes so the service leader understands the network/security trade-off and knows that a delayed control-page preview does not necessarily mean the audience feed is delayed.
 
 ## If Something Goes Wrong
 
@@ -138,6 +168,12 @@ Windows:
 
 ```powershell
 .\update-windows.cmd
+```
+
+Linux:
+
+```bash
+./update-linux.sh
 ```
 
 You can also use **Updates** on the operator page. Church Cap checks the latest GitHub release tag first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.

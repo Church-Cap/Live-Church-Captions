@@ -48,7 +48,7 @@ The exact transitive dependency set is resolved by `pip` for the user's platform
 | tqdm | faster-whisper | Progress display dependency. |
 | sentencepiece, stanza, sacremoses, packaging | Argos Translate | Optional translation dependencies. |
 | NVIDIA CUDA Python wheel packages | Optional Windows GPU acceleration | Optional local `.venv` packages such as `nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, and `nvidia-cudnn-cu12`; installed only if the Windows operator chooses GPU runtime setup. |
-| PortAudio | sounddevice | System audio library installed through Homebrew on macOS. |
+| PortAudio | sounddevice | System audio library installed through Homebrew on macOS or the detected Linux package manager. |
 
 If you distribute a packaged app, wheels, a frozen environment, or a Docker image, generate a full software bill of materials from that exact artifact and include all transitive package versions and licences.
 
@@ -60,7 +60,7 @@ Church Cap does not commit or redistribute model weights in this repository.
 - `faster-whisper` is retained as an optional lower-latency backend and downloads or loads Whisper-compatible model weights at runtime according to `WHISPER_MODEL`.
 - The default model setting is `base.en`.
 - Confirm the licence for every speech-to-text model you ship, cache, mirror, or bundle.
-- Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS or `scripts/install-translation-models-argos.ps1` on Windows during setup, from the operator **Languages** page, or when the translation installer is rerun manually.
+- Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS/Linux or `scripts/install-translation-models-argos.ps1` on Windows during setup, from the operator **Languages** page, or when the translation installer is rerun manually.
 - Confirm the licence for every Argos language package you redistribute or preinstall.
 - Optional Core translation downloads `alirezamsh/small100` when `scripts/install-small100-core.sh` or `scripts/install-small100-core.ps1` is run. The Hugging Face model card lists SMaLL-100 as MIT licensed and covering 101 languages. Confirm the licence again before redistributing model weights.
 

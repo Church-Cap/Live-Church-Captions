@@ -7,9 +7,9 @@
   <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="auth-page glass-page">
+<body class="auth-page operator-login-page glass-page">
   <main class="auth-shell">
-    <section class="auth-card glass-card">
+    <section class="auth-card operator-login-card glass-card">
       <div class="auth-brand">
         <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
         <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
@@ -23,9 +23,27 @@
         {% if error %}<p class="error-text">{{ error }}</p>{% endif %}
         <button type="submit" class="primary-button full-width">Log in</button>
       </form>
-      <p class="fine-print">First run? Open <a href="/setup">password setup</a>. Locked out? Stop Church Cap, run <code>reset-operator-password.cmd</code> on Windows or <code>./reset-operator-password.sh</code> on Mac, then start Church Cap again.</p>
-      <p class="auth-footer">{{ app_version_label }}</p>
+      <button type="button" class="secondary-button full-width service-leader-connect-button" onclick="toggleServiceLeaderPairing()">Connect a service leader device</button>
+      <section id="serviceLeaderPairingForm" class="service-leader-pairing-form" hidden>
+        <p class="muted">Create a one-use QR code for the simpler service controls.</p>
+        <form method="post" action="/service-leader/pairing/create" class="stacked-form">
+          <label for="service_leader_password">Operator password</label>
+          <input id="service_leader_password" name="service_leader_password" type="password" autocomplete="current-password" required>
+          {% if service_leader_error %}<p class="error-text">{{ service_leader_error }}</p>{% endif %}
+          <button type="submit" class="secondary-button full-width">Show pairing QR code</button>
+        </form>
+      </section>
+      <p class="fine-print">First run? Open <a href="/setup">password setup</a>. Locked out? Stop Church Cap, run <code>reset-operator-password.cmd</code> on Windows or <code>./reset-operator-password.sh</code> on macOS/Linux, then start Church Cap again.</p>
+      <p class="auth-footer centered-version">{{ app_version_label }}</p>
     </section>
   </main>
+  <script>
+    function toggleServiceLeaderPairing() {
+      const form = document.getElementById('serviceLeaderPairingForm');
+      form.hidden = !form.hidden;
+      if (!form.hidden) document.getElementById('service_leader_password')?.focus();
+    }
+    {% if service_leader_error %}toggleServiceLeaderPairing();{% endif %}
+  </script>
 </body>
 </html>

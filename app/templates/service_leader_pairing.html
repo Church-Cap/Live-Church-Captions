@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Church Cap · Connect service leader</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-page glass-page">
+  <main class="auth-shell service-leader-pairing-shell">
+    <section class="auth-card glass-card">
+      <div class="auth-brand">
+        <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
+        <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
+      </div>
+      <p class="eyebrow">Service leader controls</p>
+      <h1>Scan to connect</h1>
+      <p class="muted">Ask the trusted service leader to scan this code using the church phone or tablet.</p>
+      <img class="service-leader-pairing-qr" src="{{ pairing_qr }}" alt="One-use QR code for service leader controls">
+      <div class="warning-panel slim-warning">
+        <strong>One use, {{ pairing_seconds }} seconds.</strong>
+        This QR expires quickly and cannot be reused after a device connects.
+      </div>
+      <p class="fine-print">The paired device receives only service controls, audio input, health status, and enabled-language controls.</p>
+      <p class="muted">If scanning fails, confirm the device can reach <code>{{ service_leader_url }}</code> on the trusted church network.</p>
+      <a class="button-link secondary-button full-width" href="/login">Back to operator login</a>
+      <p class="auth-footer">{{ app_version_label }}</p>
+    </section>
+  </main>
+</body>
+</html>

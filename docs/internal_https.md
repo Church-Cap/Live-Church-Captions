@@ -11,6 +11,7 @@ Recommended practical setup:
 ```text
 Viewer page: local HTTP is acceptable for many pilots
 Operator page: use HTTPS where practical
+Service leader page: use HTTPS on a managed church phone/tablet where practical
 Network: keep the app internal, do not port-forward it to the internet
 Admin: protect /operator with a strong password
 ```
@@ -54,3 +55,5 @@ For the prototype and church pilots:
 - Use HTTPS for the operator where practical
 - Keep local HTTP as a fallback so Sunday accessibility still works offline
 ```
+
+The service-leader pairing flow avoids sending the operator password over the network and limits the paired role's permissions. It does not make HTTP encrypted: a capable local attacker could still capture the restricted session cookie. Use private WPA2/WPA3 staff Wi-Fi, short sessions, revocation, and HTTPS where practical.

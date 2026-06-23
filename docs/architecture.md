@@ -27,6 +27,7 @@ HTML5 caption pages on phones, tablets, side screens, and OBS browser sources
 - `app/transcription/faster_whisper_live.py` — lower-latency transcription backend using faster-whisper/CTranslate2.
 - `app/hardware.py` — CUDA/GPU detection and runtime resolution for faster-whisper.
 - `app/runtime_config.py` — persisted operator choices for audio input, privacy, translation, security, and performance tuning.
+- `app/service_leader_auth.py` — in-memory one-use pairing tokens and restricted service-leader sessions.
 - `app/i18n.py` — supported language metadata and optional caption translation provider bridge.
 - `app/localisation.py` and `app/locales/client_ui.json` — visitor page UI string loading and the single client UI catalogue.
 - `app/glossary.py` — CSV-based Christian/church vocabulary correction.
@@ -40,6 +41,18 @@ HTML5 caption pages on phones, tablets, side screens, and OBS browser sources
 
 The prototype is local-network first. Users scan a QR code and connect to the caption server over the church Wi-Fi. Captions are not sent to a cloud provider by the app's default workflow.
 
+## Service leader security boundary
+
+In dual-port mode, the operator listener binds to the configured host so paired church devices can reach `/service-leader`. When the localhost lock is enabled, middleware permits remote access only to `/service-leader` and static assets; `/operator` and all other operator routes remain blocked remotely.
+
+Pairing tokens are random, single-use, short-lived, and carried in the QR URL fragment rather than the query string. They are exchanged for a separate server-side session cookie scoped to `/service-leader`. Mutating requests require both a session-specific CSRF token and a matching origin.
+
+The local operator can create or replace a pending token through the dedicated dashboard section, cancel a pending token, inspect active-session counts, or revoke all sessions. Replacing a pending token does not revoke an established service-leader session.
+
+The restricted language endpoint preserves the operator-selected provider, resource installation, priority policy, and active-language capacity. It can toggle translation and choose either automatic visitor language availability or a manual subset of languages already supported by installed resources. The page polls server state so operator-side language/resource changes and audio-device availability stay synchronized. Its source-caption preview connects as a non-counted observer to the same caption WebSocket used by audience clients, so it does not inflate viewer counts or influence automatic translated-language demand.
+
+Caption health reuses the operator benchmark's live-delay calculation: latest transcription duration plus caption refresh interval. Health is green below 2.5 seconds, amber from 2.5–3.5 seconds, and red above 3.5 seconds.
+
 ## Scaling model
 
 The server transcribes audio once, then broadcasts text to all connected browsers over WebSockets. It does not run one AI model per viewer.
@@ -50,9 +63,11 @@ Visitor UI language and translated captions are separate systems. UI labels come
 
 ## Performance model
 
-The operator dashboard exposes a performance slider, an Easy settings view, and an Advanced settings view. Presets switch between faster/lower-accuracy and slower/higher-accuracy combinations of backend, model size, caption refresh interval, listening window, silence finalise timing, stability checks, and beam size. The far-right preset uses the medium Whisper model and warns operators to benchmark it because it can increase latency. Controls can choose an automatic, macOS, or Windows platform view so the processor options match the supported computer. Windows exposes NVIDIA CUDA choices; macOS exposes Apple Metal/MPS for OpenAI Whisper and hides CUDA-specific wording.
+The operator dashboard exposes a performance slider, an Easy settings view, and an Advanced settings view. Presets switch between faster/lower-accuracy and slower/higher-accuracy combinations of backend, model size, caption refresh interval, listening window, silence finalise timing, stability checks, and beam size. The far-right preset uses the medium Whisper model and warns operators to benchmark it because it can increase latency. Controls can choose an automatic macOS, Windows, or Linux platform view so processor options match the supported computer. Windows and Linux expose NVIDIA CUDA choices; macOS exposes Apple Metal/MPS for OpenAI Whisper.
 
 The same panel includes a lightweight 15-second benchmark and live monitor that sample runtime metrics from `/api/status`, including transcription time, estimated live/final caption delay, audio level, model load time, runtime, and available system load. Recommendations are generated locally from OS, CPU count, CUDA readiness, and current runtime state; applying them does not require internet access and favours conservative live-service presets over the medium model. These settings are saved in the per-user `runtime_config.json` file and override matching `.env` defaults. They apply when captions next start because the transcription backend loads its model and opens the audio stream at session start. Performance settings are locked while captions are running, including the speed/accuracy slider, backend, model size, processor, and advanced timing controls. On Windows, automatic CUDA use depends on CTranslate2 seeing the GPU and the required CUDA runtime DLLs; if a forced CUDA load fails, Church Cap reports the issue and falls back to CPU. The Windows CUDA troubleshooting controls can refresh local detection and launch the local CUDA runtime force reinstall in the background, writing to `logs/cuda-runtime-install.log`; diagnostics and UI status use this relative log label rather than a full local file path. Windows CUDA recommendations use Faster Whisper because the bundled CUDA runtime path is for CTranslate2 rather than CUDA-enabled PyTorch.
+
+Linux setup keeps distro-specific package names in `scripts/linux-system-packages.sh`. `setup-linux.sh` detects the package manager, installs system prerequisites, then follows the same `.venv` workflow as the other platforms. Linux CUDA remains system-managed: Church Cap detects it through CTranslate2 but does not install drivers or alter CUDA repositories.
 
 ## Caption pacing model
 
