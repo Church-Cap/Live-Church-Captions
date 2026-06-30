@@ -171,21 +171,22 @@ class LocalTranslator:
             except Exception as exc:
                 return {"provider": "argos", "ready": False, "message": f"Argos Translate is not installed or not ready: {exc}"}
         if provider == "small100":
-            try:
-                from transformers import M2M100ForConditionalGeneration  # type: ignore  # noqa: F401
-                from transformers import AutoTokenizer  # type: ignore  # noqa: F401
-                import torch  # type: ignore  # noqa: F401
+            missing = [
+                name
+                for name in ("torch", "transformers", "huggingface_hub")
+                if importlib.util.find_spec(name) is None
+            ]
+            if not missing:
                 return {
                     "provider": "small100",
                     "ready": True,
                     "message": "Core SMaLL-100 support is installed. The model loads on first use and may use noticeably more RAM/CPU.",
                 }
-            except Exception as exc:
-                return {
-                    "provider": "small100",
-                    "ready": False,
-                    "message": f"Core SMaLL-100 is not installed yet: {exc}",
-                }
+            return {
+                "provider": "small100",
+                "ready": False,
+                "message": f"Core SMaLL-100 is not installed yet. Missing: {', '.join(missing)}.",
+            }
         return {"provider": provider, "ready": False, "message": f"Unknown translation provider: {provider}"}
 
     def translation_resources(self) -> dict[str, Any]:
@@ -239,6 +240,21 @@ class LocalTranslator:
             languages = set()
         languages.add(self.source_language)
         return sorted(language for language in languages if language in LANGUAGE_BY_CODE)
+
+    def unload_models(self) -> None:
+        self._small100_model = None
+        self._small100_tokenizer = None
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+        try:
+            import torch  # type: ignore
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     def cached_result(self, text: str, target_language: str, *, provider: str) -> TranslationResult | None:
         target_language = normalise_language(target_language)

@@ -7,13 +7,19 @@
   <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="operator-page glass-page">
+<body class="operator-page glass-page{% if deployment.capabilities.simple_operator %} appliance-simple-operator{% endif %}" data-deployment-profile="{{ deployment.capabilities.profile }}" data-appliance="{{ 'true' if deployment.capabilities.is_appliance else 'false' }}">
   <script>
     (function () {
       const stored = localStorage.getItem('operatorTheme');
       const manual = localStorage.getItem('operatorThemeManual') === '1';
-      const saved = manual && (stored === 'light' || stored === 'dark') ? stored : 'system';
+      const explicit = stored === 'light' || stored === 'dark';
+      const isAppliance = document.body.dataset.appliance === 'true';
+      const saved = manual && explicit ? stored : (isAppliance ? (explicit ? stored : 'dark') : 'system');
       if (saved === 'system') localStorage.removeItem('operatorTheme');
+      if (isAppliance && saved !== 'system') {
+        localStorage.setItem('operatorTheme', saved);
+        localStorage.setItem('operatorThemeManual', '1');
+      }
       const systemLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
       if (saved === 'light' || (saved === 'system' && systemLight)) document.body.classList.add('light-mode');
       if (localStorage.getItem('operatorSidebarCollapsed') === 'true') document.body.classList.add('operator-sidebar-collapsed');
@@ -29,28 +35,28 @@
             <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light brand-wordmark">
           </div>
         </div>
-        <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Collapse side menu" aria-expanded="true">☰</button>
+        <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Collapse side menu" aria-expanded="true"><span class="sidebar-toggle-icon" aria-hidden="true"></span></button>
       </div>
 
       <nav class="operator-nav premium-nav">
         <p class="nav-category">Run service</p>
-        <button type="button" class="nav-button active" data-section="dashboard"><span class="nav-icon">●</span><span class="nav-label">Dashboard</span></button>
-        <button type="button" class="nav-button" data-section="service-leader"><span class="nav-icon">◇</span><span class="nav-label">Service Leader</span></button>
-        <button type="button" class="nav-button" data-section="languages"><span class="nav-icon">◐</span><span class="nav-label">Languages</span><span class="beta-pill mini">Beta</span></button>
-        <button type="button" class="nav-button" data-section="audience"><span class="nav-icon">▣</span><span class="nav-label">Audience & OBS</span></button>
-        <button type="button" class="nav-button" data-section="privacy"><span class="nav-icon">◆</span><span class="nav-label">Privacy & Security</span></button>
+        <button type="button" class="nav-button active" data-section="dashboard"><span class="nav-icon nav-icon-dashboard" aria-hidden="true"></span><span class="nav-label">Dashboard</span></button>
+        <button type="button" class="nav-button" data-section="service-leader"><span class="nav-icon nav-icon-service" aria-hidden="true"></span><span class="nav-label">Service Leader</span></button>
+        <button type="button" class="nav-button" data-section="languages" {% if not deployment.capabilities.show_translation_setup %}hidden{% endif %}><span class="nav-icon nav-icon-languages" aria-hidden="true"></span><span class="nav-label">Languages</span><span class="beta-pill mini">Beta</span></button>
+        <button type="button" class="nav-button" data-section="audience"><span class="nav-icon nav-icon-audience" aria-hidden="true"></span><span class="nav-label">Audience & OBS</span></button>
+        <button type="button" class="nav-button" data-section="privacy"><span class="nav-icon nav-icon-privacy" aria-hidden="true"></span><span class="nav-label">Privacy & Security</span></button>
 
         <p class="nav-category">Guides</p>
-        <a class="nav-button nav-link" href="/setup/network"><span class="nav-icon">⌘</span><span class="nav-label">Network setup</span></a>
-        <a class="nav-button nav-link" href="/obs/help"><span class="nav-icon">▤</span><span class="nav-label">OBS setup</span></a>
-        <a class="nav-button nav-link" href="/docs/privacy"><span class="nav-icon">◈</span><span class="nav-label">Privacy statement</span></a>
-        <a class="nav-button nav-link" href="/docs/church-notice"><span class="nav-icon">✦</span><span class="nav-label">Church notice text</span></a>
-        <a class="nav-button nav-link" href="/docs/disclaimer"><span class="nav-icon">!</span><span class="nav-label">Disclaimers</span></a>
-        <a class="nav-button nav-link" href="/feedback"><span class="nav-icon">@</span><span class="nav-label">Feedback</span></a>
+        <a class="nav-button nav-link" href="/setup/network"><span class="nav-icon nav-icon-network" aria-hidden="true"></span><span class="nav-label">Network setup</span></a>
+        <a class="nav-button nav-link" href="/obs/help"><span class="nav-icon nav-icon-obs" aria-hidden="true"></span><span class="nav-label">OBS setup</span></a>
+        <a class="nav-button nav-link" href="/docs/privacy"><span class="nav-icon nav-icon-doc-privacy" aria-hidden="true"></span><span class="nav-label">Privacy statement</span></a>
+        <a class="nav-button nav-link" href="/docs/church-notice"><span class="nav-icon nav-icon-notice" aria-hidden="true"></span><span class="nav-label">Church notice text</span></a>
+        <a class="nav-button nav-link" href="/docs/disclaimer"><span class="nav-icon nav-icon-disclaimer" aria-hidden="true"></span><span class="nav-label">Disclaimers</span></a>
+        <a class="nav-button nav-link" href="/feedback"><span class="nav-icon nav-icon-feedback" aria-hidden="true"></span><span class="nav-label">Feedback</span></a>
 
         <p class="nav-category">System</p>
-        <button type="button" class="nav-button" data-section="diagnostics"><span class="nav-icon">i</span><span class="nav-label">Diagnostics</span></button>
-        <button type="button" class="nav-button" data-section="updates"><span class="nav-icon">↻</span><span class="nav-label">Updates</span></button>
+        <button type="button" class="nav-button" data-section="diagnostics"><span class="nav-icon nav-icon-diagnostics" aria-hidden="true"></span><span class="nav-label">Diagnostics</span></button>
+        <button type="button" class="nav-button" data-section="updates"><span class="nav-icon nav-icon-updates" aria-hidden="true"></span><span class="nav-label">Updates</span></button>
       </nav>
 
       <div class="sidebar-footer premium-sidebar-footer">
@@ -77,6 +83,8 @@
           <span class="status-pill">CPU: <strong id="stripCpu">—</strong></span>
           <span class="status-pill">RAM: <strong id="stripRam">—</strong></span>
           <span class="status-pill">GPU: <strong id="stripGpu">—</strong></span>
+          <span class="status-pill" id="stripAudienceDelayPill">Audience Delay: <strong id="stripAudienceDelay">—</strong></span>
+          <span class="status-pill" id="stripTranslationDelayPill">Translation Delay: <strong id="stripTranslationDelay">—</strong></span>
           <span class="status-pill">Translate: <strong id="stripTranslate">0 / 1</strong></span>
         </div>
       </header>
@@ -184,7 +192,11 @@
               <div><dt>Processor</dt><dd id="livePerformanceProcessor">{{ performance.resolved_whisper_runtime.device }} / {{ performance.resolved_whisper_runtime.compute_type }}</dd></div>
               <div><dt>Latency</dt><dd id="livePerformanceLatency">—</dd></div>
             </dl>
+            {% if deployment.capabilities.simple_operator %}
+            <p class="muted small-result">{{ deployment.capabilities.message }}</p>
+            {% else %}
             <p class="muted small-result">Use the Performance panel below to tune speed, accuracy, GPU use, and benchmark results.</p>
+            {% endif %}
           </article>
 
           <article class="operator-panel glass-card performance-card full-dashboard-card">
@@ -195,12 +207,14 @@
               </div>
               <span class="status-pill" id="performanceRuntime">Loading…</span>
             </div>
-            <div class="performance-slider-row">
+            <div class="performance-slider-row" {% if not deployment.capabilities.show_model_slider %}hidden{% endif %}>
               <span>Fastest</span>
-              <input id="performancePreset" type="range" min="0" max="4" step="1"
-                value="{% if runtime.performance_preset == 'fastest' %}0{% elif runtime.performance_preset == 'fast' %}1{% elif runtime.performance_preset == 'accurate' %}3{% elif runtime.performance_preset == 'most_accurate' %}4{% else %}2{% endif %}"
-                oninput="applyPerformancePreset(Number(this.value))"
-                onchange="savePerformanceSettings({automatic: true})">
+              <span class="premium-range-wrap">
+                <input id="performancePreset" class="premium-range" type="range" min="0" max="4" step="1"
+                  value="{% if runtime.performance_preset == 'fastest' %}0{% elif runtime.performance_preset == 'fast' %}1{% elif runtime.performance_preset == 'accurate' %}3{% elif runtime.performance_preset == 'most_accurate' %}4{% else %}2{% endif %}"
+                  oninput="applyPerformancePreset(Number(this.value))"
+                  onchange="savePerformanceSettings({automatic: true})">
+              </span>
               <span>Most accurate</span>
             </div>
             <p id="performanceLockedMessage" class="settings-lock-note" hidden>Stop captions before changing caption settings. The live model is locked while captions are running.</p>
@@ -208,7 +222,7 @@
               <strong id="performancePresetTitle">{{ performance.effective.performance_label }}</strong>
               <span id="performancePresetCopy">{{ performance.effective.performance_description }}</span>
             </div>
-            <details class="advanced-settings">
+            <details class="advanced-settings" {% if not deployment.capabilities.show_performance_advanced %}hidden{% endif %}>
               <summary>More settings</summary>
               <div class="settings-depth-toggle" role="tablist" aria-label="Performance setting depth">
                 <button type="button" id="performanceEasyMode" class="secondary-button active" onclick="setPerformanceSettingsDepth('easy')" aria-pressed="true">Easy</button>
@@ -330,7 +344,8 @@
               </div>
               <dl class="benchmark-grid">
                 <div><dt>Transcription</dt><dd id="benchmarkTranscription">—</dd></div>
-                <div><dt>Live delay</dt><dd id="benchmarkLiveDelay">—</dd></div>
+                <div><dt>Audience delay</dt><dd id="benchmarkLiveDelay">—</dd></div>
+                <div><dt>Translation delay</dt><dd id="benchmarkTranslationDelay">—</dd></div>
                 <div><dt>Final delay</dt><dd id="benchmarkFinalDelay">—</dd></div>
                 <div><dt>Throughput</dt><dd id="benchmarkThroughput">—</dd></div>
                 <div><dt>Audio level</dt><dd id="benchmarkAudio">—</dd></div>
@@ -344,7 +359,9 @@
         </div>
       </section>
 
-      <section class="operator-section" id="operator-section-languages" data-title="Languages" data-description="Experimental UI language and translated-caption controls.">
+      {% set translation_max_limit = deployment.capabilities.translation_max_limit or languages|length %}
+      {% set translation_current_max = runtime.translation_max_active_languages if runtime.translation_max_active_languages <= translation_max_limit else translation_max_limit %}
+      <section class="operator-section" id="operator-section-languages" data-title="Languages" data-description="{% if deployment.capabilities.translation_advanced %}Optional CPU translation controls for services that can accept higher latency.{% else %}Experimental UI language and translated-caption controls.{% endif %}" {% if not deployment.capabilities.show_translation_setup %}hidden{% endif %}>
         <div class="operator-grid two-card-grid">
           <article class="operator-panel glass-card translation-panel">
             <div class="panel-heading-row">
@@ -355,6 +372,19 @@
               <span class="status-pill">Mode: <strong id="translationModePill">{{ runtime.translation_provider or translation_provider }}</strong></span>
             </div>
             <p class="muted"><strong>Important:</strong> phone UI translation and caption translation are separate. Whisper transcribes speech. Translated captions require an extra local translation provider.</p>
+            {% if deployment.capabilities.cpu_translation_requires_confirmation %}
+            <button type="button" class="secondary-button cpu-language-warning-button" onclick="showCpuTranslationPrompt({force: true})">Review CPU translation warning</button>
+            {% endif %}
+            {% if deployment.capabilities.cpu_translation_warning %}
+            <div class="warning-panel slim-warning glass-card">
+              <strong>Advanced CPU option:</strong> this Church Cap Box is tuned for English captions. You can enable local translation when needed, but it runs on the CPU, may increase latency, and is limited to three active translated languages.
+            </div>
+            {% endif %}
+            {% if deployment.capabilities.gpu_required_for_languages and not deployment.capabilities.gpu_available %}
+            <div class="warning-panel slim-warning glass-card">
+              <strong>GPU not ready:</strong> this appliance is set up for multilingual captions, but CUDA is not ready. Keep translated captions off until the NVIDIA runtime check passes.
+            </div>
+            {% endif %}
             <div class="warning-panel slim-warning glass-card">
               <strong>Performance safeguard:</strong> each active translated language uses extra CPU/RAM. Church Cap automatically translates the most-requested languages up to the limit below. Others receive source captions with a help message.
             </div>
@@ -371,10 +401,25 @@
             <p id="translationModeCopy" class="muted small-result"></p>
             <label for="translationMax">Maximum active translated languages</label>
             <div class="range-number-control">
-              <input id="translationMaxSlider" type="range" min="1" max="{{ languages | length }}" step="1" value="{{ runtime.translation_max_active_languages }}">
-              <input id="translationMax" type="number" min="1" max="{{ languages | length }}" step="1" inputmode="numeric" value="{{ runtime.translation_max_active_languages }}">
+              <span class="premium-range-wrap">
+                <input id="translationMaxSlider" class="premium-range" type="range" min="1" max="{{ translation_max_limit }}" step="1" value="{{ translation_current_max }}">
+              </span>
+              <input id="translationMax" type="number" min="1" max="{{ translation_max_limit }}" step="1" inputmode="numeric" value="{{ translation_current_max }}">
             </div>
             <p class="muted small-result">Church Cap automatically translates the most-requested visitor languages up to this limit.</p>
+            <div id="translationCapacityWarning" class="warning-panel slim-warning glass-card" hidden>
+              <strong>CPU translation limit:</strong> this appliance is using CPU translation or has no ready CUDA acceleration. Keep active translated languages low for live services unless a benchmark proves more is safe.
+            </div>
+            {% if deployment.capabilities.cpu_translation_warning %}
+            <div id="cpuTranslationStateWarning" class="warning-panel slim-warning glass-card">
+              {% if deployment.capabilities.cpu_translation_enabled %}
+              <strong>CPU language options are enabled:</strong> this appliance can use translated captions, but they may increase latency. Keep the limit to three active translated languages or fewer.
+              {% else %}
+              <strong>CPU language options are off:</strong> enable them from the appliance System menu before saving translated captions on this CPU box.
+              {% endif %}
+            </div>
+            {% endif %}
+            {% if deployment.capabilities.show_translation_install %}
             <div class="translation-resource-panel">
               <strong>Language resources</strong>
               <p id="translationResourceSummary" class="muted">Checking installed translation resources…</p>
@@ -385,6 +430,7 @@
               </div>
               <p id="translationInstallResult" class="muted small-result"></p>
             </div>
+            {% endif %}
             <details class="advanced-settings">
               <summary>Advanced language controls</summary>
               <label for="translationLanguagePolicy">Language availability</label>
@@ -406,13 +452,16 @@
                     <button type="button" class="secondary-button compact-button" onclick="selectAllOperatorLanguages(false)">Clear all</button>
                   </div>
                 </div>
-                {% for lang in languages %}
-                <label class="language-toggle premium-language-toggle" data-language-search="{{ lang.name|lower }} {{ lang.native|lower }} {{ lang.code }}">
-                  <input type="checkbox" name="translationLang" value="{{ lang.code }}" {% if lang.code in runtime.translation_allowed_languages %}checked{% endif %} {% if lang.code == 'en' %}disabled checked{% endif %}>
-                  <span class="toggle-slider small" aria-hidden="true"></span>
-                  <span class="language-toggle-label"><span class="language-flag">{{ lang.flag }}</span><span>{{ lang.native }}</span></span>
-                </label>
-                {% endfor %}
+                <div class="operator-language-grid" id="operatorLanguageGrid">
+                  {% for lang in languages %}
+                  <label class="language-toggle premium-language-toggle" data-language-search="{{ lang.code }} {{ lang.code|upper }} {{ lang.name }} {{ lang.native }}">
+                    <input type="checkbox" name="translationLang" value="{{ lang.code }}" {% if lang.code in runtime.translation_allowed_languages %}checked{% endif %} {% if lang.code == 'en' %}disabled checked{% endif %}>
+                    <span class="toggle-slider small" aria-hidden="true"></span>
+                    <span class="language-toggle-label"><span class="language-flag-chip operator-language-code" data-code="{{ lang.code|upper }}" title="{{ lang.name }} · {{ lang.code|upper }}">{{ lang.flag }}</span><span class="language-toggle-copy"><strong dir="auto">{{ lang.name }}</strong><small dir="auto">{{ lang.native }} · {{ lang.code|upper }}</small></span></span>
+                  </label>
+                  {% endfor %}
+                </div>
+                <p id="operatorLanguageEmpty" class="language-empty" hidden>No languages found.</p>
               </fieldset>
             </details>
             <div class="button-row">
@@ -479,11 +528,14 @@
               </div>
             </div>
             <p class="muted">Use these for a side screen, confidence monitor, or livestream overlay.</p>
+            <p class="muted">System IP address: <code>{{ system_ip }}</code></p>
             <p class="muted">Display URL: <a href="{{ display_url }}">{{ display_url }}</a></p>
+            <p class="muted">Display direct IP: <a href="{{ display_ip_url }}">{{ display_ip_url }}</a></p>
             <p class="muted">OBS overlay: <a href="{{ obs_url }}">{{ obs_url }}</a></p>
+            <p class="muted">OBS direct IP: <a href="{{ obs_ip_url }}">{{ obs_ip_url }}</a></p>
             <div class="button-row">
               <a class="button-link" href="/obs/help">OBS setup guide</a>
-              <a class="button-link secondary" href="/obs" target="_blank">Open overlay</a>
+              <a class="button-link secondary" href="/obs?return=operator">Preview overlay</a>
             </div>
           </article>
         </div>
@@ -706,6 +758,21 @@
       </footer>
   </main>
 
+  <div id="cpuTranslationPrompt" class="cpu-translation-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="cpuTranslationPromptTitle">
+    <div class="cpu-translation-dialog glass-card">
+      <p class="eyebrow">CPU appliance language mode</p>
+      <h2 id="cpuTranslationPromptTitle">{% if deployment.capabilities.cpu_translation_enabled %}Translated captions may slow this Church Cap Box{% else %}CPU language options are off{% endif %}</h2>
+      <p id="cpuTranslationPromptCopy" class="muted">{% if deployment.capabilities.cpu_translation_enabled %}This appliance profile is tuned for reliable English captions on CPU hardware. You can use local translation, but every active translated language adds CPU and RAM load, and live delay may increase.{% else %}This CPU appliance is currently in English-first mode. Open the appliance System menu and enable CPU language options before saving translated captions.{% endif %}</p>
+      <div class="warning-panel slim-warning glass-card">
+        <strong>{% if deployment.capabilities.cpu_translation_enabled %}Safety limit{% else %}System menu required{% endif %}:</strong> {% if deployment.capabilities.cpu_translation_enabled %}this CPU appliance is capped at three active translated languages. Start with one or two during a real service and only raise it after testing normal speech.{% else %}the Languages page remains visible so operators know what is available, but translated-caption changes are blocked until the System menu toggle is enabled and Church Cap restarts.{% endif %}
+      </div>
+      <div class="button-row spacious-actions">
+        <button type="button" id="cpuTranslationProceedButton" {% if not deployment.capabilities.cpu_translation_enabled %}hidden{% endif %}>I understand, continue</button>
+        <button type="button" class="secondary-button" id="cpuTranslationCancelButton">Back to dashboard</button>
+      </div>
+    </div>
+  </div>
+
   <div id="updateOverlay" class="update-overlay" hidden>
     <div class="update-overlay-panel glass-card">
       <div class="update-spinner" aria-hidden="true"></div>
@@ -717,6 +784,7 @@
 
   <script>
     window.CC_LANGUAGES = {{ languages | tojson }};
+    window.CC_DEPLOYMENT = {{ deployment | tojson }};
     let pendingUpdate = null;
     let updatePollTimer = null;
     let serviceLeaderPairingTimer = null;
@@ -740,7 +808,9 @@
     }
 
     function showOperatorSection(sectionName) {
-      if (!sectionCopy[sectionName]) sectionName = 'dashboard';
+      const requestedSection = document.getElementById(`operator-section-${sectionName}`);
+      if (!sectionCopy[sectionName] || requestedSection?.hidden) sectionName = 'dashboard';
+      if (sectionName === 'languages') showCpuTranslationPrompt();
       document.querySelectorAll('.operator-section').forEach((section) => {
         section.classList.toggle('active', section.id === `operator-section-${sectionName}`);
       });
@@ -755,10 +825,21 @@
       localStorage.setItem('operatorSection', sectionName);
     }
 
+    function isApplianceOperator() {
+      return document.body.dataset.appliance === 'true' || !!window.CC_DEPLOYMENT?.capabilities?.is_appliance;
+    }
+
     function operatorThemePreference() {
       const stored = localStorage.getItem('operatorTheme');
       const manual = localStorage.getItem('operatorThemeManual') === '1';
-      if (manual && (stored === 'light' || stored === 'dark')) return stored;
+      const explicit = stored === 'light' || stored === 'dark';
+      if (manual && explicit) return stored;
+      if (isApplianceOperator()) {
+        const applianceTheme = explicit ? stored : 'dark';
+        localStorage.setItem('operatorTheme', applianceTheme);
+        localStorage.setItem('operatorThemeManual', '1');
+        return applianceTheme;
+      }
       localStorage.removeItem('operatorTheme');
       return 'system';
     }
@@ -771,12 +852,28 @@
       return preference === 'system' ? (systemPrefersLight() ? 'light' : 'dark') : preference;
     }
 
+    async function persistApplianceShellTheme(mode) {
+      if (!isApplianceOperator() || (mode !== 'light' && mode !== 'dark')) return;
+      localStorage.setItem('applianceShellTheme', mode);
+      try {
+        await fetch('/appliance/api/shell/theme', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({theme: mode}),
+          cache: 'no-store',
+        });
+      } catch (_) {
+        // The endpoint only exists when Church Cap is running behind the appliance shell.
+      }
+    }
+
     function applyOperatorTheme(preference, {persist = false} = {}) {
       const mode = resolveOperatorTheme(preference || 'system');
       document.body.classList.toggle('light-mode', mode === 'light');
       if (persist) {
         localStorage.setItem('operatorTheme', preference);
         localStorage.setItem('operatorThemeManual', '1');
+        persistApplianceShellTheme(mode);
       }
       const toggle = document.getElementById('operatorThemeToggle');
       if (toggle) toggle.textContent = mode === 'light' ? 'Dark mode' : 'Light mode';
@@ -869,6 +966,7 @@
     let captionStartNoticeTimer = null;
     let operatorTranslationEditing = false;
     let operatorTranslationSignature = '';
+    let cpuTranslationPromptResolver = null;
 
     function operatorCaptionActionLabel(path) {
       const labels = {
@@ -1015,17 +1113,54 @@
       if (el && value !== undefined && value !== null) {
         el.value = value;
         el.dataset.current = value;
+        if (el.matches?.('input[type="range"]')) updatePremiumRange(el, {animate: false});
       }
+    }
+
+    function rangeProgressPercent(input) {
+      const min = Number(input.min || 0);
+      const max = Number(input.max || 100);
+      const value = Number(input.value || min);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return 0;
+      return Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+    }
+
+    function updatePremiumRange(input, {animate = true, previousValue = null} = {}) {
+      if (!input) return;
+      const currentPercent = rangeProgressPercent(input);
+      const previousRaw = previousValue ?? input.dataset.rangeValue;
+      const previousNumber = previousRaw == null ? Number(input.value) : Number(previousRaw);
+      input.style.setProperty('--range-progress', `${currentPercent}%`);
+      input.dataset.rangeValue = input.value;
+      const min = Number(input.min || 0);
+      const max = Number(input.max || 100);
+      if (!animate || !Number.isFinite(previousNumber) || max <= min || String(previousRaw) === String(input.value)) return;
+      const previousPercent = Math.max(0, Math.min(100, ((previousNumber - min) / (max - min)) * 100));
+      const wrap = input.closest('.premium-range-wrap');
+      if (!wrap) return;
+      const marker = wrap.querySelector('.range-previous-marker') || document.createElement('span');
+      marker.className = 'range-previous-marker';
+      marker.style.left = `${previousPercent}%`;
+      wrap.appendChild(marker);
+      marker.getAnimations?.().forEach((animation) => animation.cancel());
+      marker.animate?.([
+        {left: `${previousPercent}%`, opacity: 0.72, transform: 'translate(-50%, -50%) scale(1)'},
+        {left: `${currentPercent}%`, opacity: 0, transform: 'translate(-50%, -50%) scale(0.72)'}
+      ], {duration: 520, easing: 'cubic-bezier(.2,.8,.2,1)'});
+      window.setTimeout(() => {
+        if (marker.parentNode === wrap) marker.remove();
+      }, 560);
     }
 
     function platformChoice() {
       const selected = document.getElementById('performancePlatform')?.value || 'auto';
       if (selected !== 'auto') return selected;
-      return ['macos', 'windows'].includes(detectedPerformancePlatform) ? detectedPerformancePlatform : 'unsupported';
+      return ['macos', 'windows', 'linux'].includes(detectedPerformancePlatform) ? detectedPerformancePlatform : 'unsupported';
     }
 
     function setPerformanceSettingsDepth(mode) {
-      const depth = mode === 'advanced' ? 'advanced' : 'easy';
+      const capabilities = window.CC_DEPLOYMENT?.capabilities || {};
+      const depth = (capabilities.show_performance_advanced === false) ? 'easy' : (mode === 'advanced' ? 'advanced' : 'easy');
       localStorage.setItem('performanceSettingsDepth', depth);
       const grid = document.getElementById('performanceAdvancedGrid');
       if (grid) grid.dataset.depth = depth;
@@ -1174,8 +1309,10 @@
       const slider = document.getElementById('performancePreset');
       const index = performancePresetKeys.indexOf(key);
       if (slider && index >= 0) {
+        const previousValue = slider.dataset.rangeValue ?? slider.value;
         slider.value = String(index);
         slider.dataset.current = key;
+        updatePremiumRange(slider, {previousValue});
       }
     }
 
@@ -1353,8 +1490,15 @@
       return filtered.reduce((sum, value) => sum + value, 0) / filtered.length;
     }
 
+    function asFiniteNumber(value) {
+      if (value == null || value === '') return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
     function formatSeconds(value) {
-      return Number.isFinite(value) ? `${value.toFixed(2)}s` : '—';
+      const number = asFiniteNumber(value);
+      return number == null ? '—' : `${number.toFixed(2)}s`;
     }
 
     function benchmarkSampleFromStatus(data) {
@@ -1364,20 +1508,24 @@
       return {
         at: Date.now(),
         status: data.status || 'unknown',
-        transcriptionSeconds: metrics.last_transcription_seconds == null ? null : Number(metrics.last_transcription_seconds),
+        transcriptionSeconds: asFiniteNumber(metrics.last_transcription_seconds),
+        audienceDelaySeconds: asFiniteNumber(data.operator_strip?.audience_delay_seconds),
+        translationDelaySeconds: asFiniteNumber(data.operator_strip?.translation_delay_seconds),
+        translationSeconds: asFiniteNumber(metrics.last_translation_seconds),
         completed: Number(metrics.transcriptions_completed || 0),
+        translationsCompleted: Number(metrics.translations_completed || 0),
         audioRms: Number(metrics.audio_rms || 0),
         audioPeak: Number(metrics.audio_peak || 0),
         modelLoaded: !!metrics.model_loaded,
-        modelLoadSeconds: metrics.model_load_seconds == null ? null : Number(metrics.model_load_seconds),
+        modelLoadSeconds: asFiniteNumber(metrics.model_load_seconds),
         backend: settings.transcriber_mode || 'unknown',
         model: settings.model || 'unknown',
         device: metrics.model_device || settings.resolved_whisper_runtime?.device || settings.device || 'auto',
         compute: metrics.model_compute_type || settings.resolved_whisper_runtime?.compute_type || settings.compute_type || 'auto',
-        updateInterval: Number(settings.stream_update_interval_seconds || 0),
-        silenceFinalise: Number(settings.stream_silence_finalise_seconds || 0),
-        stabilityPasses: Number(settings.stream_stability_passes || 1),
-        loadPercent: system.load_1m_percent == null ? null : Number(system.load_1m_percent),
+        updateInterval: asFiniteNumber(settings.stream_update_interval_seconds) || 0,
+        silenceFinalise: asFiniteNumber(settings.stream_silence_finalise_seconds) || 0,
+        stabilityPasses: asFiniteNumber(settings.stream_stability_passes) || 1,
+        loadPercent: asFiniteNumber(system.cpu_percent ?? system.load_1m_percent),
         cpuCount: Number(system.cpu_count || 0)
       };
     }
@@ -1408,7 +1556,8 @@
       const throughput = Math.max(0, (lastCompleted - firstCompleted) / throughputWindow);
       const updateInterval = latest.updateInterval || 0;
       const stabilityDelay = Math.max(0, (latest.stabilityPasses || 1) - 1) * updateInterval;
-      const liveDelay = avgTranscription == null ? null : avgTranscription + updateInterval;
+      const liveDelay = average(samples.map((sample) => sample.audienceDelaySeconds)) ?? (avgTranscription == null ? null : avgTranscription + updateInterval);
+      const translationDelay = average(samples.map((sample) => sample.translationDelaySeconds));
       const finalDelay = avgTranscription == null ? null : avgTranscription + updateInterval + latest.silenceFinalise + stabilityDelay;
       const setText = (id, value) => {
         const el = document.getElementById(id);
@@ -1416,6 +1565,7 @@
       };
       setText('benchmarkTranscription', avgTranscription == null ? 'Waiting for transcription' : `avg ${formatSeconds(avgTranscription)} · max ${formatSeconds(maxTranscription)}`);
       setText('benchmarkLiveDelay', liveDelay == null ? '—' : `about ${formatSeconds(liveDelay)}`);
+      setText('benchmarkTranslationDelay', translationDelay == null ? '—' : `about ${formatSeconds(translationDelay)}`);
       setText('benchmarkFinalDelay', finalDelay == null ? '—' : `about ${formatSeconds(finalDelay)}`);
       setText('benchmarkThroughput', `${throughput.toFixed(2)} AI pass(es)/sec`);
       setText('benchmarkAudio', avgAudio == null ? '—' : `avg ${Math.round(avgAudio)}% · peak ${Math.round(Math.min(100, (latest.audioPeak / 0.12) * 100))}%`);
@@ -1444,7 +1594,15 @@
       benchmarkStartedAt = Date.now();
       benchmarkSamples = [];
       renderBenchmark();
-      await refreshStatus();
+      try {
+        const data = await refreshStatus();
+        if (!data) throw new Error('No status data returned.');
+      } catch (error) {
+        benchmarkRunning = false;
+        const result = document.getElementById('benchmarkResult');
+        if (result) result.textContent = `Could not read live status: ${error.message || error}.`;
+        renderBenchmark({cancelled: true});
+      }
     }
 
     function stopBenchmark(cancelled = false) {
@@ -1464,6 +1622,66 @@
       if (reason) reason.textContent = recommendation.reason || '';
     }
 
+    function cpuTranslationPromptKey() {
+      const identity = window.CC_DEPLOYMENT?.identity || {};
+      return `cpuTranslationWarningAccepted:${identity.appliance_id || identity.profile || 'appliance_cpu'}`;
+    }
+
+    function cpuTranslationAvailable() {
+      return !!window.CC_DEPLOYMENT?.capabilities?.cpu_translation_available;
+    }
+
+    function cpuTranslationEnabled() {
+      return !!window.CC_DEPLOYMENT?.capabilities?.cpu_translation_enabled;
+    }
+
+    function cpuTranslationPromptRequired() {
+      return !!window.CC_DEPLOYMENT?.capabilities?.cpu_translation_requires_confirmation;
+    }
+
+    function cpuTranslationPromptAccepted() {
+      if (!cpuTranslationPromptRequired()) return true;
+      if (cpuTranslationAvailable() && !cpuTranslationEnabled()) return false;
+      return localStorage.getItem(cpuTranslationPromptKey()) === '1';
+    }
+
+    function resolveCpuTranslationPrompt(accepted) {
+      const overlay = document.getElementById('cpuTranslationPrompt');
+      if (overlay) overlay.hidden = true;
+      if (accepted) localStorage.setItem(cpuTranslationPromptKey(), '1');
+      if (cpuTranslationPromptResolver) {
+        cpuTranslationPromptResolver(accepted);
+        cpuTranslationPromptResolver = null;
+      }
+      if (!accepted) showOperatorSection('dashboard');
+    }
+
+    function showCpuTranslationPrompt({force = false} = {}) {
+      if (!cpuTranslationPromptRequired()) return Promise.resolve(true);
+      if (!force && cpuTranslationPromptAccepted()) return Promise.resolve(true);
+      const overlay = document.getElementById('cpuTranslationPrompt');
+      if (!overlay) return Promise.resolve(true);
+      overlay.hidden = false;
+      const proceed = document.getElementById('cpuTranslationProceedButton');
+      if (cpuTranslationAvailable() && !cpuTranslationEnabled()) {
+        proceed?.setAttribute('hidden', '');
+        document.getElementById('cpuTranslationCancelButton')?.focus();
+        return new Promise((resolve) => {
+          cpuTranslationPromptResolver = resolve;
+        });
+      }
+      proceed?.removeAttribute('hidden');
+      proceed?.focus();
+      return new Promise((resolve) => {
+        cpuTranslationPromptResolver = resolve;
+      });
+    }
+
+    async function ensureCpuTranslationAcknowledged() {
+      if (cpuTranslationPromptAccepted()) return true;
+      return await showCpuTranslationPrompt({force: true});
+    }
+
     function syncTranslationModeCopy() {
       const provider = document.getElementById('translationProvider')?.value || 'disabled';
       const copy = document.getElementById('translationModeCopy');
@@ -1475,7 +1693,12 @@
         small100: 'Core mode uses SMaLL-100. It covers many languages and may be more accurate, but it uses more RAM and CPU/GPU.',
         both: 'Auto mode shows languages from both installed providers. Church Cap tries Base first, then Core for languages Base cannot translate.'
       };
-      if (copy) copy.textContent = descriptions[provider] || descriptions.disabled;
+      const capabilities = window.CC_DEPLOYMENT?.capabilities || {};
+      let message = descriptions[provider] || descriptions.disabled;
+      if (capabilities.cpu_translation_warning && provider !== 'disabled') {
+        message += ' CPU appliance warning: keep this to three active translated languages or fewer, and expect higher latency than English captions.';
+      }
+      if (copy) copy.textContent = message;
       if (pill) pill.textContent = labels[provider] || provider;
     }
 
@@ -1489,9 +1712,54 @@
     function syncTranslationMax(source) {
       const slider = document.getElementById('translationMaxSlider');
       const input = document.getElementById('translationMax');
+      applyTranslationCapabilityLimits();
       const next = clampTranslationMax(source?.value ?? input?.value ?? slider?.value ?? 1);
-      if (slider) slider.value = String(next);
+      if (slider) {
+        const previousValue = slider.dataset.rangeValue ?? slider.value;
+        slider.value = String(next);
+        updatePremiumRange(slider, {previousValue});
+      }
       if (input) input.value = String(next);
+    }
+
+    function applyTranslationCapabilityLimits() {
+      const capabilities = window.CC_DEPLOYMENT?.capabilities || {};
+      const limit = Number(capabilities.translation_max_limit || 0);
+      const slider = document.getElementById('translationMaxSlider');
+      const input = document.getElementById('translationMax');
+      if (limit > 0) {
+        if (slider) slider.max = String(limit);
+        if (input) input.max = String(limit);
+      }
+      renderTranslationCapacityWarning({deployment: window.CC_DEPLOYMENT, translation: null});
+    }
+
+    function renderTranslationCapacityWarning(data) {
+      const warning = document.getElementById('translationCapacityWarning');
+      if (!warning) return;
+      const capabilities = data?.deployment?.capabilities || window.CC_DEPLOYMENT?.capabilities || {};
+      const translation = data?.translation || {};
+      const cpuWarning = !!capabilities.cpu_translation_warning;
+      const gpuWarning = !!capabilities.gpu_required_for_languages && !capabilities.gpu_available;
+      const activeCount = Array.isArray(translation.active_translated_languages) ? translation.active_translated_languages.length : 0;
+      const capacity = Number(translation.max_active_languages || capabilities.translation_max_limit || 0);
+      warning.hidden = !(cpuWarning || gpuWarning || activeCount > 0);
+      if (warning.hidden) return;
+      if (cpuWarning) {
+        warning.innerHTML = `<strong>CPU translation limit:</strong> this appliance is using CPU translation. Keep active translated languages to ${capacity || 3} or fewer; current active translations: ${activeCount}. Run the benchmark during real speech before relying on more.`;
+      } else if (gpuWarning) {
+        warning.innerHTML = '<strong>GPU recommended:</strong> this installation has no ready GPU acceleration, so translation may increase latency.';
+      } else {
+        warning.innerHTML = `<strong>Translation load:</strong> ${activeCount} translated language${activeCount === 1 ? '' : 's'} active. Watch Audience Delay and Translation Delay during speech.`;
+      }
+    }
+
+    function runStatusPanel(label, callback) {
+      try {
+        callback();
+      } catch (error) {
+        console.warn(`Church Cap ${label} status panel failed`, error);
+      }
     }
 
     function renderTranslationResources(translation) {
@@ -1539,7 +1807,11 @@
       const maximum = String(translation.max_active_languages || 1);
       const slider = document.getElementById('translationMaxSlider');
       const input = document.getElementById('translationMax');
-      if (slider) slider.value = maximum;
+      if (slider) {
+        const previousValue = slider.dataset.rangeValue ?? slider.value;
+        slider.value = maximum;
+        updatePremiumRange(slider, {previousValue});
+      }
       if (input) input.value = maximum;
       syncTranslationModeCopy();
     }
@@ -1549,13 +1821,14 @@
       if (!select || document.activeElement === select) return;
       const current = String(selected ?? '');
       const match = Array.from(select.options).find((option) => (
-        option.value === current || option.dataset.deviceName === current
+        option.value === current || option.dataset.deviceName === current || option.dataset.deviceId === current
       ));
       if (match) select.value = match.value;
       else if (!current) select.value = '';
     }
 
     async function installTranslationResources(kind) {
+      if (!(await ensureCpuTranslationAcknowledged())) return;
       const result = document.getElementById('translationInstallResult');
       if (result) result.textContent = kind === 'small100' ? 'Starting Core model install…' : 'Starting Base language pack install…';
       const res = await fetch('/api/translation/install', {
@@ -1661,7 +1934,8 @@
       select.appendChild(systemOption);
       for (const device of data.devices) {
         const option = document.createElement('option');
-        option.value = String(device.id);
+        option.value = device.name || String(device.id);
+        option.dataset.deviceId = String(device.id);
         option.dataset.deviceName = device.name;
         option.textContent = device.label;
         if (String(data.selected) === String(device.id) || data.selected === device.name) option.selected = true;
@@ -1690,10 +1964,18 @@
     }
 
     async function saveTranslationSettings() {
+      if (!(await ensureCpuTranslationAcknowledged())) return;
       const result = document.getElementById('translationResult');
-      const provider = document.getElementById('translationProvider')?.value || 'disabled';
+      const providerSelect = document.getElementById('translationProvider');
+      const provider = providerSelect?.value || 'disabled';
       const selected = Array.from(document.querySelectorAll('input[name="translationLang"]:checked')).map(x => x.value);
+      const selectedTranslated = selected.filter((code) => code !== 'en');
       if (!selected.includes('en')) selected.push('en');
+      if (provider === 'disabled' && selectedTranslated.length) {
+        if (result) result.textContent = 'Translation mode is Off. Choose Base, Core, or Auto before saving selected translated languages, or clear the translated-language list to leave captions in English only.';
+        providerSelect?.focus();
+        return;
+      }
       const res = await fetch('/api/translation', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1708,6 +1990,10 @@
       });
       if (res.status === 401) { location.href = '/login'; return; }
       const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        if (result) result.textContent = data.error || 'Unable to save language settings.';
+        return;
+      }
       if (result) result.textContent = `Saved. Enabled: ${data.enabled}. Provider: ${data.provider}. Max active languages: ${data.max_active_languages}. ${data.provider_status?.message || ''}`;
       operatorTranslationEditing = false;
       operatorTranslationSignature = '';
@@ -1822,11 +2108,25 @@
       if (result) result.textContent = 'The unused pairing code has been cancelled.';
     }
 
+    function normaliseLanguageSearch(value) {
+      return String(value || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase();
+    }
+
     function filterOperatorLanguages() {
-      const query = document.getElementById('operatorLanguageSearch')?.value.trim().toLowerCase() || '';
+      const query = normaliseLanguageSearch(document.getElementById('operatorLanguageSearch')?.value.trim() || '');
+      let visibleCount = 0;
       document.querySelectorAll('.premium-language-toggle[data-language-search]').forEach((item) => {
-        item.hidden = !!query && !item.dataset.languageSearch.includes(query);
+        const text = item.dataset.normalizedLanguageSearch || normaliseLanguageSearch(item.dataset.languageSearch || item.textContent || '');
+        item.dataset.normalizedLanguageSearch = text;
+        const visible = !query || text.includes(query);
+        item.hidden = !visible;
+        if (visible) visibleCount += 1;
       });
+      const empty = document.getElementById('operatorLanguageEmpty');
+      if (empty) empty.hidden = visibleCount > 0;
     }
 
     function selectAllOperatorLanguages(checked) {
@@ -2009,9 +2309,21 @@
       }
     }
 
+    function languageForCode(code) {
+      return (window.CC_LANGUAGES || []).find(item => item.code === code);
+    }
+
     function languageName(code) {
-      const lang = (window.CC_LANGUAGES || []).find(item => item.code === code);
+      const lang = languageForCode(code);
       return lang?.name || code.toUpperCase();
+    }
+
+    function languageFlagChip(code) {
+      const lang = languageForCode(code);
+      const label = String(code || '').slice(0, 3).toUpperCase();
+      const flag = String(lang?.flag || '').trim();
+      if (!flag || flag === '🌐') return `<span class="language-code-badge table-language-flag">${label}</span>`;
+      return `<span class="language-flag-chip table-language-flag" data-code="${label}" title="${languageName(code)} · ${label}">${flag}</span>`;
     }
 
     function renderViewerLanguageTable(translationState) {
@@ -2030,7 +2342,7 @@
       for (const [code, count] of entries) {
         const row = document.createElement('tr');
         const status = code === 'en' ? 'Source captions' : (active.has(code) ? 'Translated' : 'Source / capacity');
-        row.innerHTML = `<td>${languageName(code)} <span class="muted">${code}</span></td><td>${count}</td><td>${status}</td>`;
+        row.innerHTML = `<td><span class="table-language-cell">${languageFlagChip(code)}<span>${languageName(code)} <small class="muted">${String(code).toUpperCase()}</small></span></span></td><td>${count}</td><td>${status}</td>`;
         tbody.appendChild(row);
       }
     }
@@ -2053,26 +2365,35 @@
         if (sensitiveStatus) sensitiveStatus.textContent = data.sensitive_mode ? 'Blanked' : 'Normal';
         const connection = document.getElementById('connection');
         if (connection) { connection.textContent = data.status || 'Connected'; connection.classList.toggle('ok', data.status === 'listening'); }
+        const currentCaption = document.getElementById('currentCaption');
+        if (currentCaption) {
+          const captionText = data.current?.text || data.current?.raw_text || '';
+          currentCaption.textContent = captionText || (data.sensitive_mode ? 'Captions are blanked for a sensitive moment.' : (data.status === 'listening' ? 'Listening for speech...' : 'Waiting for captions...'));
+        }
         const activeLangs = data.translation?.active_translated_languages || [];
         const activeText = activeLangs.length ? activeLangs.join(', ') : 'none';
         const activeTranslationLanguages = document.getElementById('activeTranslationLanguages');
         if (activeTranslationLanguages) activeTranslationLanguages.textContent = activeText;
-        renderViewerLanguageTable(data.translation);
-        renderTranslationResources({...data.translation, install: data.translation_install});
-        syncOperatorTranslationControls(data.translation);
-        renderServiceLeaderAccess(data.service_leader_access);
+        runStatusPanel('viewer languages', () => renderViewerLanguageTable(data.translation));
+        runStatusPanel('translation resources', () => renderTranslationResources({...data.translation, install: data.translation_install}));
+        runStatusPanel('translation capacity', () => renderTranslationCapacityWarning(data));
+        runStatusPanel('translation controls', () => syncOperatorTranslationControls(data.translation));
+        runStatusPanel('service leader', () => renderServiceLeaderAccess(data.service_leader_access));
         const providerStatus = document.getElementById('translationProviderStatus');
         if (providerStatus && data.translation?.provider_status) providerStatus.textContent = data.translation.provider_status.message || '';
         const rms = Number(data.metrics?.audio_rms || 0);
         const pct = Math.max(0, Math.min(100, Math.round((rms / 0.06) * 100)));
-        document.getElementById('audioMeter').style.width = pct + '%';
-        document.getElementById('audioPercent').textContent = pct + '%';
+        const audioMeter = document.getElementById('audioMeter');
+        const audioPercent = document.getElementById('audioPercent');
+        if (audioMeter) audioMeter.style.width = pct + '%';
+        if (audioPercent) audioPercent.textContent = pct + '%';
         const runtime = data.settings?.resolved_whisper_runtime || {};
         const runtimeDevice = data.metrics?.model_device || runtime.device || data.settings?.device || 'auto';
         const runtimeCompute = data.metrics?.model_compute_type || runtime.compute_type || data.settings?.compute_type || 'auto';
         const runtimeText = `${runtimeDevice} / ${runtimeCompute}`;
         const backendText = data.settings?.transcriber_mode === 'faster_whisper' ? 'Faster Whisper' : 'OpenAI Whisper';
-        document.getElementById('modelStatus').textContent = `${backendText} · ${data.settings?.model || '—'} · ${data.metrics?.model_loaded ? 'loaded' : 'not loaded'} · ${runtimeText}`;
+        const modelStatus = document.getElementById('modelStatus');
+        if (modelStatus) modelStatus.textContent = `${backendText} · ${data.settings?.model || '—'} · ${data.metrics?.model_loaded ? 'loaded' : 'not loaded'} · ${runtimeText}`;
         const perfRuntime = document.getElementById('performanceRuntime');
         const runtimeSummary = `${backendText} · ${data.settings?.model || '—'} · ${runtimeText}`;
         if (perfRuntime) perfRuntime.textContent = runtimeSummary;
@@ -2084,41 +2405,71 @@
         if (livePreset) livePreset.textContent = data.settings?.performance?.effective?.performance_label || 'Custom';
         const perfHardware = document.getElementById('performanceHardware');
         if (perfHardware && data.settings?.hardware_acceleration?.message) perfHardware.textContent = data.settings.hardware_acceleration.message;
-        renderCudaDetails(data.settings?.hardware_acceleration);
-        renderRecommendation(data.settings?.performance?.recommendation);
-        renderCudaRuntime(data.cuda_runtime);
-        const latency = data.metrics?.last_transcription_seconds;
-        const latencyText = latency == null ? '—' : `${latency.toFixed(2)}s`;
-        document.getElementById('transcriptionLatency').textContent = latencyText;
+        runStatusPanel('hardware details', () => renderCudaDetails(data.settings?.hardware_acceleration));
+        runStatusPanel('recommendation', () => renderRecommendation(data.settings?.performance?.recommendation));
+        runStatusPanel('CUDA runtime', () => renderCudaRuntime(data.cuda_runtime));
+        const latency = asFiniteNumber(data.metrics?.last_transcription_seconds);
+        const latencyText = formatSeconds(latency);
+        const transcriptionLatency = document.getElementById('transcriptionLatency');
+        if (transcriptionLatency) transcriptionLatency.textContent = latencyText;
         const liveLatency = document.getElementById('livePerformanceLatency');
         if (liveLatency) liveLatency.textContent = latencyText;
         const inputText = data.settings?.audio_device ?? 'system default';
-        document.getElementById('selectedInputPill').textContent = inputText;
-        syncOperatorAudioSelection(data.settings?.audio_device);
+        const selectedInputPill = document.getElementById('selectedInputPill');
+        if (selectedInputPill) selectedInputPill.textContent = inputText;
+        runStatusPanel('audio selection', () => syncOperatorAudioSelection(data.settings?.audio_device));
         const strip = data.operator_strip || {};
         const stripMic = document.getElementById('stripMic');
         const stripCpu = document.getElementById('stripCpu');
         const stripRam = document.getElementById('stripRam');
         const stripGpu = document.getElementById('stripGpu');
         const stripTranslate = document.getElementById('stripTranslate');
+        const stripAudienceDelay = document.getElementById('stripAudienceDelay');
+        const stripAudienceDelayPill = document.getElementById('stripAudienceDelayPill');
+        const stripTranslationDelay = document.getElementById('stripTranslationDelay');
+        const stripTranslationDelayPill = document.getElementById('stripTranslationDelayPill');
         if (stripMic) stripMic.textContent = strip.mic_level_percent == null ? '—' : `${strip.mic_level_percent}%`;
-        if (stripCpu) stripCpu.textContent = strip.cpu_percent == null ? '—' : `${Math.round(strip.cpu_percent)}%`;
-        if (stripRam) stripRam.textContent = strip.ram_percent == null ? '—' : `${Math.round(strip.ram_percent)}%`;
+        const stripCpuPercent = asFiniteNumber(strip.cpu_percent);
+        const stripRamPercent = asFiniteNumber(strip.ram_percent);
+        if (stripCpu) stripCpu.textContent = stripCpuPercent == null ? '—' : `${Math.round(stripCpuPercent)}%`;
+        if (stripRam) stripRam.textContent = stripRamPercent == null ? '—' : `${Math.round(stripRamPercent)}%`;
         if (stripGpu) {
-          stripGpu.textContent = strip.gpu_utilization_percent == null
+          const gpuPercent = asFiniteNumber(strip.gpu_utilization_percent);
+          stripGpu.textContent = gpuPercent == null
             ? (strip.gpu || '—')
-            : `${Math.round(strip.gpu_utilization_percent)}%`;
+            : `${Math.round(gpuPercent)}%`;
           stripGpu.title = strip.gpu_message || strip.gpu || '';
         }
+        function renderDelayPill(value, textEl, pillEl) {
+          const delay = asFiniteNumber(value);
+          if (textEl) textEl.textContent = delay == null || !Number.isFinite(delay) ? '—' : `${delay.toFixed(1)}s`;
+          if (pillEl) {
+            pillEl.classList.toggle('ok', delay != null && delay < 2.5);
+            pillEl.classList.toggle('attention', delay != null && delay >= 2.5 && delay <= 3.5);
+            pillEl.classList.toggle('danger', delay != null && delay > 3.5);
+          }
+        }
+        renderDelayPill(strip.audience_delay_seconds ?? strip.live_delay_seconds, stripAudienceDelay, stripAudienceDelayPill);
+        renderDelayPill(strip.translation_delay_seconds, stripTranslationDelay, stripTranslationDelayPill);
         if (stripTranslate) stripTranslate.textContent = `${(strip.active_languages || []).length} / ${strip.translation_capacity || 1}`;
         const profanityFilterStatus = document.getElementById('profanityFilterStatus');
         if (profanityFilterStatus) profanityFilterStatus.textContent = data.profanity_filter_enabled ? 'On' : 'Off';
         const profanityFilterEnabled = document.getElementById('profanityFilterEnabled');
         if (profanityFilterEnabled) profanityFilterEnabled.checked = !!data.profanity_filter_enabled;
-        renderUpdateCapability(data.update);
-        updateTranscriptExportButtons(data.transcript_count);
-        updateBenchmarkFromStatus(data);
-      } catch (_) {}
+        runStatusPanel('update capability', () => renderUpdateCapability(data.update));
+        runStatusPanel('transcript exports', () => updateTranscriptExportButtons(data.transcript_count));
+        runStatusPanel('benchmark', () => updateBenchmarkFromStatus(data));
+        return data;
+      } catch (error) {
+        console.error('Church Cap status refresh failed', error);
+        const connection = document.getElementById('connection');
+        if (connection) connection.textContent = 'Status error';
+        if (benchmarkRunning) {
+          const result = document.getElementById('benchmarkResult');
+          if (result) result.textContent = `Live monitor could not read status: ${error}`;
+        }
+        return null;
+      }
     }
 
     function renderUpdateCapability(update) {
@@ -2133,6 +2484,9 @@
       if (pill) pill.textContent = update.state?.status === 'updating' ? 'Updating' : (update.current_version_label || update.current_version || 'Unknown');
     }
 
+    document.getElementById('cpuTranslationProceedButton')?.addEventListener('click', () => resolveCpuTranslationPrompt(true));
+    document.getElementById('cpuTranslationCancelButton')?.addEventListener('click', () => resolveCpuTranslationPrompt(false));
+
     document.querySelectorAll('.nav-button[data-section]').forEach((button) => {
       button.addEventListener('click', () => showOperatorSection(button.dataset.section));
     });
@@ -2142,11 +2496,13 @@
       if (operatorThemePreference() === 'system') applyOperatorTheme('system');
     });
 
+    if (window.CC_DEPLOYMENT?.capabilities?.simple_operator) document.body.classList.add('appliance-simple-operator');
     updatePlatformControls();
     updateModelWarning();
     setPerformanceSettingsDepth(localStorage.getItem('performanceSettingsDepth') || 'easy');
     applyOperatorTheme(operatorThemePreference());
     setSidebarCollapsed(localStorage.getItem('operatorSidebarCollapsed') === 'true');
+    applyTranslationCapabilityLimits();
     syncTranslationModeCopy();
     const initialSection = window.location.hash ? window.location.hash.slice(1) : localStorage.getItem('operatorSection');
     showOperatorSection(initialSection || 'dashboard');
@@ -2159,6 +2515,7 @@
       syncTranslationMax(event.target);
     });
     document.getElementById('translationMax')?.addEventListener('blur', (event) => syncTranslationMax(event.target));
+    document.querySelectorAll('.premium-range').forEach((range) => updatePremiumRange(range, {animate: false}));
     document.querySelectorAll('#translationProvider, #translationLanguagePolicy, #translationPriorityMode, #translationMaxSlider, #translationMax, input[name="translationLang"]').forEach((control) => {
       control.addEventListener('change', () => { operatorTranslationEditing = true; });
     });

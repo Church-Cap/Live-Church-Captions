@@ -7,6 +7,7 @@ import os
 import site
 import sys
 from dataclasses import asdict, dataclass, field
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -28,6 +29,13 @@ class HardwareAccelerationStatus:
     ctranslate2_cuda_status: str = "unknown"
     cuda_runtime_status: str = "unknown"
     fallback_mode: str = "unknown"
+    apple_chip: str | None = None
+    apple_gpu_names: list[str] = field(default_factory=list)
+    mac_model: str | None = None
+    cpu_brand: str | None = None
+    physical_cpu_count: int | None = None
+    performance_core_count: int | None = None
+    efficiency_core_count: int | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -70,6 +78,60 @@ def _nvidia_smi_info() -> tuple[bool, list[str], str | None]:
 def _has_nvidia_smi() -> bool:
     available, _names, _message = _nvidia_smi_info()
     return available
+
+
+def _sysctl_value(name: str) -> str | None:
+    try:
+        result = subprocess.run(["sysctl", "-n", name], check=False, capture_output=True, text=True, timeout=3)
+        if result.returncode != 0:
+            return None
+        value = result.stdout.strip()
+        return value or None
+    except Exception:
+        return None
+
+
+def _sysctl_int(name: str) -> int | None:
+    value = _sysctl_value(name)
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+@lru_cache(maxsize=1)
+def _mac_hardware_info() -> dict:
+    if platform.system() != "Darwin":
+        return {}
+    info = {
+        "apple_chip": _sysctl_value("machdep.cpu.brand_string"),
+        "mac_model": _sysctl_value("hw.model"),
+        "cpu_brand": _sysctl_value("machdep.cpu.brand_string"),
+        "physical_cpu_count": _sysctl_int("hw.physicalcpu"),
+        "performance_core_count": _sysctl_int("hw.perflevel0.physicalcpu"),
+        "efficiency_core_count": _sysctl_int("hw.perflevel1.physicalcpu"),
+        "apple_gpu_names": [],
+    }
+    try:
+        result = subprocess.run(
+            ["system_profiler", "SPDisplaysDataType", "-json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=6,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            data = json.loads(result.stdout)
+            displays = data.get("SPDisplaysDataType") or []
+            names = []
+            for item in displays:
+                name = item.get("sppci_model") or item.get("sppci_device_type") or item.get("_name")
+                if name and name not in names:
+                    names.append(str(name))
+            info["apple_gpu_names"] = names
+    except Exception:
+        pass
+    return info
 
 
 def _dll_exists_on_path(name: str) -> bool:
@@ -205,9 +267,10 @@ def detect_hardware_acceleration() -> HardwareAccelerationStatus:
     else:
         nvidia_driver_status = "not_applicable"
         ctranslate2_cuda_status = "not_applicable"
-        cuda_runtime_status = "not_applicable"
+        cuda_runtime_status = "apple_metal" if system_name == "Darwin" else "not_applicable"
 
-    fallback_mode = "faster-whisper CUDA" if cuda_ready else "CPU / int8"
+    mac_info = _mac_hardware_info() if system_name == "Darwin" else {}
+    fallback_mode = "faster-whisper CUDA" if cuda_ready else ("Apple Metal/MPS or CPU / int8" if system_name == "Darwin" else "CPU / int8")
 
     if cuda_ready:
         names = f" ({', '.join(nvidia_gpu_names)})" if nvidia_gpu_names else ""
@@ -227,8 +290,14 @@ def detect_hardware_acceleration() -> HardwareAccelerationStatus:
             "Church Cap will fall back to CPU / int8."
         )
     else:
-        detail = cuda_message or nvidia_message or "No NVIDIA CUDA-capable GPU was detected."
-        message = f"CUDA not ready: {detail} Church Cap will use CPU / int8."
+        if system_name == "Darwin":
+            chip = mac_info.get("apple_chip") or "Apple Mac"
+            gpu_names = mac_info.get("apple_gpu_names") or []
+            gpu_text = f" GPU: {', '.join(gpu_names)}." if gpu_names else ""
+            message = f"Apple Mac detected: {chip}.{gpu_text} CUDA is not used on macOS; Church Cap can use Apple Metal/MPS with OpenAI Whisper or CPU/int8 with Faster Whisper."
+        else:
+            detail = cuda_message or nvidia_message or "No NVIDIA CUDA-capable GPU was detected."
+            message = f"CUDA not ready: {detail} Church Cap will use CPU / int8."
 
     return HardwareAccelerationStatus(
         platform=system_name,
@@ -243,6 +312,13 @@ def detect_hardware_acceleration() -> HardwareAccelerationStatus:
         ctranslate2_cuda_status=ctranslate2_cuda_status,
         cuda_runtime_status=cuda_runtime_status,
         fallback_mode=fallback_mode,
+        apple_chip=mac_info.get("apple_chip"),
+        apple_gpu_names=list(mac_info.get("apple_gpu_names") or []),
+        mac_model=mac_info.get("mac_model"),
+        cpu_brand=mac_info.get("cpu_brand"),
+        physical_cpu_count=mac_info.get("physical_cpu_count"),
+        performance_core_count=mac_info.get("performance_core_count"),
+        efficiency_core_count=mac_info.get("efficiency_core_count"),
     )
 
 

@@ -34,7 +34,7 @@ DEFAULTS: dict[str, Any] = {
     "translation_enabled": False,
     "translation_provider": "argos",
     "translation_allowed_languages": ["en"],
-    "translation_max_active_languages": 20,
+    "translation_max_active_languages": 2,
     "translation_language_policy": "automatic",
     "translation_priority_mode": "most_viewers",
     "profanity_filter_enabled": True,

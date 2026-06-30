@@ -29,7 +29,7 @@ Use the IP fallback if Android cannot open the `.local` address.
 
 ## Best production options
 
-For a church pilot, the most reliable options are:
+For a reliable church installation, the most practical options are:
 
 - Set a DHCP reservation for the caption Mac, e.g. `192.168.1.50`.
 - Configure the router/firewall so guest Wi‑Fi can reach only `192.168.1.50:8080` or `:8443`.

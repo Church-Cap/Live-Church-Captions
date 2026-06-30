@@ -20,6 +20,9 @@ class RuntimeMetrics:
     last_transcription_seconds: float | None = None
     last_update_at: float | None = None
     transcriptions_completed: int = 0
+    last_translation_seconds: float | None = None
+    last_translation_at: float | None = None
+    translations_completed: int = 0
     audio_device: str | int | None = None
     sample_rate: int = 16000
     error: str | None = None

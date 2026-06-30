@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v.0.4.0 public preview**
+Version: **v0.5.0 public preview**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -22,6 +22,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - `app/` — Church Cap web app.
 - `config/` — editable glossary and profanity-filter additions.
 - `docs/` — user guides, legal notes, architecture, networking, and translation docs.
+- `docs/project/ROADMAP_TO_V1.md` — staged route from the v0.5 preview architecture to v1.0.0.
 - `.github/` — GitHub-standard contribution, security, code of conduct, issue, pull request, and CI files.
 - `docker/` — optional Docker development files.
 - `scripts/` — helper scripts used by setup, development, diagnostics, and maintenance.
@@ -43,10 +44,24 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - Bad-word censor for likely speech-to-text mistakes.
 - Sensitive blank/pause mode for private or pastoral moments.
 - Transcript retention controls, encrypted local transcript cache, and operator-only current-session transcript export as `.txt`, `.vtt`, `.srt`, and `.json` with a privacy warning.
-- OBS browser-source overlay and setup guide.
+- OBS browser-source overlay and setup guide. The `/display` and `/obs` caption surfaces use the same subtle line glide and trailing-word entry animation as the phone viewer, with a stable two-line layout to reduce jumpy text on room screens and livestream overlays.
 - Local multilingual support: phone UI labels use the lightweight catalogue in `app/locales/client_ui.json`, with Argos runtime fallback where needed. Experimental translated captions use **Base** Argos Translate packs, optional **Core** SMaLL-100, or **Auto** mode across both providers.
 - Local HTTPS helper scripts for testing and managed-device deployments.
 - macOS, Windows, and Linux setup/start support, permission repair/password reset, and macOS LaunchAgent helper scripts.
+
+## Deployment Profiles
+
+Church Cap does not infer appliance mode from hardware alone. A normal Windows, Mac, or Linux computer always runs the full desktop profile unless an administrator explicitly sets `CHURCHCAP_DEPLOYMENT=appliance` or the appliance installer creates `/etc/churchcap-appliance/identity.json`.
+
+Supported profiles are:
+
+- `desktop` - full open-source app experience with all operator controls visible.
+- `appliance_cpu` - streamlined Church Cap Box experience for English-first CPU hardware. Languages remain accessible as an advanced option, show a CPU warning first, and are capped at three active translated languages.
+- `appliance_gpu` - streamlined Church Cap Box experience for multilingual GPU appliance builds. Translation controls are present, but translated captions stay blocked until CUDA is ready.
+
+The appliance identity is intentionally separate from CUDA detection. CUDA decides what the machine can accelerate; the deployment identity decides which product experience to show. This prevents a user's own GPU computer from being mistaken for a Church Cap Box.
+
+For the Church Cap Appliance, use the secure local operator port `9090` only. The shell installer no longer probes or falls back to `8000` or `8080` for the appliance path.
 
 ## Hardware Guidance
 
@@ -121,7 +136,7 @@ http://192.168.1.50:8080/
 
 Church Cap can use either the standard OpenAI Whisper backend or the lower-latency `faster-whisper` backend. The operator page includes a **Performance** section with a speed/accuracy slider and advanced controls for platform view, backend, model size, processor, compute type, caption refresh, listening window, silence timing, and stability checks. These settings are saved automatically in the per-user runtime config and apply the next time captions are started. To protect the live audience feed, performance controls are locked while captions are running.
 
-The **Performance platform** setting defaults to auto-detect. On Windows, `faster-whisper` can use CUDA through CTranslate2 when the GPU, drivers, and required CUDA runtime DLLs are available. If CUDA is not ready, setup can offer to install or force reinstall local NVIDIA CUDA 12 runtime packages inside `.venv`, or you can run `.\install-cuda-runtime-windows.cmd` later. The force reinstall clears pip's CUDA wheel cache and downloads fresh local runtime wheels. The operator Performance panel also shows a Windows CUDA troubleshooting area when Windows is selected, with **Check CUDA** and **Force reinstall CUDA runtime** buttons. Selecting **GPU / NVIDIA CUDA** forces a CUDA load attempt first for Faster Whisper; if the runtime cannot load CUDA, Church Cap falls back to CPU and reports the reason in the operator status. The built-in CUDA runtime installer targets Faster Whisper/CTranslate2 rather than PyTorch/OpenAI Whisper, so Windows CUDA recommendations stay on Faster Whisper. On macOS, the processor choices hide CUDA and can show Apple GPU / Metal for OpenAI Whisper when PyTorch supports MPS. Argos Translate remains local and experimental and may still run on CPU.
+The **Performance platform** setting defaults to auto-detect. On Windows, `faster-whisper` can use CUDA through CTranslate2 when the GPU, drivers, and required CUDA runtime DLLs are available. If CUDA is not ready, setup can offer to install or force reinstall local NVIDIA CUDA 12 runtime packages inside `.venv`, or you can run `.\install-cuda-runtime-windows.cmd` later. The force reinstall clears pip's CUDA wheel cache and downloads fresh local runtime wheels. The operator Performance panel also shows a Windows CUDA troubleshooting area when Windows is selected, with **Check CUDA** and **Force reinstall CUDA runtime** buttons. Selecting **GPU / NVIDIA CUDA** forces a CUDA load attempt first for Faster Whisper; if the runtime cannot load CUDA, Church Cap falls back to CPU and reports the reason in the operator status. The built-in CUDA runtime installer targets Faster Whisper/CTranslate2 rather than PyTorch/OpenAI Whisper, so Windows CUDA recommendations stay on Faster Whisper. On macOS, the processor choices hide CUDA and can show Apple GPU / Metal for OpenAI Whisper when PyTorch supports MPS; diagnostics and the operator strip report Apple chip/GPU information and unified memory more clearly. Argos Translate remains local and experimental and may still run on CPU.
 
 The local CUDA runtime installer is usually easier than installing the full NVIDIA CUDA Toolkit. Windows users who already manage NVIDIA tooling can instead install CUDA 12.x and cuDNN system-wide from NVIDIA, then rerun `.\start-windows.cmd`.
 
@@ -245,14 +260,14 @@ Open `/operator`, then use **Performance** on the dashboard.
 - Move the slider toward **Most accurate** when the computer has enough CPU/GPU headroom and wording matters more than delay. The far-right setting uses `medium.en` and can noticeably increase latency, so check it with the benchmark before a service.
 - Use **More settings** for deeper tuning. Easy mode shows platform, backend, model size, and processor. Advanced mode adds compute type, caption refresh, listening window, silence finalise timing, stability checks, and OpenAI Whisper beam size. The platform view is automatic by default, but can be set to macOS, Windows, or Linux if detection is wrong.
 
-Performance adjustments save automatically when captions are stopped. Stop captions before changing the model, backend, processor, or other performance settings because the model and audio stream are loaded when captions start. The Performance panel also includes a 15-second benchmark and a live monitor that sample live transcription time, estimated caption delay, audio level, model load time, runtime, and available system load. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
+Performance adjustments save automatically when captions are stopped. Stop captions before changing the model, backend, processor, or other performance settings because the model and audio stream are loaded when captions start. The top operator bar includes **Audience Delay** and **Translation Delay** tiles so the operator can glance at estimated live caption and translated-caption delay during a service. The Performance panel also includes a 15-second benchmark and a live monitor that sample live transcription time, estimated caption delay, audio level, model load time, runtime, and available system load. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
 
 ## Main Pages
 
 ```text
 /                  phone/tablet live captions
-/display           large display page for screens
-/obs               OBS browser-source overlay
+/display           large display page for screens, using the smooth audience-caption renderer
+/obs               OBS browser-source overlay, using the same smoother caption pacing
 /obs/help          OBS setup guide, operator login required
 /operator          operator controls, login required
 /service-leader    restricted service-leader controls, one-use pairing required
@@ -271,13 +286,13 @@ Performance adjustments save automatically when captions are stopped. Stop capti
 
 ## Translation
 
-Phone UI language selection is local and lightweight. The visitor page uses static strings from `app/locales/client_ui.json` first, including manual fallback strings for languages Argos does not cover. If a selected language is not in that file, Church Cap asks the local Base / Argos provider to translate the small set of UI labels at runtime, then falls back to English if the needed Argos pack is not installed. This UI path is separate from live caption translation routing and does not require captions to be running.
+Phone UI language selection is local and lightweight. The visitor page uses static strings from `app/locales/client_ui.json` first, including manual fallback strings for languages Argos does not cover. If a selected language is not in that file, Church Cap asks the local Base / Argos provider to translate the small set of UI labels at runtime, then falls back to English if the needed Argos pack is not installed. This UI path is separate from live caption translation routing and does not require captions to be running. Audience language lists show compact Unicode flag chips and keep the language code in the language text. Operator and Service Leader lists keep compact flag/code chips for admin readability. Search matches language codes, English names, native names, and accented names. When a platform does not render emoji flags reliably, Church Cap still shows the language code in the option text or fallback badge.
 
-The operator dashboard shows a steady loading notice while captions start and the local speech model/audio input are being prepared. On visitor phones, changing language during an active caption stream shows a small in-card loading notice that does not move the caption layout; it is not shown on an empty waiting screen.
+The operator dashboard shows a steady loading notice while captions start and the local speech model/audio input are being prepared. On Linux, Church Cap first tries the configured 16 kHz capture rate and, if a USB audio interface only opens at its native rate such as 48 kHz, captures at that native rate and resamples internally for Whisper. Audio input saves prefer the device name rather than the volatile PortAudio index, so USB devices are less likely to break after reboot or re-enumeration. On visitor phones, changing language during an active caption stream shows a small in-card loading notice that does not move the caption layout; it is not shown on an empty waiting screen. The display and OBS pages share the phone caption renderer so new words ease in and existing lines glide instead of the whole overlay snapping on every update.
 
 Translated captions are separate, experimental, and resource-heavy. Whisper performs speech-to-text; it does not translate one English caption stream into every viewer language by itself. Real translated captions require a translation provider. Church Cap supports **Base / Argos Translate**, optional **Core / SMaLL-100**, and **Auto / Base + Core** modes.
 
-The first-time setup scripts can install common Base Argos packs, all available Base packs, or common Base packs plus the heavier optional Core SMaLL-100 model. The operator **Languages** page can also install common Base packs, install all Base packs, or install Core later. To rerun common Base setup manually:
+The first-time setup scripts can install common Base Argos packs, all available Base packs, or common Base packs plus the heavier optional Core SMaLL-100 model. The operator **Languages** page can also install common Base packs, install all Base packs, or install Core later. Normal desktop installs keep the full Languages page available. On `appliance_cpu`, the page is available as an advanced option with a confirmation warning and a hard cap of three active translated languages. On `appliance_gpu`, translated captions require the GPU/CUDA runtime to be ready. To rerun common Base setup manually:
 
 ```bash
 ./scripts/install-translation-models-argos.sh
@@ -313,7 +328,7 @@ Windows:
 powershell -ExecutionPolicy Bypass -File .\scripts\install-small100-core.ps1
 ```
 
-By default, translated-caption language availability is automatic: visitors can request any supported language shown by the selected provider, and Church Cap translates the most-requested languages up to the operator's active limit. The default active limit is 20 and the control can be raised up to the full supported language catalogue on powerful hardware. Lower the limit for weaker systems or when latency matters.
+By default, translated-caption language availability is automatic: visitors can request any supported language shown by the selected provider, and Church Cap translates the most-requested languages up to the operator's active limit. The default active limit is 2 for fresh installs. The control can be raised on powerful hardware, but CPU-only systems should usually stay at 1-2 active translated languages when latency matters.
 
 Translation may be inaccurate for Scripture, names, theology, pastoral details, and safeguarding-sensitive content. Use a qualified human interpreter where accuracy matters.
 
@@ -350,7 +365,7 @@ AI-generated captions may be inaccurate. For high-stakes, confidential, legal, s
 
 On the Church Cap computer, either select **Connect a service leader device** on the operator login page or open **Service Leader** in the operator menu. Generate a one-use QR code, then scan it with the church phone or tablet. The operator section can replace or cancel an unused QR, show connected-device status, and disconnect all paired devices.
 
-The paired page can start, stop, blank, resume, change the audio input while captions are stopped, monitor caption health, and manage translated captions in Automatic or Manual language mode. Its searchable language list matches native names, English names, and language codes. Language and audio choices stay synchronised with the operator page. The operator and Service Leader controls show a subtle active-state glow, and short action messages explain when captions are starting, stopping, blanked, resuming, or sending a test caption. The caption preview uses the same live feed as audience phones, but the page warns that a control-device delay is not the main performance measure. It cannot access transcripts, diagnostics, updates, passwords, performance settings, or model installation. Pairing expires after 90 seconds and the restricted session expires after four hours or two hours of inactivity, with an on-device warning before the inactivity timer runs out.
+The paired page can start, stop, blank, resume, change the audio input while captions are stopped, monitor caption health, and manage translated captions in Automatic or Manual language mode. When the operator sets Manual / restricted availability, the Service Leader and audience language pickers only show the selected languages. Its searchable language list matches native names, English names, language codes, and uses the same flag/code chips as the operator language page. Language and audio choices stay synchronised with the operator page. The operator and Service Leader controls show a subtle active-state glow, and short action messages explain when captions are starting, stopping, blanked, resuming, or sending a test caption. The caption preview uses the same live feed as audience phones, but the page warns that a control-device delay is not the main performance measure. It cannot access transcripts, diagnostics, updates, passwords, performance settings, or model installation. Pairing expires after 90 seconds and the restricted session expires after four hours or two hours of inactivity, with an on-device warning before the inactivity timer runs out.
 
 The page uses the configured operator port, normally `9090`. In secure operator mode, full operator routes remain localhost-only while `/service-leader` is available to paired devices. On HTTP, use a trusted staff/AV network; HTTPS is preferred for managed church devices.
 

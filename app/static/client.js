@@ -16,14 +16,17 @@
   const captionLoadNotice = document.getElementById('captionLoadNotice');
   const viewerHint = document.getElementById('viewerHint');
   const isPhonePage = document.body.classList.contains('phone-page');
+  const isPresentationPage = document.body.classList.contains('display-page') || document.body.classList.contains('obs-page');
 
   const MAX_LIVE_SEGMENTS = 120;
   const MAX_TRANSCRIPT_ITEMS = 1000;
   const SOURCE_LANGUAGE = 'en';
   const UI_STRINGS = window.CC_UI_STRINGS || {};
   const UI_STRING_SOURCES = window.CC_UI_STRING_SOURCES || {};
-  const LANGUAGES = window.CC_LANGUAGES || [{code: 'en', native: 'English', flag: '🇬🇧', dir: 'ltr'}];
+  const LANGUAGES = window.CC_LANGUAGES || [{code: 'en', native: 'English', flag: '', dir: 'ltr'}];
   let translationState = window.CC_TRANSLATION_STATE || {enabled: false};
+  let languageMetadataRefreshTimer = null;
+  let languageMetadataRequest = null;
 
   let paused = false;
   let fontScale = Number(localStorage.getItem('captionFontScale') || '1');
@@ -91,7 +94,10 @@
     if (languageSelect) languageSelect.value = viewerLanguage;
     if (languageFlag) {
       languageFlag.textContent = marker.text;
+      languageFlag.dataset.code = marker.code;
+      languageFlag.title = `${languageDisplayName(lang)} · ${marker.code}`;
       languageFlag.classList.toggle('language-code-badge', marker.isBadge);
+      languageFlag.classList.toggle('language-flag-chip', marker.isFlag);
     }
     if (languagePickerLabel) languagePickerLabel.textContent = languageDisplayName(lang);
     document.querySelectorAll('[data-i18n]').forEach((el) => {
@@ -124,9 +130,9 @@
 
   function languageDisplayName(lang) {
     if (!lang) return 'English';
-    const native = lang.native || lang.name || lang.code?.toUpperCase();
-    const english = lang.name || native;
-    return native === english ? native : `${native} (${english})`;
+    const english = lang.name || lang.native || lang.code?.toUpperCase();
+    const native = lang.native || english;
+    return native === english ? english : `${english} (${native})`;
   }
 
   function languageSearchText(lang) {
@@ -156,6 +162,27 @@
     return LANGUAGES.filter(lang => available.has(lang.code));
   }
 
+  async function refreshLanguageMetadata({reconnectIfNeeded = true} = {}) {
+    if (languageMetadataRequest) return languageMetadataRequest;
+    languageMetadataRequest = fetch('/api/languages', {cache: 'no-store', headers: {Accept: 'application/json'}})
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Language refresh failed: ${response.status}`);
+        const data = await response.json();
+        if (data.translation) translationState = data.translation;
+        if (data.ui_strings) Object.assign(UI_STRINGS, data.ui_strings);
+        if (data.ui_string_sources) Object.assign(UI_STRING_SOURCES, data.ui_string_sources);
+        const changed = ensureViewerLanguageIsAvailable();
+        applyLanguage({fetchUiStrings: false});
+        if (changed && reconnectIfNeeded) connect();
+        return data;
+      })
+      .catch(() => null)
+      .finally(() => {
+        languageMetadataRequest = null;
+      });
+    return languageMetadataRequest;
+  }
+
   function ensureViewerLanguageIsAvailable() {
     const available = availableCaptionLanguageCodes();
     if (available && !available.has(viewerLanguage)) {
@@ -166,10 +193,10 @@
   }
 
   function languageMarker(lang) {
+    const code = String(lang?.code || 'cc').slice(0, 3).toUpperCase();
     const flag = String(lang?.flag || '').trim();
-    const generic = !flag || flag === '🌐' || flag === '🏳️' || flag === '🏴';
-    if (!generic) return {text: flag, isBadge: false};
-    return {text: String(lang?.code || 'cc').slice(0, 3).toUpperCase(), isBadge: true};
+    if (flag && flag !== '🌐') return {text: flag, code, isBadge: false, isFlag: true};
+    return {text: code, code, isBadge: true, isFlag: false};
   }
 
   async function ensureLanguageUiStrings(code) {
@@ -271,13 +298,14 @@
 
   function subtitleLimits() {
     const landscape = window.matchMedia('(orientation: landscape)').matches || window.innerWidth > window.innerHeight;
-    const baseChars = landscape ? 52 : 42;
+    const presentationObs = document.body.classList.contains('obs-page');
+    const baseChars = isPresentationPage ? (presentationObs ? 42 : 50) : (landscape ? 52 : 42);
     const estimatedLineHeight = current ? Math.max(24, parseFloat(getComputedStyle(current).lineHeight) || 30) : 30;
     const availableHeight = current ? Math.max(220, current.clientHeight - 24) : 300;
-    const capacity = Math.max(4, Math.floor(availableHeight / estimatedLineHeight));
+    const capacity = isPresentationPage ? 2 : Math.max(4, Math.floor(availableHeight / estimatedLineHeight));
     return {
       chars: Math.max(28, Math.round(baseChars / Math.max(fontScale, 0.9))),
-      maxLines: Math.max(4, capacity),
+      maxLines: isPresentationPage ? 2 : Math.max(4, capacity),
     };
   }
 
@@ -438,7 +466,7 @@
   }
 
   function renderSubtitleStack() {
-    if (!isPhonePage) {
+    if (!isPhonePage && !isPresentationPage) {
       const latestFinal = finalSegments.length ? cleanCaptionText(finalSegments[finalSegments.length - 1].text) : '';
       const fallbackText = cleanCaptionText(currentDraftText) || cleanCaptionText(activeBlock?.text) || latestFinal || t('waiting');
       if (current) current.textContent = fallbackText;
@@ -1012,6 +1040,9 @@
     languagePickerOverlay.hidden = false;
     languagePickerButton?.setAttribute('aria-expanded', 'true');
     renderLanguageList(languageSearch?.value || '');
+    refreshLanguageMetadata();
+    if (languageMetadataRefreshTimer) clearInterval(languageMetadataRefreshTimer);
+    languageMetadataRefreshTimer = setInterval(() => refreshLanguageMetadata({reconnectIfNeeded: false}), 10000);
     window.setTimeout(() => languageSearch?.focus(), 0);
   }
 
@@ -1019,6 +1050,10 @@
     if (!languagePickerOverlay) return;
     languagePickerOverlay.hidden = true;
     languagePickerButton?.setAttribute('aria-expanded', 'false');
+    if (languageMetadataRefreshTimer) {
+      clearInterval(languageMetadataRefreshTimer);
+      languageMetadataRefreshTimer = null;
+    }
     languagePickerButton?.focus();
   }
 
@@ -1045,14 +1080,19 @@
       const marker = languageMarker(lang);
       const flag = document.createElement('span');
       flag.className = 'language-option-flag';
+      flag.dataset.code = marker.code;
+      flag.title = `${languageDisplayName(lang)} · ${marker.code}`;
       flag.classList.toggle('language-code-badge', marker.isBadge);
+      flag.classList.toggle('language-flag-chip', marker.isFlag);
       flag.textContent = marker.text;
       const text = document.createElement('span');
       text.className = 'language-option-text';
       const title = document.createElement('strong');
-      title.textContent = lang.native || lang.name || lang.code.toUpperCase();
+      title.textContent = lang.name || lang.native || lang.code.toUpperCase();
+      title.dir = 'auto';
       const meta = document.createElement('small');
-      meta.textContent = lang.name && lang.name !== lang.native ? `${lang.name} · ${lang.code}` : lang.code;
+      meta.dir = 'auto';
+      meta.textContent = lang.native && lang.native !== lang.name ? `${lang.native} · ${lang.code}` : lang.code;
       text.append(title, meta);
       button.append(flag, text);
       button.addEventListener('click', () => {

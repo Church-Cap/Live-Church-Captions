@@ -76,7 +76,7 @@ On AlmaLinux with `firewalld`, allow port 9090 only from the trusted staff/AV ne
 
 The service leader can only choose languages supported by the translation provider and models already installed by the operator. The provider, model installation, and maximum active-language capacity remain operator-controlled.
 
-The page follows the same availability model as the operator page:
+The page follows the same availability model as the operator page. If the operator sets Restricted language availability, this page only shows the approved language list. Its language list uses the same admin flag/code chips as the operator language picker, with language-code fallback for platforms that do not render emoji flags reliably:
 
 - **Automatic** lets visitors request any supported installed language. Church Cap translates the most-requested languages up to the operator's active-language limit.
 - **Manual** enables only English plus the selected languages. The service leader cannot select more languages than the operator's configured active-language limit.

@@ -9,7 +9,7 @@ For the public viewer page, HTTP on an isolated local network may be acceptable 
 Recommended practical setup:
 
 ```text
-Viewer page: local HTTP is acceptable for many pilots
+Viewer page: local HTTP can be acceptable on an isolated trusted network
 Operator page: use HTTPS where practical
 Service leader page: use HTTPS on a managed church phone/tablet where practical
 Network: keep the app internal, do not port-forward it to the internet
@@ -46,7 +46,7 @@ This avoids browser warnings, but it requires domain/DNS management and certific
 
 ## Offline-first recommendation
 
-For the prototype and church pilots:
+For local Church Cap deployments:
 
 ```text
 - Keep the caption server local only

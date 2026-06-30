@@ -84,25 +84,25 @@ Testing only. This does not translate; it prefixes captions so you can test the 
 TRANSLATION_ENABLED=true
 TRANSLATION_PROVIDER=demo
 TRANSLATION_ALLOWED_LANGUAGES=en
-TRANSLATION_MAX_ACTIVE_LANGUAGES=20
+TRANSLATION_MAX_ACTIVE_LANGUAGES=2
 ```
 
 ## Language selection
 
-The visitor language picker is a custom searchable list. It shows the languages available for the current translation mode:
+The visitor language picker is a custom searchable list. It shows the languages available for the current translation mode. Language options use compact Unicode flag chips; the language code remains in the option text beside the language name instead of inside the flag chip. If a language has no flag metadata, Church Cap shows a compact code badge:
 
 - **Off** — source language captions only, while UI labels can still change from bundled dictionaries.
 - **Base** — installed Argos target languages.
 - **Core** — SMaLL-100 supported languages when Core is installed.
 - **Auto** — the union of installed Base languages and Core-supported languages.
 
-By default, visitor language availability is **Automatic**. Visitors can request any language shown by the current mode, and Church Cap translates the most-requested languages up to the active limit. Advanced operators can switch to **Restricted** and select a smaller list, or prioritise selected languages first. The operator list includes search, **Select all**, and **Clear all** controls for quicker setup.
+By default, visitor language availability is **Automatic**. Visitors can request any language shown by the current mode, and Church Cap translates the most-requested languages up to the active limit. Advanced operators can switch to **Restricted** and select a smaller list, or prioritise selected languages first. In Restricted mode, the audience language picker and paired Service Leader language list show only the selected languages plus English. Open audience phones refresh this language list from `/api/languages` when the picker opens, so operator changes appear without a full page reload. The operator and Service Leader lists search language codes, English names, native names, and accented names. The operator list includes **Select all** and **Clear all** controls for quicker setup.
 
 ## Resource safeguard
 
 Every active translated caption language adds CPU/RAM work. To protect the caption computer during a busy service, the operator can set **Maximum active translated languages**.
 
-The default active limit is **20**. The control can be raised up to the full supported language catalogue on powerful hardware, or lowered for weaker systems and services where latency matters most.
+The default active limit is **2** for fresh installs. The control can be raised up to the full supported language catalogue on powerful hardware, but CPU-only systems should usually stay at 1-2 active translated languages for live services.
 
 Example:
 
@@ -114,7 +114,24 @@ Result: the two most-used languages are translated; the remaining language recei
 
 This is intentional. It prevents one computer from trying to run too many translation streams on a Sunday morning.
 
-The restricted service-leader page can enable or disable translated captions and choose Automatic or Manual language availability from resources already installed by the operator. Its search results follow the audience picker pattern and include native names, English names, and language codes. It cannot change the provider, install models, or exceed the operator-configured active-language limit. Manual mode saves a restricted language list containing English plus the selected languages; Automatic mode lets visitor demand choose languages up to the active limit. Changes made on either page are reflected on the other page during its normal live-status refresh.
+The restricted service-leader page can enable or disable translated captions and choose Automatic or Manual language availability from resources already installed by the operator. If the operator has already restricted availability, the Service Leader can only choose from that approved list. Its search results follow the same language availability rules and include flag/code chips, native names, English names, and language codes. It cannot change the provider, install models, or exceed the operator-configured active-language limit. Manual mode saves a restricted language list containing English plus the selected languages; Automatic mode lets visitor demand choose languages up to the active limit. Changes made on either page are reflected on the other page during its normal live-status refresh.
+
+## Appliance profiles
+
+The open-source desktop app keeps the full Languages page available because the operator may be testing or preparing a powerful machine. The Church Cap Appliance is stricter:
+
+- `appliance_cpu` keeps the main operator experience English-first but leaves **Languages** accessible as an advanced option. The first visit shows a CPU translation warning, and Church Cap enforces a hard limit of three active translated languages even if a stale browser or direct API request tries to exceed it.
+- `appliance_gpu` shows multilingual controls in the main run-service area, but translated captions remain blocked until CUDA is ready.
+
+The appliance profile comes from `/etc/churchcap-appliance/identity.json` or explicit environment variables. It is never inferred from hardware alone.
+
+## CPU-only live-service guidance
+
+CPU-only translation is viable, but it is not the same workload as English captions. Whisper, text cleanup, WebSocket delivery, and every active translated language all compete for the same CPU. On CPU-only or mid-range mobile systems, start with **1-2 active translated languages** for live services and raise the limit only after testing with normal speech.
+
+Church Cap protects the live source caption feed by scheduling translated-caption work through a latest-wins queue. If speech produces a newer caption while an older caption is still being translated, stale translation work can be skipped so translated captions do not arrive as a delayed backlog. This keeps translation useful without letting it starve live English captions.
+
+For 3 or more simultaneous neural translations, use a stronger desktop CPU, NVIDIA CUDA acceleration, or a separate translation-capable machine. AMD integrated graphics / ROCm may become useful for Linux power users in the future, but it is not a supported Church Cap acceleration path in this release.
 
 ## GPU note
 

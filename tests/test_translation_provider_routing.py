@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from app.i18n import LocalTranslator, TranslationResult
 
@@ -20,6 +21,13 @@ class StubTranslator(LocalTranslator):
 
 
 class ResourceStubTranslator(LocalTranslator):
+    def supported_languages_for_provider(self, provider: str) -> list[str]:
+        if provider == "argos":
+            return ["en", "es", "fr", "no"]
+        if provider == "disabled":
+            return ["en"]
+        return super().supported_languages_for_provider(provider)
+
     def translation_resources(self) -> dict:
         return {
             "argos": {
@@ -54,6 +62,16 @@ class TranslationProviderRoutingTests(unittest.TestCase):
         translator = ResourceStubTranslator()
 
         self.assertIn("no", translator.supported_languages_for_provider("argos"))
+
+    def test_restricted_policy_filters_audience_available_languages(self):
+        source = Path("app/broadcast.py").read_text(encoding="utf-8")
+
+        self.assertIn("self.source_language = SOURCE_LANGUAGE", source)
+        self.assertIn("LocalTranslator(self.source_language)", source)
+        self.assertIn('self.translation_language_policy == "restricted"', source)
+        self.assertIn("self.translation_allowed_languages | {self.source_language}", source)
+        self.assertIn("& provider_languages", source)
+        self.assertIn('"available_languages": available_languages', source)
 
 
 if __name__ == "__main__":

@@ -65,6 +65,8 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         self.assertIn('body.get("translation_language_policy")', route)
         self.assertIn('language_policy', route)
         self.assertIn('{"automatic", "restricted"}', route)
+        self.assertIn('operator_allowed_codes', route)
+        self.assertIn('selectable_codes', route)
 
     def test_service_leader_audio_change_is_scoped_and_requires_stopped_captions(self):
         route = self.main.split('async def service_leader_update_audio', 1)[1].split('@app.post("/service-leader/api/session/extend")', 1)[0]
@@ -144,6 +146,7 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
 
     def test_operator_language_search_select_all_and_live_sync_exist(self):
         self.assertIn("operatorLanguageSearch", self.operator)
+        self.assertIn("normaliseLanguageSearch", self.operator)
         self.assertIn("selectAllOperatorLanguages(true)", self.operator)
         self.assertIn("syncOperatorTranslationControls(data.translation)", self.operator)
         self.assertIn("syncOperatorAudioSelection(data.settings?.audio_device)", self.operator)

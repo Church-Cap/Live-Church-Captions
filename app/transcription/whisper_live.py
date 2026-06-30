@@ -23,6 +23,7 @@ from app.metrics import get_metrics, reset_metrics, update_metrics
 from app.models import CaptionSegment
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
+from app.transcription.audio_input import input_default_sample_rate, resample_mono
 
 
 class WhisperLiveTranscriber(Transcriber):
@@ -48,6 +49,7 @@ class WhisperLiveTranscriber(Transcriber):
         self.language = language
         self.audio_device = audio_device if audio_device not in {"", "none", "None"} else None
         self.sample_rate = int(sample_rate)
+        self.input_sample_rate = self.sample_rate
         self.chunk_seconds = max(float(chunk_seconds), 0.5)
         self.window_seconds = max(float(stream_window_seconds), self.chunk_seconds)
         self.update_interval = max(float(stream_update_interval_seconds), 0.35)
@@ -122,6 +124,8 @@ class WhisperLiveTranscriber(Transcriber):
 
     def _audio_callback(self, indata, frames, time_info, status):  # pragma: no cover - needs audio hardware
         audio = np.asarray(indata, dtype=np.float32).reshape(-1).copy()
+        if self.input_sample_rate != self.sample_rate:
+            audio = resample_mono(audio, self.input_sample_rate, self.sample_rate)
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         peak = float(np.max(np.abs(audio))) if audio.size else 0.0
         now = time.monotonic()
@@ -144,39 +148,61 @@ class WhisperLiveTranscriber(Transcriber):
                 self._buffered_samples -= removed.size
 
     def _start_audio_stream(self) -> None:
-        def open_stream(device):
+        def open_stream(device, samplerate: int):
+            self.input_sample_rate = int(samplerate)
             stream = sd.InputStream(
-                samplerate=self.sample_rate,
+                samplerate=self.input_sample_rate,
                 channels=1,
                 dtype="float32",
                 device=device,
-                blocksize=max(512, int(self.sample_rate * 0.1)),
+                blocksize=max(512, int(self.input_sample_rate * 0.1)),
                 callback=self._audio_callback,
             )
             stream.start()
+            update_metrics(audio_device=device, sample_rate=self.sample_rate)
+            return stream
+
+        def open_with_native_rate(device, original_error: Exception):
+            native_rate = input_default_sample_rate(device, self.sample_rate)
+            if native_rate == self.sample_rate:
+                raise original_error
+            stream = open_stream(device, native_rate)
+            update_metrics(
+                error=(
+                    f"Audio input opened at native {native_rate} Hz and is being resampled "
+                    f"to {self.sample_rate} Hz for Whisper. Original {self.sample_rate} Hz open failed: {original_error}"
+                )
+            )
             return stream
 
         try:
-            self._stream = open_stream(self.audio_device)
+            self._stream = open_stream(self.audio_device, self.sample_rate)
         except Exception as exc:
-            if self.audio_device is None:
-                raise RuntimeError(
-                    "Could not open the system default audio input. Check microphone permissions, "
-                    "connect the USB audio interface, then refresh and choose an input on the operator page."
-                ) from exc
+            try:
+                self._stream = open_with_native_rate(self.audio_device, exc)
+                return
+            except Exception as native_exc:
+                if self.audio_device is None:
+                    raise RuntimeError(
+                        "Could not open the system default audio input. Check operating-system microphone/audio permissions, "
+                        f"connect the USB audio interface, then refresh and choose an input on the operator page. Detail: {native_exc}"
+                    ) from native_exc
             update_metrics(
                 error=f"Selected audio input could not be opened; falling back to system default: {exc}",
                 audio_device=None,
             )
             self.audio_device = None
             try:
-                self._stream = open_stream(None)
+                self._stream = open_stream(None, self.sample_rate)
             except Exception as fallback_exc:
-                raise RuntimeError(
-                    "Could not open the selected audio input or the system default input. "
-                    "Refresh the audio device list, choose a valid microphone/audio interface, save it, "
-                    "then start captions again."
-                ) from fallback_exc
+                try:
+                    self._stream = open_with_native_rate(None, fallback_exc)
+                except Exception as native_default_exc:
+                    raise RuntimeError(
+                        "Could not open the selected audio input or the system default input. "
+                        "Refresh the audio device list, choose a valid microphone/audio interface, save it, "
+                        f"then start captions again. Detail: {native_default_exc}"
+                    ) from native_default_exc
 
     def _latest_audio(self, seconds: float | None = None) -> np.ndarray:
         seconds = seconds or self.window_seconds

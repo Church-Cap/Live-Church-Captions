@@ -1,11 +1,13 @@
 import asyncio
+import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from fastapi import WebSocket
 from app.models import CaptionSegment, CaptionState
-from app.i18n import LocalTranslator, MAX_TRANSLATION_LANGUAGES, normalise_language
+from app.i18n import LocalTranslator, MAX_TRANSLATION_LANGUAGES, SOURCE_LANGUAGE, normalise_language
 from app.transcript_store import TranscriptStore
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
+from app.metrics import get_metrics, update_metrics
 
 
 class CaptionHub:
@@ -28,18 +30,20 @@ class CaptionHub:
         self._sensitive_mode = False
         self._sensitive_resume_ignore_until: datetime | None = None
         self._lock = asyncio.Lock()
+        self.source_language = SOURCE_LANGUAGE
         self.translation_enabled = False
         self.translation_provider = "disabled"
-        self.translation_allowed_languages: set[str] = {"en"}
-        self.translation_max_active_languages = 20
+        self.translation_allowed_languages: set[str] = {self.source_language}
+        self.translation_max_active_languages = 2
         self.translation_language_policy = "automatic"
         self.translation_priority_mode = "most_viewers"
-        self.translator = LocalTranslator("en")
-        self._translation_tasks: set[asyncio.Task] = set()
-        self._translation_semaphore = asyncio.Semaphore(2)
+        self.translator = LocalTranslator(self.source_language)
         self._translation_sequence = 0
         self._latest_translation_sequence: dict[str, int] = {}
         self._last_partial_translation_at: dict[str, datetime] = {}
+        self._pending_translation_job: dict | None = None
+        self._translation_worker_event: asyncio.Event | None = None
+        self._translation_worker_task: asyncio.Task | None = None
         self._transcript_store = transcript_store or TranscriptStore()
         self._session_cache_written = False
         self._start_new_session()
@@ -86,39 +90,63 @@ class CaptionHub:
         self.translation_enabled = bool(enabled)
         self.translation_provider = provider or "disabled"
         self.translation_allowed_languages = set(normalise_language(x) for x in allowed_languages)
-        self.translation_allowed_languages.add("en")
+        self.translation_allowed_languages.add(self.source_language)
         self.translation_max_active_languages = max(1, min(MAX_TRANSLATION_LANGUAGES, int(max_active_languages)))
         self.translation_language_policy = language_policy if language_policy in {"automatic", "restricted"} else "automatic"
         self.translation_priority_mode = priority_mode if priority_mode in {"most_viewers", "pinned_first"} else "most_viewers"
+        if not self.translation_enabled or self.translation_provider not in {"small100", "both"}:
+            self.translator.unload_models()
 
     def language_counts(self) -> dict[str, int]:
         return dict(Counter(lang for ws, lang in self._clients.items() if ws in self._viewer_clients))
 
     def active_translated_languages(self) -> list[str]:
-        counts = Counter(lang for ws, lang in self._clients.items() if ws in self._viewer_clients and lang != "en")
+        counts = Counter(lang for ws, lang in self._clients.items() if ws in self._viewer_clients and lang != self.source_language)
         if self.translation_language_policy == "restricted":
             allowed = [lang for lang, _ in counts.most_common() if lang in self.translation_allowed_languages]
         else:
             allowed = [lang for lang, _ in counts.most_common()]
         if self.translation_priority_mode == "pinned_first":
-            pinned = [lang for lang in sorted(self.translation_allowed_languages) if lang != "en" and counts.get(lang)]
+            pinned = [lang for lang in sorted(self.translation_allowed_languages) if lang != self.source_language and counts.get(lang)]
             rest = [lang for lang in allowed if lang not in pinned]
             allowed = pinned + rest
         return allowed[: self.translation_max_active_languages]
 
     def translation_state(self) -> dict:
+        try:
+            provider_languages = set(self.translator.supported_languages_for_provider(self.translation_provider if self.translation_enabled else "disabled"))
+        except Exception as exc:
+            provider_languages = {self.source_language}
+            provider_error = str(exc)
+        else:
+            provider_error = ""
+        provider_languages.add(self.source_language)
+        if self.translation_enabled and self.translation_language_policy == "restricted":
+            available_languages = sorted((self.translation_allowed_languages | {self.source_language}) & provider_languages)
+        else:
+            available_languages = sorted(provider_languages)
+        try:
+            provider_status = self.translator.provider_status(self.translation_provider)
+        except Exception as exc:
+            provider_status = {"provider": self.translation_provider, "ready": False, "message": f"Translation provider status failed: {exc}"}
+        if provider_error and provider_status.get("ready"):
+            provider_status = {**provider_status, "ready": False, "message": f"Translation language list failed: {provider_error}"}
+        try:
+            resources = self.translator.translation_resources()
+        except Exception as exc:
+            resources = {"error": str(exc)}
         return {
             "enabled": self.translation_enabled,
             "provider": self.translation_provider,
-            "provider_status": self.translator.provider_status(self.translation_provider),
+            "provider_status": provider_status,
             "allowed_languages": sorted(self.translation_allowed_languages),
             "max_active_languages": self.translation_max_active_languages,
             "language_policy": self.translation_language_policy,
             "priority_mode": self.translation_priority_mode,
             "viewer_languages": self.language_counts(),
             "active_translated_languages": self.active_translated_languages(),
-            "resources": self.translator.translation_resources(),
-            "available_languages": self.translator.supported_languages_for_provider(self.translation_provider if self.translation_enabled else "disabled"),
+            "resources": resources,
+            "available_languages": available_languages,
         }
 
     def configure_retention(self, retention_minutes: int, transcript_saving_enabled: bool) -> None:
@@ -463,16 +491,6 @@ class CaptionHub:
     def _translated_segment(segment: CaptionSegment, text: str) -> CaptionSegment:
         return segment.model_copy(update={"text": text, "raw_text": segment.text})
 
-    def _track_translation_task(self, task: asyncio.Task) -> None:
-        self._translation_tasks.add(task)
-        def _done(completed: asyncio.Task) -> None:
-            self._translation_tasks.discard(completed)
-            try:
-                completed.exception()
-            except asyncio.CancelledError:
-                pass
-        task.add_done_callback(_done)
-
     def _should_translate_partial(self, language: str, segment: CaptionSegment) -> bool:
         if segment.is_final or self._word_count(segment.text) < 3:
             return segment.is_final
@@ -483,11 +501,46 @@ class CaptionHub:
         self._last_partial_translation_at[language] = now
         return True
 
-    def _queue_translated_caption(self, segment: CaptionSegment, language: str) -> None:
+    def _ensure_translation_worker(self) -> None:
+        if self._translation_worker_event is None:
+            self._translation_worker_event = asyncio.Event()
+        if self._translation_worker_task is None or self._translation_worker_task.done():
+            self._translation_worker_task = asyncio.create_task(self._translation_worker_loop())
+
+    def _queue_translation_batch(self, segment: CaptionSegment, languages: list[str]) -> None:
+        languages = list(dict.fromkeys(normalise_language(language) for language in languages if normalise_language(language) != "en"))
+        if not languages:
+            return
         self._translation_sequence += 1
         sequence = self._translation_sequence
-        self._latest_translation_sequence[language] = sequence
-        self._track_translation_task(asyncio.create_task(self._broadcast_translated_caption(segment, language, sequence)))
+        for language in languages:
+            self._latest_translation_sequence[language] = sequence
+        self._pending_translation_job = {
+            "sequence": sequence,
+            "segment": segment,
+            "languages": languages,
+        }
+        self._ensure_translation_worker()
+        if self._translation_worker_event is not None:
+            self._translation_worker_event.set()
+
+    async def _translation_worker_loop(self) -> None:
+        while True:
+            if self._translation_worker_event is None:
+                return
+            await self._translation_worker_event.wait()
+            self._translation_worker_event.clear()
+            while self._pending_translation_job is not None:
+                job = self._pending_translation_job
+                self._pending_translation_job = None
+                sequence = int(job["sequence"])
+                segment = job["segment"]
+                for language in job["languages"]:
+                    if self._pending_translation_job is not None:
+                        break
+                    if self._latest_translation_sequence.get(language) != sequence:
+                        continue
+                    await self._broadcast_translated_caption(segment, language, sequence)
 
     def _caption_payload(
         self,
@@ -541,17 +594,27 @@ class CaptionHub:
         await self._broadcast_viewer_meta()
 
     async def _broadcast_translated_caption(self, segment: CaptionSegment, language: str, sequence: int) -> None:
-        async with self._translation_semaphore:
-            try:
-                result = await self.translator.translate_async(
-                    segment.text,
-                    language,
-                    enabled=self.translation_enabled,
-                    provider=self.translation_provider,
-                )
-            except Exception as exc:
-                result = None
-                warning = f"Translation failed for {language}: {exc}"
+        async with self._lock:
+            clients = [ws for ws, lang in self._clients.items() if lang == language]
+        if not clients or self._latest_translation_sequence.get(language) != sequence:
+            return
+        started_at = time.monotonic()
+        try:
+            result = await self.translator.translate_async(
+                segment.text,
+                language,
+                enabled=self.translation_enabled,
+                provider=self.translation_provider,
+            )
+            update_metrics(
+                last_translation_seconds=max(0.0, time.monotonic() - started_at),
+                last_translation_at=time.monotonic(),
+                translations_completed=int(get_metrics().get("translations_completed", 0)) + 1,
+            )
+        except Exception as exc:
+            update_metrics(last_translation_seconds=max(0.0, time.monotonic() - started_at), last_translation_at=time.monotonic())
+            result = None
+            warning = f"Translation failed for {language}: {exc}"
         if result is None:
             display_segment = self._source_language_segment(segment)
             applied = False
@@ -561,7 +624,7 @@ class CaptionHub:
             display_segment = self._translated_segment(segment, result.text) if applied else self._source_language_segment(segment)
         if not applied and not warning:
             warning = "Translation is experimental or unavailable. Showing source captions."
-        if not segment.is_final and self._latest_translation_sequence.get(language) != sequence:
+        if self._latest_translation_sequence.get(language) != sequence:
             return
 
         async with self._lock:
@@ -593,6 +656,7 @@ class CaptionHub:
         clients_by_language: dict[str, list[WebSocket]] = {}
         for ws, lang in clients:
             clients_by_language.setdefault(lang, []).append(ws)
+        languages_to_translate: list[str] = []
 
         for lang, sockets in clients_by_language.items():
             if lang == "en":
@@ -629,9 +693,11 @@ class CaptionHub:
                 dead.extend(await self._send_caption_payload(sockets, payload))
 
             if should_translate and self._should_translate_partial(lang, segment):
-                self._queue_translated_caption(segment, lang)
+                languages_to_translate.append(lang)
 
         await self._remove_dead_clients(dead)
+        if languages_to_translate:
+            self._queue_translation_batch(segment, languages_to_translate)
 
     async def _broadcast_viewer_meta(self) -> None:
         await self._broadcast({"type": "viewer_meta", "data": self.translation_state(), "viewers": self.viewer_count})

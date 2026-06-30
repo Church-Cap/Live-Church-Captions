@@ -62,3 +62,28 @@ class HardwareStatusMessageTests(unittest.TestCase):
         self.assertEqual(data["ctranslate2_cuda_status"], "not_exposed")
         self.assertEqual(data["cuda_runtime_status"], "missing_dlls")
         self.assertEqual(data["fallback_mode"], "CPU / int8")
+
+
+class MacHardwareReportingTests(unittest.TestCase):
+
+    def test_status_dict_can_include_mac_fields(self):
+        status = HardwareAccelerationStatus(
+            "Darwin",
+            False,
+            0,
+            True,
+            [],
+            False,
+            "Apple Mac detected",
+            apple_chip="Apple M2 Pro",
+            apple_gpu_names=["Apple M2 Pro"],
+            mac_model="Mac14,9",
+            cpu_brand="Apple M2 Pro",
+            physical_cpu_count=10,
+            performance_core_count=6,
+            efficiency_core_count=4,
+        )
+        data = status.as_dict()
+        self.assertEqual(data["apple_chip"], "Apple M2 Pro")
+        self.assertEqual(data["apple_gpu_names"], ["Apple M2 Pro"])
+        self.assertEqual(data["performance_core_count"], 6)

@@ -23,7 +23,8 @@ from app.glossary import Glossary
 from app.models import CaptionSegment
 from app.metrics import get_metrics
 from app.exporting import segments_to_srt, segments_to_vtt, segments_to_json
-from app.hardware import detect_hardware_acceleration, resolve_whisper_runtime
+from app.hardware import HardwareAccelerationStatus, detect_hardware_acceleration, resolve_whisper_runtime
+from app.deployment import deployment_context
 from app.profanity_filter import ProfanityFilter
 from app.settings import get_settings
 from app.networking import default_base_url, detected_local_hostname, local_ip
@@ -43,17 +44,119 @@ except Exception:  # pragma: no cover - audio package may be unavailable in demo
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+def safe_hardware_acceleration() -> dict:
+    try:
+        return detect_hardware_acceleration().as_dict()
+    except Exception as exc:
+        return {
+            "platform": platform.system(),
+            "cuda_available": False,
+            "cuda_device_count": 0,
+            "cuda_runtime_ready": False,
+            "missing_cuda_libraries": [],
+            "nvidia_smi_available": False,
+            "message": f"Hardware detection failed; using safe CPU fallback: {exc}",
+            "nvidia_driver_status": "unknown",
+            "nvidia_gpu_names": [],
+            "ctranslate2_cuda_status": "unknown",
+            "cuda_runtime_status": "unknown",
+            "fallback_mode": "CPU / int8",
+        }
+
+
+def safe_hardware_status_object() -> HardwareAccelerationStatus:
+    try:
+        return detect_hardware_acceleration()
+    except Exception as exc:
+        return HardwareAccelerationStatus(
+            platform=platform.system(),
+            cuda_available=False,
+            cuda_device_count=0,
+            cuda_runtime_ready=False,
+            missing_cuda_libraries=[],
+            nvidia_smi_available=False,
+            message=f"Hardware detection failed; using safe CPU fallback: {exc}",
+            nvidia_driver_status="unknown",
+            nvidia_gpu_names=[],
+            ctranslate2_cuda_status="unknown",
+            cuda_runtime_status="unknown",
+            fallback_mode="CPU / int8",
+        )
+
+
+def safe_deployment_context(hardware: dict | None = None) -> dict:
+    try:
+        return deployment_context(hardware or safe_hardware_acceleration())
+    except Exception as exc:
+        return {
+            "identity": {
+                "mode": "desktop",
+                "profile": "desktop",
+                "appliance_id": None,
+                "edition": "desktop",
+                "language_mode": "full",
+                "source": f"fallback: {exc}",
+            },
+            "capabilities": {
+                "profile": "desktop",
+                "is_appliance": False,
+                "simple_operator": False,
+                "show_model_slider": True,
+                "show_performance_advanced": True,
+                "show_translation_setup": True,
+                "show_translation_install": True,
+                "allow_translation": True,
+                "language_mode": "full",
+                "recommended_max_languages": None,
+                "translation_max_limit": None,
+                "translation_advanced": False,
+                "cpu_translation_warning": False,
+                "cpu_translation_available": False,
+                "cpu_translation_enabled": False,
+                "gpu_required_for_languages": False,
+                "gpu_available": False,
+                "message": f"Deployment detection failed; using safe desktop fallback: {exc}",
+            },
+        }
+
+
+def safe_translation_state() -> dict:
+    try:
+        return hub.translation_state()
+    except Exception as exc:
+        return {
+            "enabled": False,
+            "provider": "disabled",
+            "provider_status": {"provider": "disabled", "ready": False, "message": f"Translation status failed: {exc}"},
+            "allowed_languages": [SOURCE_LANGUAGE],
+            "max_active_languages": 1,
+            "language_policy": "automatic",
+            "priority_mode": "most_viewers",
+            "viewer_languages": {},
+            "active_translated_languages": [],
+            "resources": {},
+            "available_languages": [SOURCE_LANGUAGE],
+        }
+
+
 settings = get_settings()
 runtime_config = load_runtime_config()
+startup_deployment = safe_deployment_context(safe_hardware_acceleration())
+startup_capabilities = startup_deployment.get("capabilities", {})
+startup_translation_allowed = bool(startup_capabilities.get("allow_translation", True))
+startup_translation_max_active = int(runtime_config.get("translation_max_active_languages", settings.translation_max_active_languages))
+startup_translation_limit = startup_capabilities.get("translation_max_limit")
+if isinstance(startup_translation_limit, int) and startup_translation_limit > 0:
+    startup_translation_max_active = min(startup_translation_max_active, startup_translation_limit)
 hub = CaptionHub(
     retention_minutes=int(runtime_config.get("transcript_retention_minutes", settings.transcript_retention_minutes)),
     transcript_saving_enabled=bool(runtime_config.get("transcript_saving_enabled", settings.transcript_saving_enabled)),
 )
 hub.configure_translation(
-    enabled=bool(runtime_config.get("translation_enabled", settings.translation_enabled)),
+    enabled=startup_translation_allowed and bool(runtime_config.get("translation_enabled", settings.translation_enabled)),
     provider=runtime_config.get("translation_provider") or settings.translation_provider,
     allowed_languages=runtime_config.get("translation_allowed_languages", (settings.translation_allowed_languages or "en").split(",")),
-    max_active_languages=int(runtime_config.get("translation_max_active_languages", settings.translation_max_active_languages)),
+    max_active_languages=startup_translation_max_active,
     language_policy=runtime_config.get("translation_language_policy", "automatic"),
     priority_mode=runtime_config.get("translation_priority_mode", "most_viewers"),
 )
@@ -265,6 +368,23 @@ def effective_performance_config(runtime: dict | None = None) -> dict:
     return cfg
 
 
+
+def translation_allowed_for_current_deployment(hardware: dict | None = None) -> tuple[bool, dict]:
+    deployment = safe_deployment_context(hardware or safe_hardware_acceleration())
+    capabilities = deployment.get("capabilities", {})
+    return bool(capabilities.get("allow_translation", True)), deployment
+
+
+def translation_limit_for_deployment(deployment: dict) -> int | None:
+    limit = deployment.get("capabilities", {}).get("translation_max_limit")
+    return limit if isinstance(limit, int) and limit > 0 else None
+
+
+def clamp_translation_max_for_deployment(value: int, deployment: dict) -> int:
+    limit = translation_limit_for_deployment(deployment)
+    value = max(1, int(value))
+    return min(value, limit) if limit else value
+
 def auth_config():
     return get_auth_config(
         max_age_seconds=settings.session_max_age_seconds,
@@ -279,6 +399,7 @@ def base_template_context(request: Request | None = None) -> dict:
         "app_version": settings.app_version,
         "app_version_label": settings.app_version_label,
         "feedback_email": settings.feedback_email,
+        "deployment": safe_deployment_context(safe_hardware_acceleration()),
     }
     if request is not None:
         context["request"] = request
@@ -325,22 +446,28 @@ def require_service_leader_mutation(request: Request, session: ServiceLeaderSess
 
 def service_leader_language_context() -> dict:
     runtime = load_runtime_config()
+    _allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
     provider = str(runtime.get("translation_provider") or settings.translation_provider or "disabled")
-    available_codes = hub.translator.supported_languages_for_provider(provider)
-    available = [language for language in SUPPORTED_LANGUAGES if language["code"] in available_codes and language["code"] != SOURCE_LANGUAGE]
-    selected = [
+    provider_codes = set(hub.translator.supported_languages_for_provider(provider))
+    selected_codes = {
         code
         for code in runtime.get("translation_allowed_languages", ["en"])
-        if code != SOURCE_LANGUAGE and code in available_codes
-    ]
+        if code != SOURCE_LANGUAGE and code in provider_codes
+    }
+    language_policy = str(runtime.get("translation_language_policy") or "automatic")
+    if language_policy == "restricted":
+        visible_codes = selected_codes
+    else:
+        visible_codes = provider_codes - {SOURCE_LANGUAGE}
+    available = [language for language in SUPPORTED_LANGUAGES if language["code"] in visible_codes]
     return {
         "translation_enabled": bool(runtime.get("translation_enabled")) and provider != "disabled",
         "translation_provider": provider,
         "translation_provider_ready": bool(hub.translator.provider_status(provider).get("ready")),
-        "translation_max_active_languages": int(runtime.get("translation_max_active_languages", 20)),
-        "translation_language_policy": str(runtime.get("translation_language_policy") or "automatic"),
+        "translation_max_active_languages": clamp_translation_max_for_deployment(int(runtime.get("translation_max_active_languages", 2)), deployment),
+        "translation_language_policy": language_policy,
         "available_languages": available,
-        "selected_languages": selected,
+        "selected_languages": sorted(selected_codes),
     }
 
 
@@ -380,13 +507,16 @@ def caption_health_snapshot() -> dict:
         level, label = "poor", "Slow"
         message = "Caption delay is high. Open the improvement guide and ask the operator to tune performance."
     backend = "Faster Whisper" if performance.get("transcriber_mode") == "faster_whisper" else "OpenAI Whisper"
+    system_load = system_perf.get("cpu_percent")
+    if system_load is None:
+        system_load = system_perf.get("load_1m_percent")
     return {
         "level": level,
         "label": label,
         "message": message,
         "live_delay_seconds": live_delay,
         "transcription_seconds": transcription,
-        "system_load_percent": system_perf.get("load_1m_percent"),
+        "system_load_percent": system_load,
         "runtime_label": f"{backend} · {performance.get('whisper_model', 'unknown')}",
     }
 
@@ -501,7 +631,7 @@ def refreshed_hardware_status() -> dict:
     cache_clear = getattr(detect_hardware_acceleration, "cache_clear", None)
     if callable(cache_clear):
         cache_clear()
-    return detect_hardware_acceleration().as_dict()
+    return safe_hardware_acceleration()
 
 
 def launch_cuda_runtime_install() -> dict:
@@ -597,6 +727,35 @@ def recommended_performance_config(status: dict | None = None) -> dict:
     return {"config": config, "reason": reason, "applied": applied, "cpu_count": cpu_count}
 
 
+_last_linux_cpu_snapshot: tuple[int, int] | None = None
+
+
+def _linux_cpu_usage_percent() -> float | None:
+    global _last_linux_cpu_snapshot
+    if platform.system() != "Linux":
+        return None
+    try:
+        first = Path("/proc/stat").read_text(encoding="utf-8", errors="ignore").splitlines()[0]
+        parts = first.split()
+        if not parts or parts[0] != "cpu":
+            return None
+        values = [int(value) for value in parts[1:]]
+        idle = values[3] + (values[4] if len(values) > 4 else 0)
+        total = sum(values)
+    except Exception:
+        return None
+    previous = _last_linux_cpu_snapshot
+    _last_linux_cpu_snapshot = (total, idle)
+    if previous is None:
+        return None
+    previous_total, previous_idle = previous
+    total_delta = total - previous_total
+    idle_delta = idle - previous_idle
+    if total_delta <= 0:
+        return None
+    return round(max(0.0, min(100.0, ((total_delta - idle_delta) / total_delta) * 100.0)), 1)
+
+
 def system_performance_snapshot() -> dict:
     cpu_count = os.cpu_count() or 1
     load_1m = load_5m = load_15m = None
@@ -605,13 +764,18 @@ def system_performance_snapshot() -> dict:
     except Exception:
         pass
     memory = _memory_usage_snapshot()
+    load_percent = None if load_1m is None else round((float(load_1m) / cpu_count) * 100, 1)
+    cpu_percent = _linux_cpu_usage_percent()
+    if cpu_percent is None:
+        cpu_percent = load_percent
     return {
         "platform": platform.system(),
         "cpu_count": cpu_count,
         "load_1m": load_1m,
         "load_5m": load_5m,
         "load_15m": load_15m,
-        "load_1m_percent": None if load_1m is None else round((float(load_1m) / cpu_count) * 100, 1),
+        "load_1m_percent": load_percent,
+        "cpu_percent": cpu_percent,
         **memory,
     }
 
@@ -673,8 +837,20 @@ def _memory_usage_snapshot() -> dict:
                 digits = "".join(ch for ch in value if ch.isdigit())
                 if digits:
                     pages[key.strip()] = int(digits)
-            free_pages = pages.get("Pages free", 0) + pages.get("Pages inactive", 0) + pages.get("Pages speculative", 0)
-            available = free_pages * page_size
+            reclaimable_pages = (
+                pages.get("Pages free", 0)
+                + pages.get("Pages inactive", 0)
+                + pages.get("Pages speculative", 0)
+                + pages.get("Pages purgeable", 0)
+            )
+            active_used_pages = (
+                pages.get("Pages active", 0)
+                + pages.get("Pages wired down", 0)
+                + pages.get("Pages occupied by compressor", 0)
+            )
+            available = reclaimable_pages * page_size
+            if total is not None and active_used_pages:
+                available = max(0, min(total, total - (active_used_pages * page_size)))
         elif system == "Windows":
             import ctypes
 
@@ -755,6 +931,14 @@ def gpu_utilisation_snapshot(active_device: str | None = None) -> dict:
             except Exception:
                 pass
         return {"device": "cuda", "active": True, "utilization_percent": None, "message": "NVIDIA GPU active; utilisation unavailable."}
+    if platform.system() == "Darwin":
+        hardware = safe_hardware_acceleration()
+        gpu_names = hardware.get("apple_gpu_names") or []
+        chip = hardware.get("apple_chip") or "Apple Silicon"
+        label = ", ".join(gpu_names) if gpu_names else "Apple GPU"
+        if device == "mps":
+            return {"device": "mps", "active": True, "utilization_percent": None, "message": f"Apple Metal/MPS active on {label} ({chip})."}
+        return {"device": "apple", "active": False, "utilization_percent": None, "message": f"{label} available on {chip}; current caption runtime is {device or 'cpu'}."}
     if device == "mps":
         return {"device": "mps", "active": True, "utilization_percent": None, "message": "Apple Metal/MPS active; utilisation unavailable without system tools."}
     return {"device": device or "cpu", "active": False, "utilization_percent": None, "message": "GPU is not active for captions."}
@@ -784,6 +968,7 @@ def _disk_usage_snapshot() -> dict:
 
 def _system_specs_snapshot() -> dict:
     memory_bytes = _total_memory_bytes()
+    hardware = safe_hardware_acceleration()
     specs = {
         "os_name": platform.system(),
         "os_release": platform.release(),
@@ -795,6 +980,13 @@ def _system_specs_snapshot() -> dict:
         "python_version": sys.version.split()[0],
         "python_implementation": platform.python_implementation(),
         "cpu_count": os.cpu_count() or 1,
+        "cpu_brand": hardware.get("cpu_brand"),
+        "physical_cpu_count": hardware.get("physical_cpu_count"),
+        "performance_core_count": hardware.get("performance_core_count"),
+        "efficiency_core_count": hardware.get("efficiency_core_count"),
+        "apple_chip": hardware.get("apple_chip"),
+        "apple_gpu_names": hardware.get("apple_gpu_names"),
+        "mac_model": hardware.get("mac_model"),
         "total_memory_bytes": memory_bytes,
         "total_memory_gib": _bytes_to_gib(memory_bytes),
     }
@@ -850,7 +1042,7 @@ def diagnostics_payload() -> dict:
         for key, value in runtime.items()
         if key not in {"audio_device"}
     }
-    translation = hub.translation_state()
+    translation = safe_translation_state()
     translation_diagnostics = {
         "enabled": translation.get("enabled"),
         "provider": translation.get("provider"),
@@ -902,7 +1094,7 @@ def diagnostics_payload() -> dict:
 def performance_status() -> dict:
     runtime = load_runtime_config()
     effective = effective_performance_config(runtime)
-    hardware = detect_hardware_acceleration()
+    hardware = safe_hardware_status_object()
     detected_platform = performance_platform_key(hardware.platform)
     selected_platform = str(effective.get("performance_platform") or "auto")
     effective_platform = detected_platform if selected_platform == "auto" else selected_platform
@@ -1085,7 +1277,7 @@ async def index(request: Request):
             "languages": SUPPORTED_LANGUAGES,
             "ui_strings": get_client_ui_strings(),
             "ui_string_sources": get_client_ui_sources(language["code"] for language in SUPPORTED_LANGUAGES),
-            "translation_state": hub.translation_state(),
+            "translation_state": safe_translation_state(),
         },
     )
 
@@ -1100,9 +1292,13 @@ async def display(request: Request):
 
 @app.get("/obs", response_class=HTMLResponse)
 async def obs_overlay(request: Request):
+    return_to_operator = request.query_params.get("return") in {"1", "true", "operator"}
     return templates.TemplateResponse(
         "obs.html",
-        {"request": request, "church_name": settings.church_name},
+        {
+            **base_template_context(request),
+            "return_to_operator": return_to_operator,
+        },
     )
 
 
@@ -1110,7 +1306,12 @@ async def obs_overlay(request: Request):
 async def obs_help(request: Request, _: None = Depends(require_operator)):
     return templates.TemplateResponse(
         "obs_help.html",
-        {"request": request, "church_name": settings.church_name, "obs_url": f"{base_url(request)}/obs"},
+        {
+            **base_template_context(request),
+            "obs_url": f"{base_url(request)}/obs",
+            "obs_ip_url": f"{ip_base_url(request)}/obs",
+            "system_ip": local_ip(),
+        },
     )
 
 
@@ -1356,14 +1557,17 @@ async def operator(request: Request, _: None = Depends(require_operator)):
             "caption_url": f"{base_url(request)}/",
             "caption_ip_url": f"{ip_base_url(request)}/",
             "display_url": f"{base_url(request)}/display",
+            "display_ip_url": f"{ip_base_url(request)}/display",
             "obs_url": f"{base_url(request)}/obs",
+            "obs_ip_url": f"{ip_base_url(request)}/obs",
+            "system_ip": local_ip(),
             "detected_hostname": detected_local_hostname(),
             "operator_password_is_default": auth_config().needs_setup,
             "session_secret_is_default": False,
             "runtime": runtime,
             "performance": performance_status(),
             "languages": SUPPORTED_LANGUAGES,
-            "translation_state": hub.translation_state(),
+            "translation_state": safe_translation_state(),
             "translation_provider": settings.translation_provider,
             "security": security_state(request),
             "service_leader_access": service_leader_access.access_state(),
@@ -1398,6 +1602,7 @@ async def health():
         "status": hub.state().status,
         "app_version": settings.app_version,
         "app_version_label": settings.app_version_label,
+        "deployment": safe_deployment_context(safe_hardware_acceleration()),
         "viewers": hub.viewer_count,
         "mode": performance["transcriber_mode"],
         "audio_device": selected_audio_device(),
@@ -1406,7 +1611,7 @@ async def health():
         "hostname": detected_local_hostname(),
         "base_url": base_url(),
         "ip_base_url": ip_base_url(),
-        "translation": hub.translation_state(),
+        "translation": safe_translation_state(),
         "security": security_state(),
     }
 
@@ -1415,12 +1620,13 @@ def _device_to_api(index: int, device: dict):
     name = str(device.get("name", f"Device {index}"))
     max_input_channels = int(device.get("max_input_channels", 0))
     default_sample_rate = int(float(device.get("default_samplerate", 0) or 0))
+    rate_label = f", {default_sample_rate} Hz" if default_sample_rate else ""
     return {
         "id": index,
         "name": name,
         "max_input_channels": max_input_channels,
         "default_sample_rate": default_sample_rate,
-        "label": f"{index}: {name} ({max_input_channels} input ch)",
+        "label": f"{index}: {name} ({max_input_channels} input ch{rate_label})",
     }
 
 
@@ -1565,10 +1771,25 @@ async def api_status(_: None = Depends(require_operator)):
     metrics = get_metrics()
     runtime_device = str(metrics.get("model_device") or runtime.get("device") or "cpu")
     gpu = gpu_utilisation_snapshot(runtime_device)
-    translation_state = hub.translation_state()
+    translation_state = safe_translation_state()
+    audience_delay = None
+    if metrics.get("last_transcription_seconds") is not None:
+        audience_delay = float(metrics.get("last_transcription_seconds") or 0) + float(performance["effective"].get("stream_update_interval_seconds") or 0)
+    translation_delay = None
+    if audience_delay is not None and metrics.get("last_translation_seconds") is not None:
+        translation_delay = audience_delay + float(metrics.get("last_translation_seconds") or 0)
+    strip_cpu_percent = system_perf.get("cpu_percent")
+    if strip_cpu_percent is None:
+        strip_cpu_percent = system_perf.get("load_1m_percent")
+    hardware_info = performance.get("hardware_acceleration") or {}
+    gpu_label = f"{runtime.get('device', 'auto')} / {runtime.get('compute_type', 'auto')}"
+    if hardware_info.get("platform") == "Darwin":
+        apple_names = hardware_info.get("apple_gpu_names") or []
+        gpu_label = "Apple GPU" if apple_names else ("Apple Metal" if runtime_device == "mps" else gpu_label)
     return {
         "status": state.status,
         "viewers": state.viewers,
+        "deployment": safe_deployment_context(performance["hardware_acceleration"]),
         "sensitive_mode": state.sensitive_mode,
         "current": state.current.model_dump(mode="json") if state.current else None,
         "transcript_count": len(hub.final_segments()),
@@ -1585,6 +1806,7 @@ async def api_status(_: None = Depends(require_operator)):
             "performance": performance,
             "stream_window_seconds": performance["effective"]["stream_window_seconds"],
             "stream_update_interval_seconds": performance["effective"]["stream_update_interval_seconds"],
+            "stream_silence_finalise_seconds": performance["effective"]["stream_silence_finalise_seconds"],
             "stream_stability_passes": performance["effective"]["stream_stability_passes"],
             "audio_device": selected_audio_device(),
         },
@@ -1599,17 +1821,22 @@ async def api_status(_: None = Depends(require_operator)):
             "caption_status": state.status,
             "mic_level_percent": max(0, min(100, round((float(metrics.get("audio_rms") or 0) / 0.06) * 100))),
             "processing_delay_seconds": metrics.get("last_transcription_seconds"),
-            "cpu_percent": system_perf.get("load_1m_percent"),
+            "audience_delay_seconds": audience_delay,
+            "live_delay_seconds": audience_delay,
+            "translation_delay_seconds": translation_delay,
+            "cpu_percent": strip_cpu_percent,
             "ram_percent": system_perf.get("memory_used_percent"),
             "ram_used_gib": system_perf.get("memory_used_gib"),
             "ram_total_gib": system_perf.get("memory_total_gib"),
-            "gpu": f"{runtime.get('device', 'auto')} / {runtime.get('compute_type', 'auto')}",
+            "gpu": gpu_label,
             "gpu_utilization_percent": gpu.get("utilization_percent"),
             "gpu_memory_used_mib": gpu.get("memory_used_mib"),
             "gpu_memory_total_mib": gpu.get("memory_total_mib"),
             "gpu_message": gpu.get("message"),
             "active_languages": translation_state.get("active_translated_languages", []),
             "translation_capacity": translation_state.get("max_active_languages", 1),
+            "last_translation_seconds": metrics.get("last_translation_seconds"),
+            "translations_completed": metrics.get("translations_completed", 0),
         },
         "profanity_filter_enabled": bool(load_runtime_config().get("profanity_filter_enabled", True)),
     }
@@ -1882,6 +2109,12 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
     runtime = load_runtime_config()
     provider = str(runtime.get("translation_provider") or settings.translation_provider or "disabled")
     requested_enabled = bool(body.get("translation_enabled"))
+    allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
+    if requested_enabled and not allowed_by_deployment:
+        return JSONResponse(
+            {"status": "error", "error": deployment["capabilities"].get("message") or "Translation is not enabled for this appliance profile."},
+            status_code=409,
+        )
     language_policy = str(body.get("translation_language_policy") or runtime.get("translation_language_policy") or "automatic")
     if language_policy not in {"automatic", "restricted"}:
         language_policy = "automatic"
@@ -1890,7 +2123,13 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
             {"status": "error", "error": "An operator must configure a translation provider before service leaders can enable languages."},
             status_code=409,
         )
-    available = set(hub.translator.supported_languages_for_provider(provider))
+    provider_codes = set(hub.translator.supported_languages_for_provider(provider))
+    operator_allowed_codes = {
+        code
+        for code in runtime.get("translation_allowed_languages", ["en"])
+        if code != SOURCE_LANGUAGE and code in provider_codes
+    }
+    selectable_codes = operator_allowed_codes if str(runtime.get("translation_language_policy") or "automatic") == "restricted" else provider_codes
     submitted = body.get("languages") or []
     if not isinstance(submitted, list):
         submitted = []
@@ -1898,10 +2137,10 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
         {
             normalise_language(code)
             for code in submitted
-            if normalise_language(code) != SOURCE_LANGUAGE and normalise_language(code) in available
+            if normalise_language(code) != SOURCE_LANGUAGE and normalise_language(code) in selectable_codes
         }
     )
-    max_active = int(runtime.get("translation_max_active_languages", 20))
+    max_active = clamp_translation_max_for_deployment(int(runtime.get("translation_max_active_languages", 2)), deployment)
     if language_policy == "restricted" and len(selected) > max_active:
         return JSONResponse(
             {"status": "error", "error": f"Choose no more than {max_active} translated languages on this installation."},
@@ -2037,11 +2276,17 @@ async def update_profanity_filter(request: Request, _: None = Depends(require_op
 async def update_translation(request: Request, _: None = Depends(require_operator)):
     body = await request.json()
     enabled = bool(body.get("translation_enabled"))
+    allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
+    if enabled and not allowed_by_deployment:
+        return JSONResponse(
+            {"status": "error", "error": deployment["capabilities"].get("message") or "Translation is not enabled for this appliance profile."},
+            status_code=409,
+        )
     allowed = body.get("translation_allowed_languages") or ["en"]
     if not isinstance(allowed, list):
         allowed = ["en"]
     allowed = [normalise_language(x) for x in allowed]
-    max_active = int(body.get("translation_max_active_languages", 20))
+    max_active = clamp_translation_max_for_deployment(int(body.get("translation_max_active_languages", 2)), deployment)
     provider = str(body.get("translation_provider") or "argos")
     if provider == "disabled":
         enabled = False
@@ -2056,14 +2301,14 @@ async def update_translation(request: Request, _: None = Depends(require_operato
         language_policy=cfg["translation_language_policy"],
         priority_mode=cfg["translation_priority_mode"],
     )
-    return {"status": "saved", **hub.translation_state()}
+    return {"status": "saved", **safe_translation_state()}
 
 
 
 
 @app.get("/api/translation/status")
 async def translation_status(_: None = Depends(require_operator)):
-    return {**hub.translation_state(), "install": _translation_install_state}
+    return {**safe_translation_state(), "install": _translation_install_state}
 
 
 def translation_install_script(kind: str) -> list[str]:
@@ -2102,6 +2347,12 @@ def translation_install_state() -> dict:
 @app.post("/api/translation/install")
 async def install_translation_resources(request: Request, _: None = Depends(require_operator)):
     global _translation_install_process, _translation_install_state
+    allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
+    if not allowed_by_deployment:
+        return JSONResponse(
+            {"status": "error", "error": deployment["capabilities"].get("message") or "Translation resource installs are not enabled for this appliance profile."},
+            status_code=409,
+        )
     body = await request.json()
     kind = str(body.get("kind") or "argos")
     state = translation_install_state()
@@ -2143,7 +2394,7 @@ async def languages():
         "languages": SUPPORTED_LANGUAGES,
         "ui_strings": get_client_ui_strings(),
         "ui_string_sources": get_client_ui_sources(language["code"] for language in SUPPORTED_LANGUAGES),
-        "translation": hub.translation_state(),
+        "translation": safe_translation_state(),
     }
 
 

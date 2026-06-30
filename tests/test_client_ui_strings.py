@@ -64,6 +64,21 @@ class ClientUiStringTests(unittest.TestCase):
         self.assertTrue(keys)
         self.assertEqual(sorted(keys - set(english)), [])
 
+    def test_client_flags_keep_language_code_fallback_visible(self):
+        styles = Path("app/static/styles.css").read_text(encoding="utf-8")
+
+        self.assertIn(".language-flag-chip::after", styles)
+        self.assertIn("content: attr(data-code);", styles)
+        self.assertIn(".phone-page .language-flag-chip::after", styles)
+        self.assertNotIn("content: none;", styles)
+
+    def test_client_refreshes_language_metadata_when_picker_opens(self):
+        script = Path("app/static/client.js").read_text(encoding="utf-8")
+
+        self.assertIn("async function refreshLanguageMetadata", script)
+        self.assertIn("fetch('/api/languages'", script)
+        self.assertIn("refreshLanguageMetadata();", script)
+
 
 if __name__ == "__main__":
     unittest.main()

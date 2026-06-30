@@ -52,16 +52,16 @@
     <p id="serviceLeaderControlNotice" class="service-leader-control-notice" aria-live="polite"></p>
     <section class="service-leader-control-grid">
       <button type="button" class="service-leader-action service-leader-start glass-card" data-control-button data-control-state="start" onclick="serviceLeaderAction('/service-leader/api/start')" aria-label="Start captions" aria-pressed="false">
-        <span class="service-leader-action-icon">▶</span><strong>Start</strong><small>Captions</small>
+        <span class="service-leader-action-icon service-leader-icon-start" aria-hidden="true"></span><strong>Start</strong><small>Captions</small>
       </button>
       <button type="button" class="service-leader-action service-leader-stop glass-card" data-control-button data-control-state="stop" onclick="serviceLeaderAction('/service-leader/api/stop')" aria-label="Stop captions" aria-pressed="false">
-        <span class="service-leader-action-icon">■</span><strong>Stop</strong><small>Captions</small>
+        <span class="service-leader-action-icon service-leader-icon-stop" aria-hidden="true"></span><strong>Stop</strong><small>Captions</small>
       </button>
       <button type="button" class="service-leader-action service-leader-blank glass-card" data-control-button data-control-state="pause" onclick="serviceLeaderAction('/service-leader/api/sensitive-on')" aria-label="Pause captions for a private moment" aria-pressed="false">
-        <span class="service-leader-action-icon">●</span><strong>Pause</strong><small>Private moment</small>
+        <span class="service-leader-action-icon service-leader-icon-pause" aria-hidden="true"></span><strong>Pause</strong><small>Private moment</small>
       </button>
       <button type="button" class="service-leader-action service-leader-resume glass-card" data-control-button data-control-state="resume" onclick="serviceLeaderAction('/service-leader/api/sensitive-off')" aria-label="Resume captions" aria-pressed="false">
-        <span class="service-leader-action-icon">↻</span><strong>Resume</strong><small>Captions</small>
+        <span class="service-leader-action-icon service-leader-icon-resume" aria-hidden="true"></span><strong>Resume</strong><small>Captions</small>
       </button>
     </section>
 
@@ -281,12 +281,19 @@
       if (search) search.disabled = policy !== 'restricted';
     }
 
+    function normaliseServiceLeaderLanguageSearch(value) {
+      return String(value || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase();
+    }
+
     function serviceLeaderLanguageSearchText(language) {
-      return `${language.code || ''} ${language.name || ''} ${language.native || ''}`.toLowerCase();
+      return normaliseServiceLeaderLanguageSearch(`${language.code || ''} ${language.name || ''} ${language.native || ''}`);
     }
 
     function renderServiceLeaderLanguageList(query = '') {
-      const q = query.trim().toLowerCase();
+      const q = normaliseServiceLeaderLanguageSearch(query.trim());
       const grid = document.getElementById('serviceLeaderLanguageGrid');
       const matches = serviceLeaderLanguages.filter(language => !q || serviceLeaderLanguageSearchText(language).includes(q));
       grid.textContent = '';
@@ -315,14 +322,26 @@
           label.setAttribute('aria-selected', input.checked ? 'true' : 'false');
         });
         const flag = document.createElement('span');
+        const flagText = String(language.flag || '').trim();
+        const codeText = String(language.code || '').slice(0, 3).toUpperCase();
         flag.className = 'language-option-flag';
-        flag.textContent = language.flag;
+        flag.dataset.code = codeText;
+        flag.title = `${language.name || language.native || codeText} · ${codeText}`;
+        if (flagText && flagText !== '🌐') {
+          flag.classList.add('language-flag-chip');
+          flag.textContent = flagText;
+        } else {
+          flag.classList.add('language-code-badge');
+          flag.textContent = codeText;
+        }
         const text = document.createElement('span');
         text.className = 'language-option-text';
         const title = document.createElement('strong');
-        title.textContent = language.native || language.name || language.code.toUpperCase();
+        title.textContent = language.name || language.native || language.code.toUpperCase();
+        title.dir = 'auto';
         const meta = document.createElement('small');
-        meta.textContent = language.name && language.name !== language.native ? `${language.name} · ${language.code}` : language.code;
+        meta.dir = 'auto';
+        meta.textContent = language.native && language.native !== language.name ? `${language.native} · ${language.code}` : language.code;
         text.append(title, meta);
         label.append(input, flag, text);
         fragment.appendChild(label);
@@ -333,13 +352,14 @@
     function renderAudio(audio) {
       const select = document.getElementById('serviceLeaderAudioDevice');
       const current = String(audio.selected ?? '');
-      const signature = `${current}:${(audio.devices || []).map(device => `${device.id}:${device.label}`).join('|')}`;
+      const signature = `${current}:${(audio.devices || []).map(device => `${device.id}:${device.name}:${device.label}`).join('|')}`;
       if (select.dataset.signature === signature) return;
       select.dataset.signature = signature;
       select.innerHTML = '<option value="">System default input</option>';
       for (const device of audio.devices || []) {
         const option = document.createElement('option');
-        option.value = String(device.id);
+        option.value = device.name || String(device.id);
+        option.dataset.deviceId = String(device.id);
         option.textContent = device.label;
         if (String(device.id) === current || device.name === current) option.selected = true;
         select.appendChild(option);

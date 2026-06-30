@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v.0.4.0 public preview
+Version: v0.5.0 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -90,6 +90,12 @@ Start later with:
 ./start-linux.sh
 ```
 
+## Church Cap Box Profiles
+
+Normal installs do not enter appliance mode automatically. A Church Cap Box uses an explicit identity file created by the appliance shell installer. CPU boxes use `appliance_cpu` for a simpler English-first workflow with Languages available as an advanced, warned option capped at three active translated languages. GPU boxes use `appliance_gpu` so multilingual controls are tied to NVIDIA/CUDA readiness.
+
+The appliance path uses the local operator port `9090`; it does not fall back to `8000` or `8080`.
+
 ## Start Church Cap
 
 For normal use after setup:
@@ -161,7 +167,7 @@ In the operator page, use **Performance** on the dashboard.
 
 - Move the slider toward **Fastest** if captions are too delayed or the computer is older.
 - Move the slider toward **Most accurate** if the computer has enough headroom and better wording matters more than delay. The far-right setting uses `medium.en`, which may increase latency.
-- Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS, Windows, or Linux, but can be changed manually if needed.
+- Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS, Windows, or Linux, but can be changed manually if needed. The top operator bar shows **Audience Delay** and **Translation Delay** so live performance is visible without opening the benchmark panel.
 
 Adjustments save automatically while captions are stopped. Stop captions before changing performance settings because Church Cap loads the AI model when captions start, and the Performance panel is locked during a live caption session to protect the audience feed. Use **Run 15s benchmark** during normal speech to estimate live-caption delay and system load, or **Live monitor** to keep measuring while captions run. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
 
@@ -169,7 +175,7 @@ Adjustments save automatically while captions are stopped. Stop captions before 
 
 In the operator page, open **Audience & OBS**.
 
-Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local` address, use the Android/IP fallback QR code. Each QR code has its own **Download QR** button for printing or service slides.
+Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local` address, use the Android/IP fallback QR code. Each QR code has its own **Download QR** button for printing or service slides. The same section also provides the room **Display** page and the OBS browser-source overlay; both use the audience caption animation so text eases into place instead of jumping whenever a new partial caption arrives.
 
 ## Visitor Caption View
 
@@ -179,7 +185,7 @@ When captions are already visible and a visitor changes language, the phone page
 
 In landscape orientation on phones and tablets, the viewer uses a compact side-by-side layout: live captions take about 75% of the width and the transcript takes the remaining space when enabled. The live caption and transcript panels stay within the visible screen; longer transcript history scrolls inside the transcript panel. If a visitor hides the transcript, the live caption view expands to use the full width.
 
-Visitors automatically get the light or dark theme from their device settings. They can still use the theme button to set a local override, and can change text size, comfort/compact spacing, pause their local view, or clear their local screen without affecting anyone else.
+Visitors automatically get the light or dark theme from their device settings. They can still use the theme button to set a local override, and can change text size, comfort/compact spacing, pause their local view, or clear their local screen without affecting anyone else. On a Church Cap Appliance, the operator/appliance theme is remembered by the appliance shell rather than relying on a desktop light/dark setting, so it comes back in the chosen mode after the kiosk restarts.
 
 ## During A Service
 
@@ -209,9 +215,11 @@ For HTTP, use a private staff/AV Wi-Fi network rather than open or congregation 
 
 Phone UI language selection is local and lightweight. It uses bundled interface labels and falls back to English for labels that have not been translated yet.
 
-Translated captions stay off until the operator enables them. The **Languages** page lets the operator choose Off, Base / Argos, Core / SMaLL-100, or Auto / Base + Core mode, install language resources, and set how many translated languages can be active at once. Visitor languages are automatic by default; Church Cap prioritises the most-requested languages up to the active limit. The default active limit is 20 and can be lowered for weaker computers or raised up to the supported language catalogue on powerful hardware.
+Translated captions stay off until the operator enables them. The **Languages** page lets the operator choose Off, Base / Argos, Core / SMaLL-100, or Auto / Base + Core mode, install language resources, and set how many translated languages can be active at once. Visitor languages are automatic by default; Church Cap prioritises the most-requested languages up to the active limit. The default active limit is 2 for fresh installs. Keep CPU-only systems at 1-2 active translated languages for live services, and raise the limit only after benchmarking stronger hardware.
 
-Translation is experimental and may be inaccurate. Start with the default active translated language limit, then lower it if the computer struggles or captions begin to lag. Use a qualified human interpreter where accuracy matters.
+On Church Cap Appliance CPU boxes, the **Languages** page remains available but opens with a CPU warning and cannot exceed three active translated languages. On Church Cap Appliance GPU boxes, translated captions are available only when the box is installed with the GPU appliance profile and CUDA is ready. Normal desktop installs keep the full Languages page visible without the appliance cap.
+
+Translation is experimental and may be inaccurate. Start with the default active translated language limit, then keep it low if the computer struggles or captions begin to lag. Use a qualified human interpreter where accuracy matters.
 
 ## Passwords
 

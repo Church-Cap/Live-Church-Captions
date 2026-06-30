@@ -1,6 +1,6 @@
 # Security, privacy, HTTPS, and local networking
 
-This prototype is designed to be local-first: audio is captured on the church computer, captions are served on the local network, and guests only need a browser.
+Church Cap is designed to be local-first: audio is captured on the church computer, captions are served on the local network, and guests only need a browser.
 
 ## Operator login
 
@@ -187,7 +187,7 @@ Block guest Wi-Fi → other LAN devices
 
 Do not expose the caption server directly to the public internet unless you have reviewed authentication, HTTPS, logging, transcript retention, and cloud/security implications.
 
-## Suggested pilot defaults
+## Suggested local deployment defaults
 
 ```env
 PUBLIC_BASE_URL=http://church-cap.local:8080

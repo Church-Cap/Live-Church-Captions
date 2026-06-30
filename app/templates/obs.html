@@ -7,6 +7,9 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="obs-page">
+  {% if return_to_operator %}
+  <a class="obs-preview-back" href="/operator#audience">Back to operator</a>
+  {% endif %}
   <main class="obs-shell">
     <div id="currentCaption" class="obs-caption">Waiting for captions…</div>
     <div id="connection" class="obs-status">Connecting</div>
