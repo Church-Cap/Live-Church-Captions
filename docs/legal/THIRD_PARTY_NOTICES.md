@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-06-30
 
-Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for the v0.5.0 public preview.
+Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for the v0.6.0 public preview.
 
 The repository does not vendor Python packages, Whisper model weights, Argos model packages, Homebrew packages, operating-system packages, font files, browser packages, certificates, or a prebuilt `.venv`. Installers download dependencies into the user's local environment or ask the operating system package manager to install them. If you distribute a packaged app, appliance image, wheelhouse, Docker image, or prebuilt virtual environment, generate notices from that exact artifact.
 
@@ -27,7 +27,7 @@ These are the direct dependencies pinned in `requirements.txt` and `requirements
 | standard-library `http.server`, `http.client`, `subprocess`, `json`, `hashlib`, `hmac`, `secrets` | Python bundled | Appliance shell/proxy, PIN hashing, and local system commands | Python Software Foundation License; no extra package installed |
 | cryptography | >=42.0.0 | Local transcript cache encryption | Apache-2.0 or BSD-3-Clause |
 | argostranslate | 1.9.6 | Optional local Base translation provider installed by setup or the operator language-resource installer | MIT or CC0, per Argos Translate project metadata |
-| transformers, sentencepiece, safetensors | installed only by optional Core translation setup | Optional SMaLL-100 translation runtime | Apache-2.0 / BSD-style / Apache-2.0, confirm exact resolved versions if distributing a packaged build |
+| ctranslate2, transformers, sentencepiece, safetensors | installed only by optional Fast Core / Core translation setup | Optional SMaLL-100 conversion and translation runtime | MIT / Apache-2.0 / BSD-style / Apache-2.0, confirm exact resolved versions if distributing a packaged build |
 
 ## Important Transitive Dependencies
 
@@ -38,7 +38,7 @@ The exact transitive dependency set is resolved by `pip` for the user's platform
 | Starlette | FastAPI | ASGI/web framework dependency. |
 | Pydantic / pydantic-core | FastAPI and pydantic-settings | Data validation/settings dependencies. |
 | python-dotenv | pydantic-settings | `.env` loading support. |
-| CTranslate2 | faster-whisper and Argos Translate | Local inference runtime. On Windows, Church Cap can use CUDA through CTranslate2 when the installed runtime, NVIDIA drivers, and required CUDA runtime DLLs expose it. |
+| CTranslate2 | faster-whisper and optional Fast Core translation | Local inference runtime. On Windows, Church Cap can use CUDA through CTranslate2 for Faster Whisper when the installed runtime, NVIDIA drivers, and required CUDA runtime DLLs expose it. Fast Core converts SMaLL-100 into a local CTranslate2 INT8 model when the optional installer is run. Confirm model licences and converted model distribution terms before shipping prebuilt weights. |
 | PyTorch | openai-whisper | Local model runtime dependency; binary wheels may include platform-specific notices and accelerator libraries. |
 | tiktoken | openai-whisper | Tokenization dependency. |
 | numba / llvmlite | openai-whisper | Audio preprocessing dependencies. |
@@ -91,7 +91,7 @@ Church Cap does not commit or redistribute model weights in this repository.
 - Confirm the licence for every speech-to-text model you ship, cache, mirror, or bundle.
 - Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS/Linux or `scripts/install-translation-models-argos.ps1` on Windows during setup, from the operator **Languages** page, or when the translation installer is rerun manually.
 - Confirm the licence for every Argos language package you redistribute or preinstall.
-- Optional Core translation downloads `alirezamsh/small100` when `scripts/install-small100-core.sh` or `scripts/install-small100-core.ps1` is run. The Hugging Face model card lists SMaLL-100 as MIT licensed and covering 101 languages. Confirm the licence again before redistributing model weights.
+- Optional Fast Core translation downloads and converts `alirezamsh/small100` when `scripts/install-small100-ct2-int8.sh` or `scripts/install-small100-ct2-int8.ps1` is run. Optional legacy Core translation downloads the same model when `scripts/install-small100-core.sh` or `scripts/install-small100-core.ps1` is run. The Hugging Face model card lists SMaLL-100 as MIT licensed and covering 101 languages. Confirm the licence again before redistributing model weights or converted CTranslate2 files.
 
 Do not assume every model hosted online is safe to redistribute or use commercially. Model code, model weights, training data, and conversion scripts may have different licences.
 

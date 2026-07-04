@@ -107,15 +107,20 @@ create_env_if_missing
 
 step "5/5 Optional local translation resources"
 echo "Translation is optional and experimental. You can install it later from the operator Languages page."
-echo "  1) Install common Base / Argos packs"
-echo "  2) Install all available Base / Argos packs"
-echo "  3) Install common Base packs and optional Core / SMaLL-100"
-echo "  4) Skip translation resources"
-read -r -p "Choose translation setup [4]: " translation_answer
-case "${translation_answer:-4}" in
+echo "  1) Install common Base package / Argos packs"
+echo "  2) Install all available Base package / Argos packs"
+echo "  3) Install common Base package plus Recommended package / CTranslate2 INT8"
+echo "  4) Install common Base package plus Compatibility package / PyTorch SMaLL-100"
+echo "  5) Skip translation resources"
+read -r -p "Choose translation setup [5]: " translation_answer
+case "${translation_answer:-5}" in
   1) ./scripts/install-translation-models-argos.sh ;;
   2) ./scripts/install-translation-models-argos.sh --all ;;
   3)
+    ./scripts/install-translation-models-argos.sh
+    ./scripts/install-small100-ct2-int8.sh
+    ;;
+  4)
     ./scripts/install-translation-models-argos.sh
     ./scripts/install-small100-core.sh
     ;;

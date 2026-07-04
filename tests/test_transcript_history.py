@@ -1,4 +1,5 @@
 import tempfile
+import threading
 import sys
 import types
 import unittest
@@ -128,6 +129,48 @@ class TranscriptHistoryTests(unittest.IsolatedAsyncioTestCase):
             hub.configure_retention(retention_minutes=0, transcript_saving_enabled=True)
             self.assertFalse((root / "transcript.json.enc").exists())
             self.assertFalse((root / "transcript.json").exists())
+
+    async def test_transcript_persistence_failure_does_not_stop_live_captions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            class FailingStore(TranscriptStore):
+                def save_segments(self, *args, **kwargs):
+                    raise FileNotFoundError("simulated transcript cache write failure")
+
+            store = FailingStore(
+                encrypted_path=root / "transcript.json.enc",
+                key_path=root / "transcript.key",
+                plaintext_fallback_path=root / "transcript.json",
+            )
+            hub = CaptionHub(history_limit=10, retention_minutes=60, transcript_saving_enabled=True, transcript_store=store)
+
+            await hub.publish(CaptionSegment(text="Live captions should continue", is_final=True, created_at=datetime.now(timezone.utc)))
+
+            self.assertEqual([seg.text for seg in hub.final_segments()], ["Live captions should continue"])
+
+    async def test_atomic_transcript_write_uses_unique_temp_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "transcript.json.enc"
+            errors = []
+            start = threading.Barrier(8)
+
+            def writer(index: int) -> None:
+                try:
+                    start.wait()
+                    TranscriptStore._atomic_write(path, f"payload-{index}".encode("utf-8"))
+                except Exception as exc:
+                    errors.append(exc)
+
+            threads = [threading.Thread(target=writer, args=(index,)) for index in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(errors, [])
+            self.assertTrue(path.exists())
+            self.assertTrue(path.read_text(encoding="utf-8").startswith("payload-"))
 
 
 if __name__ == "__main__":

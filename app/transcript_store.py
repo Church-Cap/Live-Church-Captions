@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
@@ -155,13 +156,32 @@ class TranscriptStore:
             path.parent.chmod(0o700)
         except Exception:
             pass
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_bytes(data)
+        tmp_name: str | None = None
         try:
-            tmp.chmod(0o600)
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f"{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                tmp_name = handle.name
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            tmp = Path(tmp_name)
+            try:
+                tmp.chmod(0o600)
+            except Exception:
+                pass
+            os.replace(tmp, path)
         except Exception:
-            pass
-        os.replace(tmp, path)
+            if tmp_name:
+                try:
+                    Path(tmp_name).unlink()
+                except FileNotFoundError:
+                    pass
+            raise
 
     @staticmethod
     def _delete_file(path: Path) -> None:

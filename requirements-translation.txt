@@ -1,5 +1,6 @@
 # Local Base / Argos translation support.
 # Keep this separate from requirements.txt because the installer also downloads
 # Argos language packages and updates translation runtime settings.
-# Core / SMaLL-100 is installed separately by scripts/install-small100-core.*
+# Fast Core / CTranslate2 INT8 is installed separately by scripts/install-small100-ct2-int8.*.
+# Legacy PyTorch Core / SMaLL-100 is installed separately by scripts/install-small100-core.*.
 argostranslate==1.9.6

@@ -2,8 +2,8 @@
 
 This version uses a rolling audio buffer instead of waiting for a single large
 recording chunk. It emits fast partial captions and only stores final captions
-when speech pauses. It is still a prototype, but the pipeline is much closer to
-real live-caption behaviour.
+when speech pauses. This path is actively tuned for real live-caption
+behaviour while keeping the standard transcription path available as a fallback.
 """
 from __future__ import annotations
 

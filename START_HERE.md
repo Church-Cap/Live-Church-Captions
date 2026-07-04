@@ -4,10 +4,10 @@ Church Cap is a local live-caption app for churches. It runs on the caption comp
 
 ## First-Time Setup On Mac
 
-Open Terminal, then go to this folder:
+Open Terminal, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/church_cap"
+cd "$HOME/Documents/Live-Church-Captions-0.6.0"
 ```
 
 Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -16,14 +16,14 @@ Run setup. Use `bash` for this first command because the setup script may not be
 bash setup-macos.sh
 ```
 
-Setup may take a while. It installs the local Python environment and audio dependencies. It can also install common Base Argos translation packs, all Base packs, optional Core / SMaLL-100, or skip translation resources until later.
+Setup may take a while. It installs the local Python environment and audio dependencies. It can also install common Base package / Argos packs, all Base packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skip translation resources until later.
 
 ## First-Time Setup On Windows
 
-Open PowerShell, then go to this folder. This example assumes the folder has been moved into Documents.
+Open PowerShell, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap"
+cd "$HOME\Documents\Live-Church-Captions-0.6.0"
 ```
 
 Run setup:
@@ -44,9 +44,10 @@ If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came fro
 
 ## First-Time Setup On Linux
 
-Open a terminal in this folder and run:
+Open a terminal, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
+cd "$HOME/Documents/Live-Church-Captions-0.6.0"
 bash setup-linux.sh
 ```
 
@@ -114,7 +115,9 @@ On the Church Cap computer, use either route:
 2. Generate the one-use QR code.
 3. Let the service leader scan it.
 
-Their phone/tablet receives a simpler page for start, stop, blank, resume, audio input, caption health, and Automatic/Manual translated-language control. The current action has a subtle glow and status messages explain when captions are starting, stopping, blanked, or resuming. It does not receive full operator access. Use a trusted staff/AV Wi-Fi network, especially when running over HTTP. The page includes dismissible local-HTTP and caption-preview notes so the service leader understands the network/security trade-off and knows that a delayed control-page preview does not necessarily mean the audience feed is delayed.
+Their phone/tablet receives a simpler page for start, stop, blank, resume, audio input, caption health, audience QR sharing, and Automatic/Manual translated-language control. The current action has a subtle glow and status messages explain when captions are starting, stopping, blanked, or resuming. It does not receive full operator access. Use a trusted staff/AV Wi-Fi network, especially when running over HTTP. The page includes dismissible local-HTTP and caption-preview notes so the service leader understands the network/security trade-off and knows that a delayed control-page preview does not necessarily mean the audience feed is delayed.
+
+The service leader can share the audience QR code by generating a temporary phone-download QR, then save it for ProPresenter, EasyWorship, FreeShow, slides, or printed notices without opening the full operator page. On an appliance, the Operator Audience & OBS page uses the same handoff for its QR buttons.
 
 ## If Something Goes Wrong
 
@@ -145,7 +148,7 @@ No microphone/audio input:
 
 Windows CUDA, performance, update, or setup problems:
 
-- Open **System > Diagnostics** on the operator page and use **Download diagnostics** only if you are comfortable sharing the generated support file.
+- Open **System > Diagnostics** on the operator page and use **Download diagnostics** or, on an appliance, **Share diagnostics** only if you are comfortable sharing the generated support file.
 - Review the file before attaching it to a GitHub issue or support email because system names, device names, error messages, and log details may still be sensitive. Do not post diagnostics publicly unless you are comfortable sharing the contents.
 
 Stop Church Cap:

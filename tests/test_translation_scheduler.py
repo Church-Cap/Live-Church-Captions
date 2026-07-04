@@ -53,6 +53,13 @@ class TranslationSchedulerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await task
 
+    async def test_stable_translation_mode_still_updates_during_continuous_speech(self):
+        hub = CaptionHub()
+        hub.translation_timing_mode = "stable"
+        self.assertTrue(hub._should_translate_partial("es", CaptionSegment(text="this is enough corrected English words", is_final=False)))
+        self.assertFalse(hub._should_translate_partial("es", CaptionSegment(text="this is enough corrected English words", is_final=False)))
+        self.assertTrue(hub._should_translate_partial("es", CaptionSegment(text="final text", is_final=True)))
+
     async def test_latest_translation_batch_wins_and_skips_stale_languages(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = TranscriptStore(

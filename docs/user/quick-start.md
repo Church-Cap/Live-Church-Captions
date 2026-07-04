@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v0.5.0 public preview
+Version: v0.6.0 public preview
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -29,10 +29,10 @@ Use **Benchmark** before selecting heavier models such as `small.en` or `medium.
 ## First-Time Setup On Mac
 
 1. Open Terminal.
-2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
+2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/church_cap"
+cd "$HOME/Documents/Live-Church-Captions-0.6.0"
 ```
 
 3. Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -43,17 +43,17 @@ bash setup-macos.sh
 
 4. Wait for setup to finish, then continue to **Start Church Cap** below.
 
-The setup script installs the local Python environment and audio dependencies. It also offers translation-resource choices for common Base Argos packs, all Base packs, optional Core / SMaLL-100, or skipping translation resources until later. It only installs Python packages inside the Church Cap folder's `.venv`.
+The setup script installs the local Python environment and audio dependencies. It also offers translation-resource choices for common Base package / Argos packs, all Base package / Argos packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skipping translation resources until later. It only installs Python packages inside the Church Cap folder's `.venv`.
 
 If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes if this Mac will normally run captions.
 
 ## First-Time Setup On Windows
 
 1. Open PowerShell.
-2. Go to the Church Cap folder. This example assumes the folder has been moved into Documents.
+2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\church_cap"
+cd "$HOME\Documents\Live-Church-Captions-0.6.0"
 ```
 
 3. Run setup.
@@ -64,7 +64,7 @@ cd "$HOME\Documents\church_cap"
 
 4. Wait for setup to finish, then continue to **Start Church Cap** below.
 
-The setup script installs the local Python environment and app dependencies, checks CUDA/GPU support, and offers translation-resource choices for common Base Argos packs, all Base packs, optional Core / SMaLL-100, or skipping translation resources until later. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
+The setup script installs the local Python environment and app dependencies, checks CUDA/GPU support, and offers translation-resource choices for common Base package / Argos packs, all Base package / Argos packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skipping translation resources until later. v0.6.x starts the translation-performance track with the Recommended package / CTranslate2 INT8 for heavier translation paths, while Base package / Argos remains available as fallback. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
 
 You can also run the optional GPU runtime installer later:
 
@@ -76,9 +76,10 @@ If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came fro
 
 ## First-Time Setup On Linux
 
-From the Church Cap folder:
+Open a terminal, then go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
+cd "$HOME/Documents/Live-Church-Captions-0.6.0"
 bash setup-linux.sh
 ```
 
@@ -167,7 +168,7 @@ In the operator page, use **Performance** on the dashboard.
 
 - Move the slider toward **Fastest** if captions are too delayed or the computer is older.
 - Move the slider toward **Most accurate** if the computer has enough headroom and better wording matters more than delay. The far-right setting uses `medium.en`, which may increase latency.
-- Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS, Windows, or Linux, but can be changed manually if needed. The top operator bar shows **Audience Delay** and **Translation Delay** so live performance is visible without opening the benchmark panel.
+- Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS, Windows, or Linux, but can be changed manually if needed. The top operator bar shows **English Delay** and **Translation Delay** so source-caption and translated-caption latency are visible without opening the benchmark panel.
 
 Adjustments save automatically while captions are stopped. Stop captions before changing performance settings because Church Cap loads the AI model when captions start, and the Performance panel is locked during a live caption session to protect the audience feed. Use **Run 15s benchmark** during normal speech to estimate live-caption delay and system load, or **Live monitor** to keep measuring while captions run. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
 
@@ -175,13 +176,15 @@ Adjustments save automatically while captions are stopped. Stop captions before 
 
 In the operator page, open **Audience & OBS**.
 
-Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local` address, use the Android/IP fallback QR code. Each QR code has its own **Download QR** button for printing or service slides. The same section also provides the room **Display** page and the OBS browser-source overlay; both use the audience caption animation so text eases into place instead of jumping whenever a new partial caption arrives.
+Use the main QR code first. If an Android phone or guest Wi-Fi cannot open the `.local` address, use the Android/IP fallback QR code. On an appliance, the Operator and Service Leader pages can create a temporary **Share QR** phone handoff so the QR image can be saved on a phone for printing or service slides.
+
+The **Outputs** area is separate from audience phones. **Room display** is for a projector, TV, or confidence monitor. **OBS overlay** is for livestream software as a browser source. Both use the same smoother caption animation as the audience view. On a Church Cap Appliance, Church Cap warns before opening these clean output pages because they intentionally have no operator navigation and can cover the kiosk controls.
 
 ## Visitor Caption View
 
 The phone caption page shows live captions as a bottom-to-top reading stream. Captions start at the left edge in English, wrap naturally, and move upward as new captions arrive. A server-backed session transcript below the controls shows timestamped captions from the current app session with the newest entry at the top when history is enabled, and visitors can scroll back through earlier captions. Visitors can use **Hide transcript** or **Show transcript** to choose whether that scrollback panel appears on their own device.
 
-When captions are already visible and a visitor changes language, the phone page may briefly show a small loading notice inside the live caption card while the new language stream catches up. The notice overlays the card so the controls and transcript do not jump.
+When captions are already visible and a visitor changes language, the phone page may briefly show a small loading notice inside the live caption card while the new language stream catches up. The notice overlays the card so the controls and transcript do not jump. If translated captions are disabled for the service, the language menu explains that translated captions are unavailable and keeps the source-caption option visible. The visitor page requests the browser's native screen wake lock where supported so the phone is less likely to sleep during a service; it releases when the page is hidden or the browser revokes it. This keeps the implementation light, although any always-on screen will still use normal display battery power.
 
 In landscape orientation on phones and tablets, the viewer uses a compact side-by-side layout: live captions take about 75% of the width and the transcript takes the remaining space when enabled. The live caption and transcript panels stay within the visible screen; longer transcript history scrolls inside the transcript panel. If a visitor hides the transcript, the live caption view expands to use the full width.
 
@@ -192,7 +195,7 @@ Visitors automatically get the light or dark theme from their device settings. T
 - Use **Start captions** when ready.
 - If the speech model or audio input takes a moment to load, the operator page shows a polished status notice until captions are live. Start, Stop, Blank / pause, and Resume also show short action messages and a subtle active glow so the current caption state is visible at a glance.
 - Use **Stop** when captions should stop.
-- Use **Blank / pause** before private prayer, pastoral details, testimony, safeguarding, or anything sensitive. While blanked, captions are not shown, retained in the session transcript, or included in transcript exports; Church Cap also flushes the live transcription buffer and drops a short buffered-audio window when captions resume.
+- Use **Blank / pause** before private prayer, pastoral details, testimony, safeguarding, or anything sensitive. While blanked, captions are not shown, retained in the session transcript, or included in transcript exports; Church Cap also flushes the live transcription buffer and drops a short buffered-audio window when captions resume. Audience phones show the blanked/resumed notice in the selected caption UI language where a local UI string or runtime UI translation is available.
 - Use **Resume** when public captions should continue.
 - Watch the microphone level meter to confirm audio is coming in.
 - Use the privacy controls to choose whether transcript history is saved and how long to keep it. A fresh app start begins with an empty visible session transcript; older saved transcript cache is pruned on startup using the retention window saved with that cache. **Open transcript folder** reveals the per-user local cache folder on the Church Cap computer. **Export TXT/VTT/SRT/JSON** downloads the current-session transcript only and asks the operator to confirm the privacy warning first. Clearing the transcript deletes the retained local transcript cache.
@@ -205,7 +208,7 @@ Smaller churches can pair a trusted phone or tablet without exposing the full op
 2. Generate the one-use QR code.
 3. Scan it with the trusted device.
 
-The simple page can start/stop captions, blank/resume for sensitive moments, change the audio input while captions are stopped, show microphone and caption-health status, and enable translated captions in Automatic or Manual language mode. Language search matches native names, English names, and language codes. Its caption preview uses the same live feed as audience phones, but the page explains that a delayed control-device preview is not the main performance measure. It cannot access transcripts, passwords, updates, diagnostics, performance settings, or translation installation.
+The simple page can start/stop captions, blank/resume for sensitive moments, change the audio input while captions are stopped, show microphone and caption-health status, share audience QR codes to a phone, export the current-session transcript, share redacted support logs after a warning, and enable translated captions in Automatic or Manual language mode. Language search matches native names, English names, and language codes. Its caption preview uses the same live feed as audience phones, but the page explains that a delayed control-device preview is not the main performance measure. It cannot access passwords, updates, performance settings, account/privacy settings, or translation installation.
 
 The QR expires after 90 seconds and works once. The paired session lasts at most four hours and expires after two hours without activity. A warning offers to refresh the idle timer before it expires. The **Service Leader** operator section shows connected-device status and can replace or cancel an unused QR, open the restricted route, or disconnect all paired devices.
 
@@ -215,7 +218,7 @@ For HTTP, use a private staff/AV Wi-Fi network rather than open or congregation 
 
 Phone UI language selection is local and lightweight. It uses bundled interface labels and falls back to English for labels that have not been translated yet.
 
-Translated captions stay off until the operator enables them. The **Languages** page lets the operator choose Off, Base / Argos, Core / SMaLL-100, or Auto / Base + Core mode, install language resources, and set how many translated languages can be active at once. Visitor languages are automatic by default; Church Cap prioritises the most-requested languages up to the active limit. The default active limit is 2 for fresh installs. Keep CPU-only systems at 1-2 active translated languages for live services, and raise the limit only after benchmarking stronger hardware.
+Translated captions stay off until the operator enables them. The **Languages** page lets the operator choose Off, Recommended package / CTranslate2 INT8 SMaLL-100, Base package / Argos, Compatibility package / PyTorch SMaLL-100, or Auto / Recommended + Base + Compatibility mode, install language resources, and set how many translated languages can be active at once. Visitor languages are automatic by default; Church Cap prioritises the most-requested languages up to the active limit. The default active limit is 2 for fresh installs. Keep CPU-only systems at 1-2 active translated languages for live services, and raise the limit only after benchmarking stronger hardware.
 
 On Church Cap Appliance CPU boxes, the **Languages** page remains available but opens with a CPU warning and cannot exceed three active translated languages. On Church Cap Appliance GPU boxes, translated captions are available only when the box is installed with the GPU appliance profile and CUDA is ready. Normal desktop installs keep the full Languages page visible without the appliance cap.
 
@@ -296,7 +299,7 @@ AI-generated captions can contain mistakes. Use the sensitive blank/pause mode f
 
 ## Feedback
 
-The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For technical issues, use **Diagnostics > Download diagnostics** from the operator menu, or use the diagnostics link on the Feedback page, and attach that JSON file only if you are comfortable sharing system specs, OS version, performance settings, hardware status, recent metrics, and redacted updater/CUDA logs. Church Cap asks for confirmation first; review the file because system names, device names, error messages, and log details may still be sensitive. Do not post diagnostics publicly on GitHub unless you have reviewed the file and are comfortable sharing it.
+The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For technical issues, use **Diagnostics > Download diagnostics** from the operator menu, or **Share diagnostics** on an appliance to create a temporary phone-download QR. You can also use the diagnostics link on the Feedback page. Attach that JSON file only if you are comfortable sharing system specs, OS version, performance settings, hardware status, recent metrics, and redacted updater/CUDA logs. Church Cap asks for confirmation first; review the file because system names, device names, error messages, and log details may still be sensitive. Do not post diagnostics publicly on GitHub unless you have reviewed the file and are comfortable sharing it.
 
 ## Updating Church Cap
 
@@ -320,6 +323,6 @@ Linux:
 
 You can also use **Updates** on the operator page. Church Cap checks the latest GitHub release tag first, tells you if it is already up to date, asks before updating, checks the downloaded files, replaces this folder in place, and restarts the app.
 
-The updater preserves `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. It refreshes app-owned `APP_VERSION` and `FEEDBACK_EMAIL` values in `.env` from the new release defaults.
+The updater preserves `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. The displayed app version is code-owned so a stale `APP_VERSION` in `.env` cannot keep Windows showing an older release after an update.
 
 The updater checks the ZIP, required release files, release version, staged Python syntax, and SHA-256 file checksums before and after copying. If the internet drops during download or dependency installation, the current app is left alone. During replacement, Church Cap keeps a rollback backup in `data/update-backups/` and restores it automatically if the copy or checksum check fails.

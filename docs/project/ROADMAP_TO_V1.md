@@ -1,6 +1,6 @@
 # Roadmap To v1.0.0
 
-Church Cap v0.5.0 starts the move from a single preview app toward one maintained codebase with two supported experiences:
+Church Cap v0.6.0 continues the move from a single preview app toward one maintained codebase with two supported experiences:
 
 - the open-source desktop app for macOS, Windows, and Linux
 - the Church Cap Appliance profile for locked-down AlmaLinux boxes
@@ -15,10 +15,12 @@ The aim is not to fork the app. Shared captioning, audio, translation, security,
 - Add regression tests for deployment profiles, CPU appliance translation caps, warning flows, and appliance identity files.
 - Continue polishing the appliance shell on 7-inch touch displays.
 
-## v0.6.x Translation Performance
+## v0.6.x Translation Performance And Efficient Runtimes
 
-- Move heavier translation paths toward CTranslate2/INT8 where practical.
+- Move heavier translation paths toward CTranslate2/INT8 where practical, starting behind feature/provider checks rather than replacing Argos abruptly.
 - Keep Argos as the lightweight Base path for language packs that perform well enough.
+- Keep SMaLL-100 available as Core while measuring whether converted CTranslate2 models can give better throughput and lower memory use.
+- Investigate AMD ROCm as an experimental Linux path only after CUDA and CPU/int8 paths are stable.
 - Benchmark CPU-only systems with 1-2 active translated languages and GPU systems with higher active-language limits.
 - Add clearer operator recommendations based on measured latency, CPU load, GPU readiness, and active viewer-language demand.
 

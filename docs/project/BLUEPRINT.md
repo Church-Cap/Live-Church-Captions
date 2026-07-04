@@ -6,13 +6,13 @@ This document describes the current public preview architecture.
 
 ## Current Release
 
-Version: `v0.5.0 public preview`
+Version: `v0.6.0 public preview`
 
 Status: public preview for local church testing and deployment. Church Cap is open-source software, not a compliance-certified service, and churches remain responsible for their own privacy, safeguarding, accessibility, copyright, and operational policies.
 
 ## Deployment Model
 
-Church Cap v0.5.0 introduces explicit deployment profiles. Hardware detection reports capability only; it never decides that a computer is an appliance. Appliance mode is activated by an installer-owned identity file at `/etc/churchcap-appliance/identity.json` or by explicit environment variables.
+Church Cap v0.6.0 keeps explicit deployment profiles and starts the translation-performance track. Hardware detection reports capability only; it never decides that a computer is an appliance. Appliance mode is activated by an installer-owned identity file at `/etc/churchcap-appliance/identity.json` or by explicit environment variables.
 
 Profiles:
 
@@ -61,12 +61,13 @@ Church microphones
 - Operator **Updates** section — operator-only GitHub release-tag check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
 - `/service-leader` — restricted service-leader controls reached through a one-use QR pairing flow on the operator port.
 - `/api/diagnostics/export` — local diagnostics JSON export, operator login and local computer required.
+- `/api/diagnostics/download-handoff` — temporary diagnostics handoff QR for appliance support, operator login and local computer required.
 
 ## Main Components
 
 ### FastAPI Server
 
-The server handles routing, templates, WebSocket connections, API controls, caption state, operator-only current-session transcript exports, and operator authentication.
+The server handles routing, templates, WebSocket connections, API controls, caption state, current-session transcript exports, restricted Service Leader exports, and operator authentication.
 
 Key files:
 
@@ -122,7 +123,7 @@ app/transcript_store.py
 
 ### Client Viewer
 
-The public caption viewer is designed for phones and tablets. It uses a start-aligned, bottom-to-top caption stream: captions read from the left edge in left-to-right languages, wrap naturally, and use the available caption box from the bottom upward as new lines arrive. This avoids a middle-of-the-box caption feel and gives viewers a stable reading surface. The display and OBS pages reuse this rendering model with a constrained two-line presentation layout, so new words enter subtly and existing lines glide rather than snapping around the screen. If no confirmed caption is available yet, it can show a live draft so continuous speech does not leave viewers on the waiting screen. It includes an optional server-backed, scrollable, timestamped session transcript for the current app session with newest captions first, operator-only export controls with a privacy warning, font controls, automatic system light/dark theme with local override, transcript show/hide, pause/clear controls, lightweight UI language selection from `app/locales/client_ui.json`, a stable in-card language-loading notice for active language switches, AI accuracy notices, and optional translated-caption routing. Sensitive moment mode discards captions and transcript drafts while blanked, resets live transcription buffers, and briefly drops captions after resume so private speech is not retained or exported. A new app start keeps the visible transcript empty while pruning any saved local cache according to the retention window stored with that cache. On phone and tablet landscape viewports, the viewer uses a compact side-by-side layout so the live caption feed takes about 75% of the width while the transcript remains available when enabled; transcript history scrolls inside its panel so it does not push the live feed down, and hiding the transcript lets the live feed use the full width.
+The public caption viewer is designed for phones and tablets. It uses a start-aligned, bottom-to-top caption stream: captions read from the left edge in left-to-right languages, wrap naturally, and use the available caption box from the bottom upward as new lines arrive. This avoids a middle-of-the-box caption feel and gives viewers a stable reading surface. The display and OBS pages reuse this rendering model with a constrained two-line presentation layout, so new words enter subtly and existing lines glide rather than snapping around the screen. If no confirmed caption is available yet, it can show a live draft so continuous speech does not leave viewers on the waiting screen. It includes an optional server-backed, scrollable, timestamped session transcript for the current app session with newest captions first, export controls with privacy warnings, font controls, automatic system light/dark theme with local override, transcript show/hide, pause/clear controls, lightweight UI language selection from `app/locales/client_ui.json`, a stable in-card language-loading notice for active language switches, AI accuracy notices, and optional translated-caption routing. Sensitive moment mode discards captions and transcript drafts while blanked, resets live transcription buffers, and briefly drops captions after resume so private speech is not retained or exported. A new app start keeps the visible transcript empty while pruning any saved local cache according to the retention window stored with that cache. On phone and tablet landscape viewports, the viewer uses a compact side-by-side layout so the live caption feed takes about 75% of the width while the transcript remains available when enabled; transcript history scrolls inside its panel so it does not push the live feed down, and hiding the transcript lets the live feed use the full width.
 
 Key files:
 
@@ -144,7 +145,8 @@ The operator dashboard includes:
 - source caption preview
 - sensitive blank/pause mode
 - QR codes and audience links
-- OBS links
+- clearly separated Room display and OBS output links
+- appliance safeguard prompt before opening clean output pages from the kiosk
 - translation controls
 - bad-word censor controls
 - transcript retention controls and a local transcript-folder reveal action
@@ -156,7 +158,7 @@ The operator dashboard includes:
 
 The service-leader page is a separate least-privilege, denomination-neutral role. Pairing begins locally either from the login page with the existing operator password or from the authenticated **Service Leader** operator section. A 90-second single-use token is exchanged for a server-side session with a four-hour absolute timeout and two-hour idle timeout.
 
-The operator section reports active sessions and pairing-window state, generates or replaces the pairing QR, cancels unused pairing codes, and revokes established sessions. The restricted role can start/stop captions, blank/resume sensitive mode, change audio input while stopped, view benchmark-derived health, and manage translated captions with Automatic or Manual language availability using already-supported translation languages. Operator and service-leader controls share active-state feedback with subtle glows and concise action notices, so state changes made on either page are reflected on the other during normal status refresh. Its caption preview observes the live caption WebSocket without being counted as an audience viewer. It cannot access the full operator dashboard, transcripts, exports, performance configuration, diagnostics, updates, credentials, or model installation.
+The operator section reports active sessions and pairing-window state, generates or replaces the pairing QR, cancels unused pairing codes, and revokes established sessions. The restricted role can start/stop captions, blank/resume sensitive mode, change audio input while stopped, view benchmark-derived health, share audience QR codes through a temporary phone-download QR, export current-session TXT/VTT transcripts after a warning, share redacted support logs after a warning, request languages that are installed but not currently enabled, and manage translated captions with Automatic or Manual language availability using already-supported translation languages. Operator and service-leader controls share active-state feedback with subtle glows and concise action notices, so state changes made on either page are reflected on the other during normal status refresh. Its caption preview observes the live caption WebSocket without being counted as an audience viewer. It cannot access the full operator dashboard, full transcript export formats, performance configuration, unrestricted diagnostics, updates, credentials, account/privacy settings, or model installation.
 
 Key files:
 
@@ -175,7 +177,7 @@ app/templates/operator.html
 
 ### Translation
 
-Translation support is experimental. Phone UI language selection is separate from caption translation: UI labels come from static strings in `app/locales/client_ui.json` via `app/localisation.py`. The catalogue includes manual fallback dictionaries for languages Argos does not cover, and missing keys fall back to English per label. If a selected UI language is not in the catalogue, `/api/client-ui/{language}` can translate the UI labels locally at runtime using installed Base / Argos packs, then falls back to English if Argos cannot translate that language. Caption translation can use Base / Argos Translate, optional Core / SMaLL-100, or Auto / Base + Core. The setup scripts and operator **Languages** page can install common Base packs, all Base packs, and the optional Core model. Visitor language availability is automatic by default; Church Cap translates the most-requested languages up to the operator's active limit, which defaults to 2 for fresh installs and can be raised on powerful hardware. Advanced operators can restrict the available language list or prioritise selected languages first.
+Translation support is experimental. Phone UI language selection is separate from caption translation: UI labels come from static strings in `app/locales/client_ui.json` via `app/localisation.py`. The catalogue includes static strings for every supported caption language; missing future keys fall back to English per label. If a selected UI language is not in the catalogue, `/api/client-ui/{language}` can translate the UI labels locally at runtime using installed Base / Argos packs, then falls back to English if Argos cannot translate that language. Caption translation can use the Recommended package / CTranslate2 INT8 SMaLL-100, Base package / Argos Translate, Compatibility package / PyTorch SMaLL-100, or Auto / Recommended + Base + Compatibility. The setup scripts and operator **Languages** page can install common Base package / Argos packs, all Base package / Argos packs, the Recommended package / CTranslate2 INT8, and the Compatibility package / PyTorch SMaLL-100. Visitor language availability is automatic by default; Church Cap translates the most-requested languages up to the operator's active limit, which defaults to 2 for fresh installs and can be raised on powerful hardware. Advanced operators can restrict the available language list or prioritise selected languages first. In restricted mode, installed but not enabled languages can still be requested from visitor and Service Leader pages, and the operator can accept or reject those requests from a floating card.
 
 Key files:
 
@@ -313,7 +315,7 @@ Before publishing the repository publicly:
   - `scripts/*.py`
   - Windows `.cmd` launchers are present for setup, start, password reset, update, and optional CUDA runtime force reinstall.
 - Confirm Linux package detection remains isolated in `scripts/linux-system-packages.sh` and works with `apt`, `dnf`/`yum`, `zypper`, `pacman`, and `apk`.
-- Confirm updater scripts preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, and local config while refreshing app-owned release metadata.
+- Confirm updater scripts preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, and local config while keeping the displayed version code-owned and refreshing only safe app-owned defaults.
 - Confirm updater scripts validate downloaded ZIPs, required release files, release version, staged Python syntax, and SHA-256 installed-file checksums before reporting success.
 
 If permissions are lost in a copied or unzipped folder, users can run:
@@ -321,6 +323,18 @@ If permissions are lost in a copied or unzipped folder, users can run:
 ```bash
 bash fix-permissions.sh
 ```
+
+## v0.6.0 Translation Performance Track
+
+The v0.6.x branch should improve multilingual performance without splitting the project into separate apps. Recommended / CTranslate2 INT8 SMaLL-100 is the preferred broad-language path. Base / Argos remains available as a local fallback for installed packs. Compatibility / PyTorch SMaLL-100 remains optional for comparison and fallback while conversion quality and latency are benchmarked. AMD ROCm is a research item for Linux appliance experiments, not a supported runtime until detection, setup, diagnostics, fallback, and benchmark results are reliable.
+
+Implementation guardrails:
+
+- keep source English captions responsive even when translated-caption work is slow
+- keep Argos fallback available while adding any CTranslate2-backed provider
+- expose runtime status clearly in diagnostics and the operator language panel
+- do not raise CPU appliance language limits without benchmark evidence
+- do not advertise ROCm support until it is tested on real AMD hardware
 
 ## Windows Reliability QA Targets
 

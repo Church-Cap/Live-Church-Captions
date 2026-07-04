@@ -10,13 +10,15 @@ The page is intentionally limited to:
 - resume captions
 - view caption and microphone status
 - change the microphone/audio interface while captions are stopped
-- view colour-coded caption health derived from the same live timing data used by the operator benchmark
+- view colour-coded caption health, English delay, and language delay derived from the same live timing data used by the operator benchmark
 - enable or disable translated captions
 - choose Automatic or Manual translated-language availability from resources already configured by the operator
+- share the audience QR code through a temporary phone-download QR
+- export the current-session transcript and share redacted support logs after an explicit warning
 
-It cannot access transcripts, exports, diagnostics, updates, passwords, performance settings, translation-model installation, or other operator configuration.
+It cannot access updates, passwords, performance settings, translation-model installation, privacy settings, account settings, or other full operator configuration.
 
-The Start, Stop, Pause, and Resume controls use the same status model as the operator page. The active state has a subtle glow, and short action messages explain when captions are starting, stopping, blanked for a private moment, or resuming. If the operator changes the state from the caption computer, the paired page updates during its normal refresh; if the service leader changes the state, the operator page updates in the same way.
+The Start, Stop, Pause, and Resume controls use the same status model as the operator page. The active state has a subtle glow, and short action messages explain when captions are starting, stopping, blanked for a private moment, or resuming. If the operator changes the state from the caption computer, the paired page updates during its normal refresh; if the service leader changes the state, the operator page updates in the same way. The page also requests the browser's native screen wake lock where supported and releases it when hidden, so a church-owned phone or tablet can stay readable during a service without running extra polling or media work in the background.
 
 ## Pair a device
 
@@ -50,6 +52,9 @@ The service-leader session:
 - requires a separate CSRF token and matching request origin for every control action
 
 The dedicated **Service Leader** operator section shows the number of active restricted sessions and whether a pairing window is open. It can generate or replace a QR, cancel an unused QR, open the restricted route, and disconnect all service-leader devices.
+
+Because appliance access may be difficult during a live service, the restricted page can download current-session transcript TXT/VTT files and a redacted support-log JSON file. These actions require the paired session and a browser confirmation. Transcripts may contain names, pastoral details, prayer requests, or testimony. Support logs exclude captions, passwords, secrets, and `.env` contents, but may still include system names, device names, error messages, and recent log details.
+
 Changing the operator password also revokes every service-leader session.
 
 ## HTTP and HTTPS
@@ -61,6 +66,7 @@ For HTTP use:
 - use a private WPA2/WPA3 staff or AV network
 - do not use open Wi-Fi
 - avoid placing the control device on congregation guest Wi-Fi
+- avoid downloading transcript or support files over HTTP unless the device is on a trusted staff/AV network
 - restrict the operator port to the trusted subnet where the router/firewall supports it
 - never port-forward the operator port to the public internet
 

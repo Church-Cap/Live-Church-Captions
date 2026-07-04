@@ -23,9 +23,16 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         self.assertIn('request.scope.get("server")', request_port)
         self.assertLess(request_port.index('request.scope.get("server")'), request_port.index("request.url.port"))
 
-    def test_remote_scope_only_uses_service_leader_and_static_prefixes(self):
-        self.assertIn('REMOTE_SERVICE_LEADER_PREFIXES = ("/service-leader/", "/static/")', self.main)
-        self.assertNotIn('"/operator"', self.main.split("REMOTE_SERVICE_LEADER_PREFIXES", 1)[1].split("\n", 1)[0])
+    def test_remote_scope_only_uses_service_leader_handoff_and_static_prefixes(self):
+        allowlist = self.main.split("REMOTE_SERVICE_LEADER_PREFIXES", 1)[1].split("\n", 1)[0]
+        self.assertIn('"/service-leader/"', allowlist)
+        self.assertIn('"/download-handoff/"', allowlist)
+        self.assertIn('"/download-handoff-qr/"', allowlist)
+        self.assertIn('"/static/"', allowlist)
+        self.assertIn('"/service-leader/audience-qr.png"', self.main)
+        self.assertIn('"/service-leader/transcript.txt"', self.main)
+        self.assertIn('"/service-leader/support-logs.json"', self.main)
+        self.assertNotIn('"/operator"', allowlist)
 
     def test_pairing_secret_uses_url_fragment_not_query_string(self):
         self.assertIn('/service-leader/pair#{token}', self.main)
@@ -49,7 +56,6 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
             "/api/privacy",
             "/api/update",
             "/api/diagnostics",
-            "/transcript.",
             "/account",
         ):
             self.assertNotIn(forbidden, self.service_leader)
@@ -88,14 +94,56 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         self.assertIn("toggleServiceLeaderPairing()", self.login)
         self.assertNotIn("<details", self.login)
 
+    def test_service_leader_theme_toggle_is_local_and_persistent(self):
+        self.assertIn("serviceLeaderThemeToggle", self.service_leader)
+        self.assertIn("toggleServiceLeaderTheme", self.service_leader)
+        self.assertIn("serviceLeaderThemeManual", self.service_leader)
+        self.assertIn("applyServiceLeaderTheme()", self.service_leader)
+        self.assertIn(".service-leader-header-actions", self.styles)
+        self.assertIn(".service-leader-page.light-mode .secondary-button", self.styles)
+
+    def test_operator_language_save_button_is_before_restricted_list(self):
+        save_index = self.operator.index('class="button-row language-save-row"')
+        list_index = self.operator.index('Restricted-language list')
+        bottom_copy_index = self.operator.index('Recommended package uses CTranslate2 INT8')
+        self.assertLess(save_index, list_index)
+        self.assertLess(list_index, bottom_copy_index)
+        self.assertIn('text-align: center;', self.styles)
+        self.assertIn('.language-save-row', self.styles)
+
+    def test_operator_audience_outputs_are_clear_and_appliance_guarded(self):
+        self.assertIn("Room display and livestream", self.operator)
+        self.assertIn("output-option-card", self.operator)
+        self.assertIn("Appliance safeguard", self.operator)
+        self.assertIn("handleApplianceOutputLink", self.operator)
+        self.assertIn("applianceOutputDialog", self.operator)
+        self.assertIn("output-option-grid", self.styles)
+
     def test_service_leader_page_has_health_audio_and_expiry_controls(self):
         self.assertIn("How to improve caption health", self.service_leader)
+        self.assertIn("English delay", self.service_leader)
+        self.assertIn("Language delay", self.service_leader)
+        self.assertIn("serviceLeaderTranslationDelay", self.service_leader)
+        self.assertIn('"translation_delay_seconds": translation_delay', self.main)
         self.assertIn("serviceLeaderAudioDevice", self.service_leader)
         self.assertIn("sessionWarning", self.service_leader)
         self.assertIn("idle_remaining_seconds <= 600", self.service_leader)
         self.assertIn("confirmServiceLeaderLogout()", self.service_leader)
         self.assertIn("renderServiceLeaderLanguageList", self.service_leader)
+        self.assertIn("requestServiceLeaderLanguage", self.service_leader)
+        self.assertIn("/service-leader/api/language-requests", self.service_leader)
         self.assertIn("No languages found.", self.service_leader)
+        self.assertIn("shareServiceLeaderDownload('audience_qr')", self.service_leader)
+        self.assertIn("service-leader-qr-button", self.service_leader)
+        self.assertIn("Share Audience QR", self.service_leader)
+        self.assertIn("downloadServiceLeaderExport", self.service_leader)
+        self.assertIn("shareServiceLeaderDownload('support_logs')", self.service_leader)
+        self.assertIn("exportWarningDialog", self.service_leader)
+        self.assertIn("Share support logs?", self.service_leader)
+        self.assertIn("download-handoff", self.service_leader)
+        self.assertNotIn("window.confirm", self.service_leader)
+        self.assertIn("/service-leader/transcript.txt", self.service_leader)
+        self.assertIn("confirmed=1", self.service_leader)
 
     def test_service_leader_page_has_language_policy_and_dismissible_notices(self):
         self.assertIn("serviceLeaderLanguagePolicy", self.service_leader)
@@ -131,6 +179,10 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         self.assertIn("setActiveServiceLeaderControl", self.service_leader)
         self.assertIn(".service-leader-action.active", self.styles)
         self.assertIn("--service-leader-active-glow", self.styles)
+        self.assertIn(".service-leader-page.light-mode .service-leader-start", self.styles)
+        self.assertIn(".service-leader-page.light-mode .service-leader-stop", self.styles)
+        self.assertIn(".service-leader-page.light-mode .service-leader-blank", self.styles)
+        self.assertIn(".service-leader-page.light-mode .service-leader-resume", self.styles)
         self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr));", self.styles)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", self.styles)
         self.assertIn("min-height: 4.35rem;", self.styles)
@@ -175,6 +227,8 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         self.assertIn("revokeServiceLeaderAccess()", self.operator)
         self.assertIn('"/api/service-leader/pairing"', self.main)
         self.assertIn('"/api/service-leader/pairing/cancel"', self.main)
+        self.assertIn('"/api/language-requests/{language}/accept"', self.main)
+        self.assertIn('"/api/language-requests/{language}/reject"', self.main)
 
     def test_operator_pairing_generation_remains_local_only(self):
         route = self.main.split("async def create_operator_service_leader_pairing", 1)[1].split(

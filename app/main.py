@@ -4,15 +4,17 @@ import io
 import json
 import os
 import platform
+import secrets
 import shutil
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 import qrcode
-from fastapi import Depends, FastAPI, Form, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,7 +31,7 @@ from app.profanity_filter import ProfanityFilter
 from app.settings import get_settings
 from app.networking import default_base_url, detected_local_hostname, local_ip
 from app.runtime_config import load_runtime_config, set_audio_device, set_performance_config, set_privacy_config, set_profanity_filter_config, set_translation_config, set_security_config
-from app.i18n import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, normalise_language
+from app.i18n import LANGUAGE_BY_CODE, SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, normalise_language
 from app.localisation import get_client_ui_language_strings, get_client_ui_sources, get_client_ui_strings, get_runtime_translated_client_ui_strings
 from app.paths import app_support_dir
 from app.service_leader_auth import SERVICE_LEADER_COOKIE_NAME, ServiceLeaderAccessManager, ServiceLeaderSession
@@ -120,9 +122,77 @@ def safe_deployment_context(hardware: dict | None = None) -> dict:
         }
 
 
+def language_request_items() -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for code, request in sorted(_language_requests.items(), key=lambda item: (-int(item[1].get("count", 0)), item[0])):
+        language = LANGUAGE_BY_CODE.get(code, {"code": code, "name": code.upper(), "native": code.upper(), "flag": ""})
+        items.append({
+            "code": code,
+            "count": int(request.get("count", 0)),
+            "last_requested_at": request.get("last_requested_at"),
+            "language": language,
+        })
+    return items
+
+
+def language_requests_enabled() -> bool:
+    return bool(load_runtime_config().get("translation_language_requests_enabled", True))
+
+
+def submit_language_request(code: str) -> dict[str, object]:
+    if not language_requests_enabled():
+        raise HTTPException(status_code=403, detail="Language requests are currently disabled by the operator.")
+    code = normalise_language(code)
+    if code == SOURCE_LANGUAGE or code not in LANGUAGE_BY_CODE:
+        raise HTTPException(status_code=400, detail="Choose a supported translated language.")
+    state = safe_translation_state()
+    requestable = set(state.get("requestable_languages") or [])
+    if code not in requestable:
+        raise HTTPException(status_code=409, detail="That language is already available or is not installed for this translation mode.")
+    request = _language_requests.setdefault(code, {"code": code, "count": 0})
+    request["count"] = int(request.get("count", 0)) + 1
+    request["last_requested_at"] = datetime.now(timezone.utc).isoformat()
+    return request
+
+
+def prune_language_requests_for_allowed(allowed_languages: list[str] | set[str]) -> None:
+    allowed = {normalise_language(code) for code in allowed_languages}
+    for code in list(_language_requests):
+        if code in allowed:
+            _language_requests.pop(code, None)
+
+
 def safe_translation_state() -> dict:
     try:
-        return hub.translation_state()
+        state = dict(hub.translation_state())
+        requests_enabled = language_requests_enabled()
+        if not requests_enabled:
+            state["requestable_languages"] = []
+        prune_language_requests_for_allowed(set(state.get("allowed_languages") or []))
+        state["language_requests_enabled"] = requests_enabled
+        state["language_requests"] = language_request_items() if requests_enabled else []
+        allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
+        capabilities = deployment.get("capabilities", {})
+        limit = capabilities.get("translation_max_limit")
+        if isinstance(limit, int) and limit > 0:
+            state["max_active_languages"] = min(int(state.get("max_active_languages") or limit), limit)
+        if not allowed_by_deployment:
+            message = capabilities.get("message") or "Translated captions are not enabled for this appliance profile."
+            state.update({
+                "enabled": False,
+                "provider_status": {
+                    **dict(state.get("provider_status") or {}),
+                    "ready": False,
+                    "message": message,
+                },
+                "active_translated_languages": [],
+                "available_languages": [SOURCE_LANGUAGE],
+                "requestable_languages": [],
+                "language_requests_enabled": requests_enabled,
+                "language_requests": [],
+                "max_active_languages": 1,
+            })
+        return state
     except Exception as exc:
         return {
             "enabled": False,
@@ -136,6 +206,9 @@ def safe_translation_state() -> dict:
             "active_translated_languages": [],
             "resources": {},
             "available_languages": [SOURCE_LANGUAGE],
+            "requestable_languages": [],
+            "language_requests_enabled": True,
+            "language_requests": [],
         }
 
 
@@ -159,6 +232,7 @@ hub.configure_translation(
     max_active_languages=startup_translation_max_active,
     language_policy=runtime_config.get("translation_language_policy", "automatic"),
     priority_mode=runtime_config.get("translation_priority_mode", "most_viewers"),
+    timing_mode=runtime_config.get("translation_timing_mode", "live"),
 )
 glossary = Glossary()
 profanity_filter = ProfanityFilter()
@@ -180,9 +254,14 @@ _cuda_runtime_install_state = {"status": "idle"}
 _cuda_runtime_install_process: subprocess.Popen | None = None
 _translation_install_state = {"status": "idle"}
 _translation_install_process: subprocess.Popen | None = None
+_language_requests: dict[str, dict[str, object]] = {}
 CUDA_RUNTIME_LOG_LABEL = "logs/cuda-runtime-install.log"
 TRANSLATION_INSTALL_LOG_LABEL = "logs/translation-install.log"
 service_leader_access = ServiceLeaderAccessManager()
+
+DOWNLOAD_HANDOFF_TTL_SECONDS = 10 * 60
+_download_handoff_tokens: dict[str, dict[str, object]] = {}
+
 
 
 def base_url(request: Request | None = None) -> str:
@@ -455,18 +534,25 @@ def service_leader_language_context() -> dict:
         if code != SOURCE_LANGUAGE and code in provider_codes
     }
     language_policy = str(runtime.get("translation_language_policy") or "automatic")
+    requests_enabled = bool(runtime.get("translation_language_requests_enabled", True))
     if language_policy == "restricted":
         visible_codes = selected_codes
+        requestable_codes = provider_codes - selected_codes - {SOURCE_LANGUAGE} if requests_enabled else set()
     else:
         visible_codes = provider_codes - {SOURCE_LANGUAGE}
+        requestable_codes = set()
     available = [language for language in SUPPORTED_LANGUAGES if language["code"] in visible_codes]
+    requestable = [language for language in SUPPORTED_LANGUAGES if language["code"] in requestable_codes]
     return {
         "translation_enabled": bool(runtime.get("translation_enabled")) and provider != "disabled",
         "translation_provider": provider,
         "translation_provider_ready": bool(hub.translator.provider_status(provider).get("ready")),
         "translation_max_active_languages": clamp_translation_max_for_deployment(int(runtime.get("translation_max_active_languages", 2)), deployment),
         "translation_language_policy": language_policy,
+        "translation_language_requests_enabled": requests_enabled,
         "available_languages": available,
+        "requestable_languages": requestable,
+        "language_requests": language_request_items() if requests_enabled else [],
         "selected_languages": sorted(selected_codes),
     }
 
@@ -510,11 +596,20 @@ def caption_health_snapshot() -> dict:
     system_load = system_perf.get("cpu_percent")
     if system_load is None:
         system_load = system_perf.get("load_1m_percent")
+    translation_latency = metrics.get("last_translation_seconds")
+    try:
+        translation_latency = None if translation_latency is None else float(translation_latency)
+    except (TypeError, ValueError):
+        translation_latency = None
+    translation_delay = None
+    if live_delay is not None and translation_latency is not None:
+        translation_delay = live_delay + translation_latency
     return {
         "level": level,
         "label": label,
         "message": message,
         "live_delay_seconds": live_delay,
+        "translation_delay_seconds": translation_delay,
         "transcription_seconds": transcription,
         "system_load_percent": system_load,
         "runtime_label": f"{backend} · {performance.get('whisper_model', 'unknown')}",
@@ -540,9 +635,9 @@ def _request_port(request: Request) -> int | None:
 
 
 PUBLIC_PREFIXES = ("/static/",)
-PUBLIC_EXACT_PATHS = {"/", "/display", "/obs", "/qr.png", "/qr-ip.png", "/health", "/api/languages"}
+PUBLIC_EXACT_PATHS = {"/", "/display", "/obs", "/qr.png", "/qr-ip.png", "/health", "/api/languages", "/api/language-requests"}
 PUBLIC_WS_PATHS = {"/ws/captions"}
-REMOTE_SERVICE_LEADER_PREFIXES = ("/service-leader/", "/static/")
+REMOTE_SERVICE_LEADER_PREFIXES = ("/service-leader/", "/download-handoff/", "/download-handoff-qr/", "/static/")
 
 
 def is_public_viewer_path(path: str) -> bool:
@@ -1051,10 +1146,15 @@ def diagnostics_payload() -> dict:
         "max_active_languages": translation.get("max_active_languages"),
         "language_policy": translation.get("language_policy"),
         "priority_mode": translation.get("priority_mode"),
+        "timing_mode": translation.get("timing_mode"),
+        "language_requests_enabled": translation.get("language_requests_enabled"),
         "active_translated_languages": translation.get("active_translated_languages", []),
         "viewer_language_counts": translation.get("viewer_languages", {}),
         "argos_installed_language_count": len(translation.get("resources", {}).get("argos", {}).get("installed_languages", [])),
         "argos_installed_pair_count": len(translation.get("resources", {}).get("argos", {}).get("installed_pairs", [])),
+        "ct2small100_ready": translation.get("resources", {}).get("ct2small100", {}).get("status", {}).get("ready"),
+        "ct2small100_model_dir": translation.get("resources", {}).get("ct2small100", {}).get("status", {}).get("model_dir"),
+        "ct2small100_license": translation.get("resources", {}).get("ct2small100", {}).get("license"),
         "small100_ready": translation.get("resources", {}).get("small100", {}).get("status", {}).get("ready"),
         "small100_license": translation.get("resources", {}).get("small100", {}).get("license"),
     }
@@ -1451,6 +1551,8 @@ async def service_leader_page(request: Request, session: ServiceLeaderSession = 
             **base_template_context(request),
             "csrf_token": session.csrf_token,
             "secure_transport": request.url.scheme == "https",
+            "audience_url": f"{base_url(request)}/",
+            "audience_ip_url": f"{ip_base_url(request)}/",
             **service_leader_language_context(),
         },
     )
@@ -1575,23 +1677,135 @@ async def operator(request: Request, _: None = Depends(require_operator)):
     )
 
 
-@app.get("/qr.png")
-async def qr(request: Request):
-    img = qrcode.make(f"{base_url(request)}/")
-    import io
+
+def _qr_png_response(value: str, filename: str | None = None) -> Response:
+    img = qrcode.make(value)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    return Response(buf.getvalue(), media_type="image/png")
+    headers = _download_headers(filename) if filename else None
+    return Response(buf.getvalue(), media_type="image/png", headers=headers)
+
+
+def _cleanup_download_handoffs() -> None:
+    now = time.time()
+    for token, payload in list(_download_handoff_tokens.items()):
+        if float(payload.get("expires_at", 0)) <= now:
+            _download_handoff_tokens.pop(token, None)
+
+
+def _create_download_handoff(target: str) -> str:
+    _cleanup_download_handoffs()
+    token = secrets.token_urlsafe(24)
+    _download_handoff_tokens[token] = {
+        "target": target,
+        "expires_at": time.time() + DOWNLOAD_HANDOFF_TTL_SECONDS,
+    }
+    return token
+
+
+def _download_handoff_urls(request: Request, token: str) -> dict[str, str | int]:
+    base = service_leader_base_url(request).rstrip("/")
+    return {
+        "download_url": f"{base}/download-handoff/{token}",
+        "qr_url": f"{base}/download-handoff-qr/{token}.png",
+        "expires_seconds": DOWNLOAD_HANDOFF_TTL_SECONDS,
+    }
+
+
+def _download_handoff_target_response(request: Request, target: str) -> Response:
+    if target == "audience_qr":
+        return _qr_png_response(f"{base_url(request)}/", "church-cap-audience-qr.png")
+    if target == "audience_qr_ip":
+        return _qr_png_response(f"{ip_base_url(request)}/", "church-cap-audience-ip-qr.png")
+    if target in {"support_logs", "operator_diagnostics"}:
+        filename = "church-cap-support-logs" if target == "support_logs" else "church-cap-diagnostics"
+        body = json.dumps(diagnostics_payload(), indent=2, sort_keys=True)
+        return Response(
+            body,
+            media_type="application/json",
+            headers=_download_headers(f"{filename}-{settings.app_version}.json"),
+        )
+    raise HTTPException(status_code=404, detail="Download handoff target expired or unavailable")
+
+
+
+@app.get("/qr.png")
+async def qr(request: Request):
+    return _qr_png_response(f"{base_url(request)}/")
 
 
 @app.get("/qr-ip.png")
 async def qr_ip(request: Request):
     """IP-address fallback QR for Android/guest Wi-Fi networks that do not resolve .local/mDNS."""
-    img = qrcode.make(f"{ip_base_url(request)}/")
-    import io
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return Response(buf.getvalue(), media_type="image/png")
+    return _qr_png_response(f"{ip_base_url(request)}/")
+
+
+@app.get("/service-leader/audience-qr.png")
+async def service_leader_audience_qr(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    return _qr_png_response(f"{base_url(request)}/", "church-cap-audience-qr.png")
+
+
+@app.get("/service-leader/audience-qr-ip.png")
+async def service_leader_audience_qr_ip(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    return _qr_png_response(f"{ip_base_url(request)}/", "church-cap-audience-ip-qr.png")
+
+
+@app.post("/service-leader/api/download-handoff")
+async def create_service_leader_download_handoff(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    target = str(body.get("target", ""))
+    if target not in {"audience_qr", "audience_qr_ip", "support_logs"}:
+        raise HTTPException(status_code=400, detail="Unsupported Service Leader download handoff")
+    return _download_handoff_urls(request, _create_download_handoff(target))
+
+
+@app.post("/api/diagnostics/download-handoff")
+async def create_operator_diagnostics_download_handoff(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Create diagnostics handoff QR codes from the Church Cap computer."},
+            status_code=403,
+        )
+    return _download_handoff_urls(request, _create_download_handoff("operator_diagnostics"))
+
+
+@app.post("/api/download-handoff")
+async def create_operator_download_handoff(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Create download handoff QR codes from the Church Cap computer."},
+            status_code=403,
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    target = str(body.get("target", ""))
+    if target not in {"audience_qr", "audience_qr_ip", "operator_diagnostics"}:
+        raise HTTPException(status_code=400, detail="Unsupported operator download handoff")
+    return _download_handoff_urls(request, _create_download_handoff(target))
+
+
+@app.get("/download-handoff-qr/{token}.png")
+async def download_handoff_qr(request: Request, token: str):
+    _cleanup_download_handoffs()
+    payload = _download_handoff_tokens.get(token)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Download handoff expired")
+    return _qr_png_response(f"{service_leader_base_url(request).rstrip()}/download-handoff/{token}")
+
+
+@app.get("/download-handoff/{token}")
+async def download_handoff(request: Request, token: str):
+    _cleanup_download_handoffs()
+    payload = _download_handoff_tokens.get(token)
+    if payload is None:
+        return PlainTextResponse("This Church Cap download link has expired. Create a new QR code from the appliance.", status_code=404)
+    return _download_handoff_target_response(request, str(payload.get("target", "")))
 
 
 @app.get("/health")
@@ -1762,6 +1976,45 @@ async def transcript_json(_: None = Depends(require_operator)):
     return Response(segments_to_json(hub.final_segments()), media_type="application/json", headers=_download_headers("church-cap-current-session-transcript.json"))
 
 
+def _service_leader_export_confirmed(request: Request) -> JSONResponse | None:
+    if request.query_params.get("confirmed") == "1":
+        return None
+    return JSONResponse(
+        {
+            "status": "confirmation_required",
+            "error": "Confirm that you understand this download may contain sensitive service information.",
+        },
+        status_code=400,
+    )
+
+
+@app.get("/service-leader/transcript.txt", response_class=PlainTextResponse)
+async def service_leader_transcript_txt(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    if error := _service_leader_export_confirmed(request):
+        return error
+    lines = [seg.text for seg in hub.final_segments()]
+    return PlainTextResponse("\n".join(lines), headers=_download_headers("church-cap-current-session-transcript.txt"))
+
+
+@app.get("/service-leader/transcript.vtt", response_class=PlainTextResponse)
+async def service_leader_transcript_vtt(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    if error := _service_leader_export_confirmed(request):
+        return error
+    return PlainTextResponse(segments_to_vtt(hub.final_segments()), media_type="text/vtt", headers=_download_headers("church-cap-current-session-transcript.vtt"))
+
+
+@app.get("/service-leader/support-logs.json")
+async def service_leader_support_logs(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    if error := _service_leader_export_confirmed(request):
+        return error
+    body = json.dumps(diagnostics_payload(), indent=2, sort_keys=True)
+    return Response(
+        body,
+        media_type="application/json",
+        headers=_download_headers(f"church-cap-support-logs-{settings.app_version}.json"),
+    )
+
+
 @app.get("/api/status")
 async def api_status(_: None = Depends(require_operator)):
     state = hub.state()
@@ -1778,6 +2031,14 @@ async def api_status(_: None = Depends(require_operator)):
     translation_delay = None
     if audience_delay is not None and metrics.get("last_translation_seconds") is not None:
         translation_delay = audience_delay + float(metrics.get("last_translation_seconds") or 0)
+    translation_delay_by_language: dict[str, float] = {}
+    if audience_delay is not None:
+        for language, seconds in (translation_state.get("translation_latency_seconds") or {}).items():
+            try:
+                translation_delay_by_language[str(language)] = audience_delay + float(seconds)
+            except (TypeError, ValueError):
+                continue
+    translation_state = {**translation_state, "translation_delay_seconds_by_language": translation_delay_by_language}
     strip_cpu_percent = system_perf.get("cpu_percent")
     if strip_cpu_percent is None:
         strip_cpu_percent = system_perf.get("load_1m_percent")
@@ -2159,6 +2420,8 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
         provider,
         language_policy,
         str(runtime.get("translation_priority_mode") or "most_viewers"),
+        bool(runtime.get("translation_language_requests_enabled", True)),
+        str(runtime.get("translation_timing_mode") or "live"),
     )
     hub.configure_translation(
         enabled=bool(cfg["translation_enabled"]),
@@ -2167,6 +2430,7 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
         max_active_languages=int(cfg["translation_max_active_languages"]),
         language_policy=cfg["translation_language_policy"],
         priority_mode=cfg["translation_priority_mode"],
+        timing_mode=cfg["translation_timing_mode"],
     )
     return {"status": "saved", **service_leader_language_context()}
 
@@ -2292,7 +2556,12 @@ async def update_translation(request: Request, _: None = Depends(require_operato
         enabled = False
     language_policy = str(body.get("translation_language_policy") or "automatic")
     priority_mode = str(body.get("translation_priority_mode") or "most_viewers")
-    cfg = set_translation_config(enabled, allowed, max_active, provider, language_policy, priority_mode)
+    requests_enabled = bool(body.get("translation_language_requests_enabled", True))
+    timing_mode = str(body.get("translation_timing_mode") or "live")
+    cfg = set_translation_config(enabled, allowed, max_active, provider, language_policy, priority_mode, requests_enabled, timing_mode)
+    if not requests_enabled:
+        _language_requests.clear()
+    prune_language_requests_for_allowed(cfg["translation_allowed_languages"])
     hub.configure_translation(
         enabled=bool(cfg["translation_enabled"]),
         provider=cfg["translation_provider"],
@@ -2300,6 +2569,7 @@ async def update_translation(request: Request, _: None = Depends(require_operato
         max_active_languages=int(cfg["translation_max_active_languages"]),
         language_policy=cfg["translation_language_policy"],
         priority_mode=cfg["translation_priority_mode"],
+        timing_mode=cfg["translation_timing_mode"],
     )
     return {"status": "saved", **safe_translation_state()}
 
@@ -2309,6 +2579,67 @@ async def update_translation(request: Request, _: None = Depends(require_operato
 @app.get("/api/translation/status")
 async def translation_status(_: None = Depends(require_operator)):
     return {**safe_translation_state(), "install": _translation_install_state}
+
+
+@app.post("/api/language-requests")
+async def request_language(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    submit_language_request(str(body.get("language") or body.get("code") or ""))
+    return {"status": "requested", "translation": safe_translation_state()}
+
+
+@app.post("/service-leader/api/language-requests")
+async def service_leader_request_language(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
+    require_service_leader_mutation(request, session)
+    body = await request.json()
+    submit_language_request(str(body.get("language") or body.get("code") or ""))
+    return {"status": "requested", "translation": service_leader_language_context()}
+
+
+@app.post("/api/language-requests/{language}/accept")
+async def accept_language_request(language: str, _: None = Depends(require_operator)):
+    code = normalise_language(language)
+    if code == SOURCE_LANGUAGE or code not in LANGUAGE_BY_CODE:
+        raise HTTPException(status_code=400, detail="Choose a supported translated language.")
+    runtime = load_runtime_config()
+    provider = str(runtime.get("translation_provider") or settings.translation_provider or "disabled")
+    provider_codes = set(hub.translator.supported_languages_for_provider(provider))
+    if code not in provider_codes:
+        raise HTTPException(status_code=409, detail="That language is not installed for the current translation provider.")
+    allowed = sorted({*(runtime.get("translation_allowed_languages") or [SOURCE_LANGUAGE]), SOURCE_LANGUAGE, code})
+    allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
+    max_active = clamp_translation_max_for_deployment(int(runtime.get("translation_max_active_languages", 2)), deployment)
+    cfg = set_translation_config(
+        bool(runtime.get("translation_enabled")) and allowed_by_deployment and provider != "disabled",
+        allowed,
+        max_active,
+        provider,
+        "restricted",
+        str(runtime.get("translation_priority_mode") or "most_viewers"),
+        bool(runtime.get("translation_language_requests_enabled", True)),
+        str(runtime.get("translation_timing_mode") or "live"),
+    )
+    hub.configure_translation(
+        enabled=bool(cfg["translation_enabled"]),
+        provider=cfg["translation_provider"],
+        allowed_languages=cfg["translation_allowed_languages"],
+        max_active_languages=int(cfg["translation_max_active_languages"]),
+        language_policy=cfg["translation_language_policy"],
+        priority_mode=cfg["translation_priority_mode"],
+        timing_mode=cfg["translation_timing_mode"],
+    )
+    _language_requests.pop(code, None)
+    return {"status": "accepted", "translation": safe_translation_state()}
+
+
+@app.post("/api/language-requests/{language}/reject")
+async def reject_language_request(language: str, _: None = Depends(require_operator)):
+    code = normalise_language(language)
+    _language_requests.pop(code, None)
+    return {"status": "rejected", "translation": safe_translation_state()}
 
 
 def translation_install_script(kind: str) -> list[str]:
@@ -2323,6 +2654,10 @@ def translation_install_script(kind: str) -> list[str]:
         if kind == "argos_all":
             command.append("--all")
         return command
+    if kind == "ct2small100":
+        if system == "Windows":
+            return ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(PROJECT_ROOT / "scripts" / "install-small100-ct2-int8.ps1")]
+        return ["bash", str(PROJECT_ROOT / "scripts" / "install-small100-ct2-int8.sh")]
     if kind == "small100":
         if system == "Windows":
             return ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(PROJECT_ROOT / "scripts" / "install-small100-core.ps1")]
@@ -2385,7 +2720,13 @@ async def install_translation_resources(request: Request, _: None = Depends(requ
         _translation_install_state = {"status": "error", "error": str(exc), "log": TRANSLATION_INSTALL_LOG_LABEL}
         return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
     _translation_install_state = {"status": "installing", "kind": kind, "log": TRANSLATION_INSTALL_LOG_LABEL}
-    return {"status": "installing", "message": f"Installing {kind} translation resources.", "install": _translation_install_state}
+    install_messages = {
+        "ct2small100": "Installing the Recommended package / CTranslate2 INT8 SMaLL-100. This can take several minutes.",
+        "small100": "Installing the Compatibility package / PyTorch SMaLL-100.",
+        "argos": "Installing common Base package / Argos Translate language packs.",
+        "argos_all": "Installing all available Base package / Argos Translate language packs.",
+    }
+    return {"status": "installing", "message": install_messages.get(kind, "Installing translation resources."), "install": _translation_install_state}
 
 
 @app.get("/api/languages")

@@ -46,7 +46,7 @@ Run Church Cap as a normal user that can access the selected ALSA/PulseAudio/Pip
 
 ## NVIDIA CUDA
 
-Linux NVIDIA drivers and CUDA are system-managed. Church Cap does not install or modify them. If CTranslate2 can use the GPU, Auto mode selects CUDA; otherwise Church Cap falls back to CPU/int8.
+Linux NVIDIA drivers and CUDA are system-managed. Church Cap does not install or modify them. If CTranslate2 can use the GPU, Faster Whisper and optional Fast Core translation can select CUDA; otherwise Church Cap falls back to CPU/int8.
 
 ## Runtime data
 

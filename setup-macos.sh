@@ -46,8 +46,9 @@ Commands this script may run:
   .venv/bin/python -m pip install --upgrade pip "setuptools<82" wheel
   .venv/bin/python -m pip install -r requirements.txt
   .venv/bin/python -m pip install -r requirements-translation.txt
-  ./scripts/install-translation-models-argos.sh                      # installs Base packs, does not enable live translation
-  ./scripts/install-small100-core.sh                                 # optional heavier Core model
+  ./scripts/install-translation-models-argos.sh                      # installs Base package / Argos packs, does not enable live translation
+  ./scripts/install-small100-ct2-int8.sh                             # optional Recommended package: CTranslate2 INT8 / SMaLL-100
+  ./scripts/install-small100-core.sh                                 # optional Compatibility package: PyTorch SMaLL-100
   sudo scutil --set ComputerName "Church Cap"      (optional)
   sudo scutil --set LocalHostName "church-cap"     (optional)
   sudo scutil --set HostName "church-cap.local"    (optional)
@@ -192,14 +193,15 @@ step "7/8 Installing Base translation dependencies/models"
 echo "Base translation uses Argos Translate for local, offline text translation after language packs are downloaded."
 echo "This is experimental. It increases setup time, disk usage, CPU/RAM use during services, and translations may be inaccurate."
 echo "The installer will use .venv only, then download common English -> target language packs where Argos provides them."
-echo "You can install all Base packs later from the operator Languages page, or install the heavier Core SMaLL-100 model when needed."
+echo "You can install all Base package / Argos packs later from the operator Languages page, or install the Recommended package / CTranslate2 INT8 SMaLL-100 when broader neural translation is needed."
 echo "Live translated captions will remain OFF in the operator web page until the operator enables them."
 echo ""
 echo "Translation resource options:"
-echo "  1) Install common Base packs (recommended)"
-echo "  2) Install all available Base packs"
-echo "  3) Install common Base packs and optional Core model"
-echo "  4) Skip translation resources for now"
+echo "  1) Install common Base package / Argos packs"
+echo "  2) Install all available Base package / Argos packs"
+echo "  3) Install common Base package plus Recommended package / CTranslate2 INT8"
+echo "  4) Install common Base package plus Compatibility package / PyTorch SMaLL-100"
+echo "  5) Skip translation resources for now"
 read -r -p "Choose translation setup [1]: " translation_answer
 case "${translation_answer:-1}" in
   2)
@@ -207,9 +209,13 @@ case "${translation_answer:-1}" in
     ;;
   3)
     ./scripts/install-translation-models-argos.sh || echo "Argos model installation did not complete. You can rerun ./scripts/install-translation-models-argos.sh later."
-    ./scripts/install-small100-core.sh || echo "Core model installation did not complete. You can rerun ./scripts/install-small100-core.sh later."
+    ./scripts/install-small100-ct2-int8.sh || echo "Recommended package / CTranslate2 INT8 installation did not complete. You can rerun ./scripts/install-small100-ct2-int8.sh later."
     ;;
   4)
+    ./scripts/install-translation-models-argos.sh || echo "Argos model installation did not complete. You can rerun ./scripts/install-translation-models-argos.sh later."
+    ./scripts/install-small100-core.sh || echo "Compatibility package / PyTorch SMaLL-100 installation did not complete. You can rerun ./scripts/install-small100-core.sh later."
+    ;;
+  5)
     echo "Skipping translation resources. You can install them later from the operator Languages page."
     ;;
   *)

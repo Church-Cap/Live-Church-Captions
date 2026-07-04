@@ -44,6 +44,7 @@ Write-Host "  - Python 3.12, or Python 3.10+ if 3.12 is not available"
 Write-Host "  - If Python is missing, this script can offer to install Python 3.12 with winget"
 Write-Host "  - Internet access for first setup"
 Write-Host "  - Optional NVIDIA GPU with current drivers for CUDA acceleration"
+Write-Host "  - AMD ROCm is not enabled yet; it is planned as an experimental Linux research path"
 Write-Host ""
 
 $answer = Read-Host "Continue with setup? [y/N]"
@@ -170,22 +171,27 @@ if ($SkipTranslation) {
     Write-Host "Skipping Argos Translate setup because -SkipTranslation was used."
 } else {
     Write-Host "Base translation uses Argos Translate for local, offline text translation after language packs are downloaded."
-    Write-Host "Translation is experimental and may be inaccurate. It may still run on CPU even when Whisper uses CUDA."
-    Write-Host "You can install all Base packs or the heavier Core SMaLL-100 model later from the operator Languages page."
+    Write-Host "Translation is experimental and may be inaccurate. Recommended package / CTranslate2 INT8 SMaLL-100 is the preferred broad translation path. Base package / Argos usually runs on CPU and remains available as fallback."
+    Write-Host "You can install all Base package / Argos packs, the Recommended package / CTranslate2 INT8, or the Compatibility package / PyTorch SMaLL-100 later from the operator Languages page."
     Write-Host ""
     Write-Host "Translation resource options:"
-    Write-Host "  1) Install common Base packs (recommended)"
-    Write-Host "  2) Install all available Base packs"
-    Write-Host "  3) Install common Base packs and optional Core model"
-    Write-Host "  4) Skip translation resources for now"
+    Write-Host "  1) Install common Base package / Argos packs"
+    Write-Host "  2) Install all available Base package / Argos packs"
+    Write-Host "  3) Install common Base package plus Recommended package / CTranslate2 INT8"
+    Write-Host "  4) Install common Base package plus Compatibility package / PyTorch SMaLL-100"
+    Write-Host "  5) Skip translation resources for now"
     $translationAnswer = Read-Host "Choose translation setup [1]"
     switch ($translationAnswer) {
         "2" { & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1") -All }
         "3" {
             & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1")
+            & (Join-Path $AppDir "scripts\install-small100-ct2-int8.ps1")
+        }
+        "4" {
+            & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1")
             & (Join-Path $AppDir "scripts\install-small100-core.ps1")
         }
-        "4" { Write-Host "Skipping translation resources. You can install them later from the operator Languages page." }
+        "5" { Write-Host "Skipping translation resources. You can install them later from the operator Languages page." }
         default { & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1") }
     }
 }

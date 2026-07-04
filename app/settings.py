@@ -1,10 +1,14 @@
 from functools import lru_cache
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+APP_VERSION = "0.6.0"
 
 
 class Settings(BaseSettings):
     app_name: str = "Church Cap"
-    app_version: str = "0.5.0"
+    app_version: str = APP_VERSION
     feedback_email: str = "info@churchcap.org"
     host: str = "0.0.0.0"
     port: int = 8080
@@ -34,7 +38,7 @@ class Settings(BaseSettings):
     # Optional local translation scaffolding. Provider/language settings are prepared
     # by default, but the operator must explicitly enable translated captions in the web UI.
     translation_enabled: bool = False
-    translation_provider: str = "argos"  # argos, small100, both, demo; disabled is also accepted
+    translation_provider: str = "argos"  # argos, ct2small100, small100, both, demo; disabled is also accepted
     translation_allowed_languages: str = "en"
     translation_max_active_languages: int = 2
 
@@ -53,6 +57,12 @@ class Settings(BaseSettings):
     transcript_saving_enabled: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("app_version", mode="before")
+    @classmethod
+    def use_code_version(cls, _value: str | None) -> str:
+        # The release version belongs to the code, not a stale .env copied from an older install.
+        return APP_VERSION
 
     @property
     def app_version_label(self) -> str:

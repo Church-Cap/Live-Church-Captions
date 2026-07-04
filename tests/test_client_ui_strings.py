@@ -8,7 +8,7 @@ from app.localisation import (
     get_client_ui_sources,
     validate_client_ui_catalog,
 )
-from app.i18n import ARGOS_ENGLISH_TARGET_LANGUAGE_CODES, SUPPORTED_LANGUAGES
+from app.i18n import SUPPORTED_LANGUAGES
 
 
 class ClientUiStringTests(unittest.TestCase):
@@ -24,13 +24,10 @@ class ClientUiStringTests(unittest.TestCase):
         self.assertEqual(strings["live_captions"], "Livetekstitys")
         self.assertNotEqual(strings["waiting"], english["waiting"])
 
-    def test_catalog_covers_languages_argos_cannot_translate(self):
+    def test_catalog_covers_every_supported_caption_language(self):
         codes = [language["code"] for language in SUPPORTED_LANGUAGES]
         coverage = get_client_ui_coverage(codes)
-        missing_static = [
-            code for code in codes
-            if code != "en" and code not in ARGOS_ENGLISH_TARGET_LANGUAGE_CODES and not coverage[code]
-        ]
+        missing_static = [code for code in codes if not coverage[code]]
 
         self.assertTrue(coverage["en"])
         self.assertTrue(coverage["fi"])
@@ -78,6 +75,36 @@ class ClientUiStringTests(unittest.TestCase):
         self.assertIn("async function refreshLanguageMetadata", script)
         self.assertIn("fetch('/api/languages'", script)
         self.assertIn("refreshLanguageMetadata();", script)
+
+    def test_sensitive_moment_message_uses_client_ui_language_key(self):
+        english = get_client_ui_language_strings("en")
+        spanish = get_client_ui_language_strings("es")
+        script = Path("app/static/client.js").read_text(encoding="utf-8")
+        broadcast = Path("app/broadcast.py").read_text(encoding="utf-8")
+
+        self.assertIn("sensitive_paused_message", english)
+        self.assertIn("sensitive_resumed_message", english)
+        self.assertNotEqual(spanish["sensitive_paused_message"], english["sensitive_paused_message"])
+        self.assertIn("payload.message_key", script)
+        self.assertIn("showSystemMessageFromKey", script)
+        self.assertIn("state.sensitive_mode", script)
+        self.assertIn("ensureLanguageUiStrings(viewerLanguage, {showLoading: false})", script)
+        self.assertIn("const uiStringRequests = new Map();", script)
+        self.assertIn("return uiStringRequests.get(code)", script)
+        self.assertNotIn("{showNotice: true}", script)
+        self.assertIn("\"message_key\": \"sensitive_paused_message\"", broadcast)
+
+    def test_live_caption_card_allows_draft_after_existing_final_lines(self):
+        script = Path("app/static/client.js").read_text(encoding="utf-8")
+
+        self.assertIn("const draftItems = currentDraftText", script)
+        self.assertNotIn("const draftItems = !finalItems.length && currentDraftText", script)
+        self.assertIn("wordDelta >= 2", script)
+
+    def test_transcript_history_preserves_reader_content_when_new_items_arrive(self):
+        script = Path("app/static/client.js").read_text(encoding="utf-8")
+
+        self.assertIn("history.scrollTop = previousScrollTop + Math.max(0, history.scrollHeight - previousScrollHeight);", script)
 
 
 if __name__ == "__main__":

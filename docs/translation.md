@@ -2,7 +2,7 @@
 
 Multilingual support has two separate parts:
 
-1. **Phone/user-interface language** — local and lightweight. The visitor page changes labels such as “Live captions”, “Pause”, and “Session transcript” from static strings in `app/locales/client_ui.json` first. The file includes manual fallback strings for languages Argos does not cover. If a selected language is not in that file, Church Cap asks the local Base / Argos provider to translate the small set of UI labels at runtime, then falls back to English if the needed Argos pack is not installed. This UI path is separate from live caption translation routing and does not require captions to be running.
+1. **Phone/user-interface language** — local and lightweight. The visitor page changes labels such as “Live captions”, “Pause”, and “Session transcript” from static strings in `app/locales/client_ui.json` first. The file includes static strings for every supported caption language. If a selected language is not in that file, Church Cap asks the local Base / Argos provider to translate the small set of UI labels at runtime, then falls back to English if the needed Argos pack is not installed. This UI path is separate from live caption translation routing and does not require captions to be running.
 2. **Translated captions** — experimental and resource-heavy. This takes the source caption text and translates it into audience languages using a local translation provider.
 
 Whisper performs speech-to-text. It can transcribe several spoken languages when configured, but it does **not** translate one English caption stream into several audience languages by itself. Caption translation needs a separate translation provider.
@@ -24,11 +24,11 @@ TRANSLATION_ENABLED=false
 TRANSLATION_PROVIDER=argos
 ```
 
-### Base: Argos Translate
+### Base package: Argos Translate
 
-Base mode uses Argos Translate language packs. It is usually more literal and lighter on system resources than Core mode. It runs locally after packs are installed, but package installation requires internet access.
+Base package uses Argos Translate language packs. It can be useful as a fallback for installed packs, but it is usually more literal than the Recommended package. It runs locally after packs are installed, but package installation requires internet access.
 
-The macOS, Windows, and Linux setup scripts offer to install common Base packs, install all available English-to-target Base packs, install common Base packs plus Core, or skip translation resources. Operators can also install common Base packs or all Base packs later from the **Languages** page.
+The macOS, Windows, and Linux setup scripts offer to install common Base package / Argos packs, install all available English-to-target Base package / Argos packs, install common Base plus the Recommended package / CTranslate2 INT8, install common Base plus the Compatibility package / PyTorch SMaLL-100, or skip translation resources. Operators can also install common Base package / Argos packs or all Base package / Argos packs later from the **Languages** page.
 
 To rerun common Base installation manually on macOS or Linux:
 
@@ -36,7 +36,7 @@ To rerun common Base installation manually on macOS or Linux:
 ./scripts/install-translation-models-argos.sh
 ```
 
-Install all available Base packs:
+Install all available Base package / Argos packs:
 
 ```bash
 ./scripts/install-translation-models-argos.sh --all
@@ -56,11 +56,29 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-translation-models-ar
 powershell -ExecutionPolicy Bypass -File .\scripts\install-translation-models-argos.ps1 -Enable
 ```
 
-### Core: SMaLL-100
+### Recommended package: CTranslate2 INT8 SMaLL-100
 
-Core mode uses the optional `alirezamsh/small100` model. The model card lists an MIT licence, 101 languages, and a 0.3B parameter model. Core can cover more languages and may give better translations, but it uses more RAM and CPU/GPU than Base mode.
+Recommended package uses a converted `alirezamsh/small100` model through CTranslate2 with INT8 quantisation. It is the preferred v0.6.x neural translation path for broad language coverage, lower memory use, and better multi-language throughput while keeping translation local and open-source.
 
-Core is not installed by default. Install it from the operator **Languages** page, from setup option 3, or manually:
+The Recommended package is not installed by default. Non-technical operators can use **Improve translation performance** on the operator **Languages** page. The button runs the local installer in the background, shows progress, and then offers **Use faster translation** when the model is ready. Setup scripts can also install the Recommended package, and technical users can run it manually:
+
+```bash
+./scripts/install-small100-ct2-int8.sh
+```
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-small100-ct2-int8.ps1
+```
+
+The Recommended package / CTranslate2 INT8 selects CUDA automatically when CTranslate2 can see a CUDA device, otherwise it uses CPU with INT8. Advanced users can override this with `CHURCHCAP_CT2_SMALL100_DEVICE=cpu|cuda|auto` and `CHURCHCAP_CT2_SMALL100_COMPUTE_TYPE`, but live services should rely on the default unless benchmarking shows a clear reason to change it.
+
+### Compatibility package: PyTorch SMaLL-100
+
+Compatibility package uses the optional `alirezamsh/small100` model through Transformers/PyTorch. The model card lists an MIT licence, 101 languages, and a 0.3B parameter model. It remains available for compatibility, but it may use more RAM and CPU/GPU than the Recommended or Base packages.
+
+Core is not installed by default. Install it from the operator **Languages** page or manually:
 
 ```bash
 ./scripts/install-small100-core.sh
@@ -72,9 +90,9 @@ On Windows:
 powershell -ExecutionPolicy Bypass -File .\scripts\install-small100-core.ps1
 ```
 
-### Auto: Base + Core
+### Auto: Recommended + Base + Compatibility
 
-Auto mode shows languages from both installed providers. Church Cap tries Base first, then Core for languages Base cannot translate. Use this when the computer has enough memory and the church wants the broadest language coverage while still using lighter Base packs where possible.
+Auto mode shows languages from installed packages. Church Cap tries Recommended / CTranslate2 INT8 first, then Base / Argos, then Compatibility / PyTorch SMaLL-100 for languages earlier packages cannot translate. Use this when the computer has enough memory and the church wants the broadest language coverage while still using lighter Base package / Argos packs where useful.
 
 ### Demo
 
@@ -91,12 +109,13 @@ TRANSLATION_MAX_ACTIVE_LANGUAGES=2
 
 The visitor language picker is a custom searchable list. It shows the languages available for the current translation mode. Language options use compact Unicode flag chips; the language code remains in the option text beside the language name instead of inside the flag chip. If a language has no flag metadata, Church Cap shows a compact code badge:
 
-- **Off** — source language captions only, while UI labels can still change from bundled dictionaries.
+- **Off** — source language captions only. The visitor picker shows a clear unavailable message instead of offering translated-caption choices.
+- **Recommended** — SMaLL-100 supported languages when the CTranslate2/INT8 model is installed.
 - **Base** — installed Argos target languages.
-- **Core** — SMaLL-100 supported languages when Core is installed.
-- **Auto** — the union of installed Base languages and Core-supported languages.
+- **Compatibility** — SMaLL-100 supported languages when the legacy PyTorch model is installed.
+- **Auto** — the union of installed Recommended, Base, and Compatibility package languages.
 
-By default, visitor language availability is **Automatic**. Visitors can request any language shown by the current mode, and Church Cap translates the most-requested languages up to the active limit. Advanced operators can switch to **Restricted** and select a smaller list, or prioritise selected languages first. In Restricted mode, the audience language picker and paired Service Leader language list show only the selected languages plus English. Open audience phones refresh this language list from `/api/languages` when the picker opens, so operator changes appear without a full page reload. The operator and Service Leader lists search language codes, English names, native names, and accented names. The operator list includes **Select all** and **Clear all** controls for quicker setup.
+By default, visitor language availability is **Automatic**. Visitors can request any language shown by the current mode, and Church Cap translates the most-requested languages up to the active limit. Advanced operators can switch to **Restricted** and select a smaller list, or prioritise selected languages first. In Restricted mode, the audience language picker and paired Service Leader language list show selected languages plus English as available, and can also show installed-but-disabled languages as requestable. Open audience phones refresh this language list from `/api/languages` when the picker opens, so operator changes appear without a full page reload. If translated captions are turned off, or an appliance System menu profile disables CPU languages, the picker limits caption choices to the source language and tells visitors that translated captions are unavailable for the service. In Restricted mode, installed but not enabled languages are shown as requestable on visitor and Service Leader pages; accepting a request adds the language to the restricted list while the active-language limit still controls how many languages are translated at once. The operator and Service Leader lists search language codes, English names, native names, and accented names. The operator list includes **Select all** and **Clear all** controls for quicker setup.
 
 ## Resource safeguard
 
@@ -131,14 +150,34 @@ CPU-only translation is viable, but it is not the same workload as English capti
 
 Church Cap protects the live source caption feed by scheduling translated-caption work through a latest-wins queue. If speech produces a newer caption while an older caption is still being translated, stale translation work can be skipped so translated captions do not arrive as a delayed backlog. This keeps translation useful without letting it starve live English captions.
 
-For 3 or more simultaneous neural translations, use a stronger desktop CPU, NVIDIA CUDA acceleration, or a separate translation-capable machine. AMD integrated graphics / ROCm may become useful for Linux power users in the future, but it is not a supported Church Cap acceleration path in this release.
+For 3 or more simultaneous neural translations, use a stronger desktop CPU, NVIDIA CUDA acceleration, or a separate translation-capable machine.
+
+## v0.6.x translation-performance direction
+
+v0.6.0 starts the translation-performance track. The immediate goal is to keep the user-facing translation workflow stable while preparing the heavier translation path for CTranslate2/INT8 where practical.
+
+Current runtime reality:
+
+- **Recommended / CTranslate2 INT8 SMaLL-100** is the preferred broad-language package. It can use CPU/int8 or CUDA-backed CTranslate2 compute types where supported.
+- **Base / Argos** stays available as a local fallback for installed language packs and generally runs on CPU.
+- **Compatibility / PyTorch SMaLL-100** remains available for comparison and fallback. It may use CUDA when PyTorch sees CUDA, but it is not the preferred v0.6.x performance path.
+- **Faster Whisper** already uses CTranslate2 and can use CPU/int8 or NVIDIA CUDA for speech-to-text. That acceleration does not automatically accelerate Argos translation.
+- **AMD ROCm** is a future experimental Linux research path. Church Cap should not advertise ROCm as supported until setup, detection, fallback, and model/runtime tests are repeatable on real AMD hardware.
+
+The Recommended package is intentionally behind provider/status checks. Keep Base and Compatibility fallbacks available, benchmark every active-language count, and only increase appliance limits when the operator can see measured English Delay and Translation Delay staying healthy.
 
 ## GPU note
 
-The operator page **Performance** controls can switch between standard local OpenAI Whisper and the lower-latency `faster-whisper` backend without editing `.env`. The platform view auto-detects macOS, Windows, or Linux and can be changed manually if needed. Windows and Linux can use NVIDIA CUDA when CTranslate2 sees a working runtime; Windows includes an optional local runtime installer, while Linux leaves drivers and CUDA under the system administrator's package policy. On macOS, CUDA choices are hidden and OpenAI Whisper can attempt Apple Metal/MPS when PyTorch supports it. Argos Translate may still run on CPU even when Whisper uses GPU acceleration.
+The operator page **Performance** controls can switch between standard local OpenAI Whisper and the lower-latency `faster-whisper` backend without editing `.env`. The platform view auto-detects macOS, Windows, or Linux and can be changed manually if needed. Windows and Linux can use NVIDIA CUDA for Faster Whisper when CTranslate2 sees a working runtime; Windows includes an optional local runtime installer, while Linux leaves drivers and CUDA under the system administrator's package policy. On macOS, CUDA choices are hidden and OpenAI Whisper can attempt Apple Metal/MPS when PyTorch supports it. Argos Translate may still run on CPU even when Whisper uses GPU acceleration. Recommended package / CTranslate2 INT8 translation is optional in v0.6.0 and should be validated with real speech before live use.
 
 ## Accuracy warning
 
 AI translation is experimental and not verified. It can mistranslate Scripture, names, theological terms, pastoral details, and safeguarding-sensitive information.
 
 Do not treat AI translation as a replacement for a qualified human interpreter where accuracy matters.
+
+## Operator controls
+Translation timing has two modes. **Live** is the default and translates partial captions quickly for the lowest delay. **More stable** uses corrected English partials at a slower, steadier pace during continuous speech and also translates final captions. This can reduce brief mistranslated partial captions without waiting for the speaker to stop, although translated captions still appear a little later than Live mode.
+
+Language requests are enabled by default. In Restricted mode, visitors and service leaders can ask for an installed language that is not currently enabled; the operator must accept it before it appears for the audience. If requests become distracting or disruptive, turn off **Visitor language requests** in **Languages → Advanced language controls**. Existing requests are cleared when the switch is saved off, and new requests are rejected until it is turned on again.
+

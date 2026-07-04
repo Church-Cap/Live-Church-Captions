@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib.util
+import os
 from pathlib import Path
 import sys
 from typing import Any
 
 SOURCE_LANGUAGE = "en"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CT2_SMALL100_PROVIDER = "ct2small100"
+CT2_SMALL100_MODEL_NAME = "alirezamsh/small100"
+CT2_SMALL100_MODEL_DIR = Path(os.environ.get("CHURCHCAP_CT2_SMALL100_DIR") or PROJECT_ROOT / "data" / "models" / "small100-ct2-int8")
 
 BASE_LANGUAGES: list[dict[str, str]] = [
     {"code": "en", "name": "English", "native": "English", "flag": "🇬🇧", "dir": "ltr"},
@@ -135,6 +140,8 @@ class LocalTranslator:
         self._cache: dict[tuple[str, str, str], TranslationResult] = {}
         self._small100_model: Any | None = None
         self._small100_tokenizer: Any | None = None
+        self._ct2small100_translator: Any | None = None
+        self._ct2small100_tokenizer: Any | None = None
 
     def provider_status(self, provider: str) -> dict:
         provider = (provider or "disabled").lower().strip()
@@ -144,12 +151,14 @@ class LocalTranslator:
             return {"provider": "demo", "ready": True, "message": "Demo routing provider only; not real translation."}
         if provider == "both":
             argos_status = self.provider_status("argos")
+            ct2_status = self.provider_status(CT2_SMALL100_PROVIDER)
             small_status = self.provider_status("small100")
             return {
                 "provider": "both",
-                "ready": bool(argos_status.get("ready") or small_status.get("ready")),
-                "message": f"Auto mode uses Base / Argos first, then Core / SMaLL-100 when needed. Base: {argos_status.get('message', 'unknown')} Core: {small_status.get('message', 'unknown')}",
+                "ready": bool(argos_status.get("ready") or ct2_status.get("ready") or small_status.get("ready")),
+                "message": f"Auto mode uses the Recommended package / CTranslate2 INT8 first, then Base / Argos, then Compatibility / PyTorch SMaLL-100 when needed. Recommended: {ct2_status.get('message', 'unknown')} Base: {argos_status.get('message', 'unknown')} Compatibility: {small_status.get('message', 'unknown')}",
                 "argos": argos_status,
+                "ct2small100": ct2_status,
                 "small100": small_status,
             }
         if provider == "argos":
@@ -187,6 +196,38 @@ class LocalTranslator:
                 "ready": False,
                 "message": f"Core SMaLL-100 is not installed yet. Missing: {', '.join(missing)}.",
             }
+        if provider == CT2_SMALL100_PROVIDER:
+            missing = [
+                name
+                for name in ("ctranslate2", "huggingface_hub", "sentencepiece")
+                if importlib.util.find_spec(name) is None
+            ]
+            if missing:
+                return {
+                    "provider": CT2_SMALL100_PROVIDER,
+                    "ready": False,
+                    "message": f"Recommended package / CTranslate2 INT8 is not installed yet. Missing: {', '.join(missing)}.",
+                    "model_dir": str(CT2_SMALL100_MODEL_DIR),
+                }
+            try:
+                import ctranslate2  # type: ignore
+                contains = getattr(ctranslate2, "contains_model", None)
+                model_ready = bool(contains(str(CT2_SMALL100_MODEL_DIR))) if contains else (CT2_SMALL100_MODEL_DIR / "model.bin").exists()
+            except Exception:
+                model_ready = (CT2_SMALL100_MODEL_DIR / "model.bin").exists()
+            if model_ready:
+                return {
+                    "provider": CT2_SMALL100_PROVIDER,
+                    "ready": True,
+                    "message": "Recommended package / CTranslate2 INT8 model is installed. It is the preferred v0.6.x neural translation runtime.",
+                    "model_dir": str(CT2_SMALL100_MODEL_DIR),
+                }
+            return {
+                "provider": CT2_SMALL100_PROVIDER,
+                "ready": False,
+                "message": f"Recommended package / CTranslate2 INT8 model is not converted yet. Install it from the Languages page or run scripts/install-small100-ct2-int8.*.",
+                "model_dir": str(CT2_SMALL100_MODEL_DIR),
+            }
         return {"provider": provider, "ready": False, "message": f"Unknown translation provider: {provider}"}
 
     def translation_resources(self) -> dict[str, Any]:
@@ -212,6 +253,11 @@ class LocalTranslator:
                 "installed_pairs": sorted(set(argos_pairs)),
                 "status": self.provider_status("argos"),
             },
+            "ct2small100": {
+                "languages": sorted(SMALL100_LANGUAGE_NAMES.keys()),
+                "status": self.provider_status(CT2_SMALL100_PROVIDER),
+                "license": "MIT model weights; converted CTranslate2 files inherit the source model distribution obligations",
+            },
             "small100": {
                 "languages": sorted(SMALL100_LANGUAGE_NAMES.keys()),
                 "status": self.provider_status("small100"),
@@ -226,14 +272,18 @@ class LocalTranslator:
             ARGOS_TO_CHURCH_LANGUAGE_ALIASES.get(language, language)
             for language in resources.get("argos", {}).get("installed_languages", [])
         }
+        ct2_ready = bool(resources.get("ct2small100", {}).get("status", {}).get("ready"))
+        ct2_languages = set(resources.get("ct2small100", {}).get("languages", [])) if ct2_ready else set()
         small100_ready = bool(resources.get("small100", {}).get("status", {}).get("ready"))
         small100_languages = set(resources.get("small100", {}).get("languages", [])) if small100_ready else set()
         if provider == "argos":
             languages = argos_languages
+        elif provider == CT2_SMALL100_PROVIDER:
+            languages = ct2_languages
         elif provider == "small100":
             languages = small100_languages
         elif provider == "both":
-            languages = argos_languages | small100_languages
+            languages = argos_languages | ct2_languages | small100_languages
         elif provider == "demo":
             languages = set(LANGUAGE_BY_CODE)
         else:
@@ -244,6 +294,8 @@ class LocalTranslator:
     def unload_models(self) -> None:
         self._small100_model = None
         self._small100_tokenizer = None
+        self._ct2small100_translator = None
+        self._ct2small100_tokenizer = None
         try:
             import gc
             gc.collect()
@@ -283,15 +335,24 @@ class LocalTranslator:
             )
         elif provider == "argos":
             result = self._translate_with_argos(text, target_language)
+        elif provider == CT2_SMALL100_PROVIDER:
+            result = self._translate_with_ct2small100(text, target_language)
         elif provider == "small100":
             result = self._translate_with_small100(text, target_language)
         elif provider == "both":
-            result = self._translate_with_argos(text, target_language)
+            warnings = []
+            result = self._translate_with_ct2small100(text, target_language)
             if not result.applied:
-                argos_warning = result.warning
+                if result.warning:
+                    warnings.append(result.warning)
+                result = self._translate_with_argos(text, target_language)
+            if not result.applied:
+                if result.warning:
+                    warnings.append(result.warning)
                 result = self._translate_with_small100(text, target_language)
-                if not result.applied and argos_warning and result.warning:
-                    result = TranslationResult(text=text, applied=False, warning=f"{argos_warning} {result.warning}")
+            if not result.applied and warnings and result.warning:
+                warnings.append(result.warning)
+                result = TranslationResult(text=text, applied=False, warning=" ".join(dict.fromkeys(warnings)))
         else:
             result = TranslationResult(text=text, applied=False, warning=f"Unknown translation provider: {provider}")
 
@@ -340,17 +401,14 @@ class LocalTranslator:
         except Exception as exc:
             return TranslationResult(text=text, applied=False, warning=f"Argos Translate failed: {exc}")
 
-    def _load_small100(self) -> tuple[Any, Any]:
-        if self._small100_model is not None and self._small100_tokenizer is not None:
-            return self._small100_model, self._small100_tokenizer
+    def _load_small100_tokenizer(self) -> Any:
+        if self._small100_tokenizer is not None:
+            return self._small100_tokenizer
         try:
-            import torch  # type: ignore
             from huggingface_hub import hf_hub_download  # type: ignore
-            from transformers import M2M100ForConditionalGeneration  # type: ignore
         except Exception as exc:
-            raise RuntimeError(f"Core SMaLL-100 dependencies are not installed: {exc}") from exc
-        model_name = "alirezamsh/small100"
-        tokenizer_file = Path(hf_hub_download(model_name, "tokenization_small100.py"))
+            raise RuntimeError(f"Core SMaLL-100 tokenizer dependency is not installed: {exc}") from exc
+        tokenizer_file = Path(hf_hub_download(CT2_SMALL100_MODEL_NAME, "tokenization_small100.py"))
         module_name = "_church_cap_small100_tokenizer"
         module = sys.modules.get(module_name)
         if module is None:
@@ -361,12 +419,126 @@ class LocalTranslator:
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
         tokenizer_cls = getattr(module, "SMALL100Tokenizer")
-        self._small100_tokenizer = tokenizer_cls.from_pretrained(model_name)
-        self._small100_model = M2M100ForConditionalGeneration.from_pretrained(model_name)
+        self._small100_tokenizer = tokenizer_cls.from_pretrained(CT2_SMALL100_MODEL_NAME)
+        return self._small100_tokenizer
+
+    def _load_small100(self) -> tuple[Any, Any]:
+        if self._small100_model is not None and self._small100_tokenizer is not None:
+            return self._small100_model, self._small100_tokenizer
+        try:
+            import torch  # type: ignore
+            from transformers import M2M100ForConditionalGeneration  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(f"Core SMaLL-100 dependencies are not installed: {exc}") from exc
+        self._small100_tokenizer = self._load_small100_tokenizer()
+        self._small100_model = M2M100ForConditionalGeneration.from_pretrained(CT2_SMALL100_MODEL_NAME)
         self._small100_model.eval()
         if torch.cuda.is_available():
             self._small100_model.to("cuda")
         return self._small100_model, self._small100_tokenizer
+
+    def _load_ct2small100(self) -> tuple[Any, Any]:
+        if self._ct2small100_translator is not None and self._ct2small100_tokenizer is not None:
+            return self._ct2small100_translator, self._ct2small100_tokenizer
+        try:
+            import ctranslate2  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(f"Recommended package / CTranslate2 is not installed: {exc}") from exc
+        status = self.provider_status(CT2_SMALL100_PROVIDER)
+        if not status.get("ready"):
+            raise RuntimeError(status.get("message") or "Recommended package / CTranslate2 INT8 model is not ready.")
+        cuda_devices = 0
+        try:
+            cuda_devices = int(ctranslate2.get_cuda_device_count())
+        except Exception:
+            cuda_devices = 0
+        requested_device = os.environ.get("CHURCHCAP_CT2_SMALL100_DEVICE", "auto").lower().strip()
+        if requested_device not in {"auto", "cpu", "cuda"}:
+            requested_device = "auto"
+        device = "cuda" if requested_device == "cuda" or (requested_device == "auto" and cuda_devices > 0) else "cpu"
+        compute_type = os.environ.get("CHURCHCAP_CT2_SMALL100_COMPUTE_TYPE")
+        if not compute_type:
+            compute_type = "int8_float16" if device == "cuda" else "int8"
+        self._ct2small100_tokenizer = self._load_small100_tokenizer()
+        self._ct2small100_translator = ctranslate2.Translator(
+            str(CT2_SMALL100_MODEL_DIR),
+            device=device,
+            compute_type=compute_type,
+            inter_threads=1,
+        )
+        return self._ct2small100_translator, self._ct2small100_tokenizer
+
+    @staticmethod
+    def _tokenizer_language_token(tokenizer: Any, language: str) -> str:
+        get_lang_id = getattr(tokenizer, "get_lang_id", None)
+        if callable(get_lang_id):
+            return tokenizer.convert_ids_to_tokens(int(get_lang_id(language)))
+        mapping = getattr(tokenizer, "lang_code_to_token", None) or {}
+        if language in mapping:
+            return mapping[language]
+        return f"__{language}__"
+
+    @staticmethod
+    def _decode_tokens(tokenizer: Any, tokens: list[str]) -> str:
+        try:
+            ids = tokenizer.convert_tokens_to_ids(tokens)
+            if isinstance(ids, list):
+                return tokenizer.decode(ids, skip_special_tokens=True).strip()
+        except Exception:
+            pass
+        try:
+            return tokenizer.convert_tokens_to_string(tokens).strip()
+        except Exception:
+            return " ".join(tokens).replace("▁", " ").strip()
+
+    def _translate_with_ct2small100(self, text: str, target_language: str) -> TranslationResult:
+        target_language = normalise_language(target_language)
+        if target_language not in SMALL100_LANGUAGE_NAMES:
+            return TranslationResult(text=text, applied=False, warning=f"Recommended package translation does not support {target_language}.")
+        try:
+            translator, tokenizer = self._load_ct2small100()
+            try:
+                tokenizer.src_lang = self.source_language
+            except Exception:
+                pass
+            try:
+                tokenizer.tgt_lang = target_language
+            except Exception:
+                pass
+            inputs = tokenizer(text, truncation=True, max_length=256)
+            input_ids = inputs.get("input_ids") if isinstance(inputs, dict) else getattr(inputs, "input_ids", None)
+            if input_ids is None:
+                return TranslationResult(text=text, applied=False, warning="Recommended package tokenizer did not return input IDs.")
+            if input_ids and isinstance(input_ids[0], list):
+                input_ids = input_ids[0]
+            source_tokens = tokenizer.convert_ids_to_tokens(input_ids)
+
+            def run_ct2_translation(*, target_prefix: list[list[str]] | None = None) -> str:
+                kwargs: dict[str, Any] = {
+                    "beam_size": 2,
+                    "max_input_length": 256,
+                    "max_decoding_length": 256,
+                }
+                if target_prefix is not None:
+                    kwargs["target_prefix"] = target_prefix
+                result = translator.translate_batch([source_tokens], **kwargs)[0]
+                tokens = list(result.hypotheses[0]) if result.hypotheses else []
+                target_token = self._tokenizer_language_token(tokenizer, target_language)
+                if tokens and tokens[0] == target_token:
+                    tokens = tokens[1:]
+                return self._decode_tokens(tokenizer, tokens)
+
+            translated = run_ct2_translation()
+            if translated and translated != text:
+                return TranslationResult(text=translated, applied=True)
+
+            target_token = self._tokenizer_language_token(tokenizer, target_language)
+            prefixed = run_ct2_translation(target_prefix=[[target_token]])
+            if prefixed and prefixed != text:
+                return TranslationResult(text=prefixed, applied=True)
+            return TranslationResult(text=text, applied=False, warning="Recommended package translation returned the source caption.")
+        except Exception as exc:
+            return TranslationResult(text=text, applied=False, warning=f"Recommended package / CTranslate2 INT8 translation failed: {exc}")
 
     def _translate_with_small100(self, text: str, target_language: str) -> TranslationResult:
         target_language = normalise_language(target_language)

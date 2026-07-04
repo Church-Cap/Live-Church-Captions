@@ -27,6 +27,8 @@
   let translationState = window.CC_TRANSLATION_STATE || {enabled: false};
   let languageMetadataRefreshTimer = null;
   let languageMetadataRequest = null;
+  let screenWakeLock = null;
+  let wakeLockRequested = false;
 
   let paused = false;
   let fontScale = Number(localStorage.getItem('captionFontScale') || '1');
@@ -53,6 +55,8 @@
   let blockTimer = null;
   let currentDraftText = '';
   let systemMessageText = '';
+  let systemMessageKey = '';
+  let systemMessageFallback = '';
   let lastPartialShownAt = 0;
   let historyLogEnabled = true;
   let socket = null;
@@ -60,7 +64,7 @@
   let manualReconnect = false;
   let captionLoadNoticeTimer = null;
   let captionLoadNoticeShownAt = 0;
-  const uiStringRequests = new Set();
+  const uiStringRequests = new Map();
   const uiStringResolved = new Set();
 
   const MIN_PARTIAL_UPDATE_MS = 1100;
@@ -77,6 +81,45 @@
   function t(key) {
     return (UI_STRINGS[viewerLanguage] && UI_STRINGS[viewerLanguage][key]) ||
            (UI_STRINGS.en && UI_STRINGS.en[key]) || key;
+  }
+
+  async function requestScreenWakeLock() {
+    if (!isPhonePage || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+    wakeLockRequested = true;
+    try {
+      screenWakeLock = await navigator.wakeLock.request('screen');
+      screenWakeLock.addEventListener('release', () => { screenWakeLock = null; });
+    } catch (_) {
+      screenWakeLock = null;
+    }
+  }
+
+  async function refreshScreenWakeLock() {
+    if (!isPhonePage || !wakeLockRequested) return;
+    if (document.visibilityState === 'visible' && !screenWakeLock) await requestScreenWakeLock();
+  }
+
+  function uiText(key, fallback = '') {
+    const selected = UI_STRINGS[viewerLanguage] && UI_STRINGS[viewerLanguage][key];
+    if (selected && selected !== key) return selected;
+    const english = UI_STRINGS[SOURCE_LANGUAGE] && UI_STRINGS[SOURCE_LANGUAGE][key];
+    return fallback || english || key;
+  }
+
+  async function showSystemMessageFromKey(key, fallback = '') {
+    systemMessageKey = key;
+    systemMessageFallback = fallback || '';
+    systemMessageText = uiText(key, fallback);
+    currentDraftText = '';
+    renderSubtitleStack();
+    if (viewerLanguage !== SOURCE_LANGUAGE) {
+      await ensureLanguageUiStrings(viewerLanguage, {showLoading: false});
+      const refreshed = uiText(key, fallback);
+      if (refreshed !== systemMessageText) {
+        systemMessageText = refreshed;
+        renderSubtitleStack();
+      }
+    }
   }
 
   function setConnection(key, ok) {
@@ -116,6 +159,12 @@
     if (connection?.dataset.connectionKey) {
       connection.textContent = t(connection.dataset.connectionKey);
     }
+    if (captionLoadNotice && !captionLoadNotice.hidden && captionLoadNotice.dataset.noticeKey) {
+      captionLoadNotice.textContent = uiText(captionLoadNotice.dataset.noticeKey, captionLoadNotice.dataset.noticeFallback || '');
+    }
+    if (systemMessageKey) {
+      systemMessageText = uiText(systemMessageKey, systemMessageFallback);
+    }
     if (current && current.dataset.i18n === 'waiting') current.textContent = t('waiting');
     if (translationNotice) translationNotice.hidden = viewerLanguage === SOURCE_LANGUAGE;
     localStorage.setItem('captionLanguage', viewerLanguage);
@@ -139,8 +188,12 @@
     return `${lang.code || ''} ${lang.name || ''} ${lang.native || ''}`.toLowerCase();
   }
 
+  function translationCaptionsUnavailable() {
+    return !translationState?.enabled;
+  }
+
   function availableCaptionLanguageCodes() {
-    if (!translationState?.enabled) return null;
+    if (!translationState?.enabled) return new Set([SOURCE_LANGUAGE]);
     if (Array.isArray(translationState.available_languages)) {
       return new Set(translationState.available_languages);
     }
@@ -150,16 +203,29 @@
     if (provider === 'argos' || provider === 'both') {
       (resources.argos?.installed_languages || []).forEach(code => codes.add(code));
     }
+    if ((provider === 'ct2small100' || provider === 'both') && resources.ct2small100?.status?.ready) {
+      (resources.ct2small100?.languages || []).forEach(code => codes.add(code));
+    }
     if ((provider === 'small100' || provider === 'both') && resources.small100?.status?.ready) {
       (resources.small100?.languages || []).forEach(code => codes.add(code));
     }
     return codes;
   }
 
+  function requestableCaptionLanguageCodes() {
+    if (!translationState?.enabled || translationState?.language_policy !== 'restricted' || translationState?.language_requests_enabled === false) return new Set();
+    return new Set(Array.isArray(translationState.requestable_languages) ? translationState.requestable_languages : []);
+  }
+
+  function pendingLanguageRequestCodes() {
+    return new Set((translationState?.language_requests || []).map(item => String(item.code || '').toLowerCase()));
+  }
+
   function filteredLanguagesForCurrentMode() {
     const available = availableCaptionLanguageCodes();
+    const requestable = requestableCaptionLanguageCodes();
     if (!available) return LANGUAGES;
-    return LANGUAGES.filter(lang => available.has(lang.code));
+    return LANGUAGES.filter(lang => available.has(lang.code) || requestable.has(lang.code));
   }
 
   async function refreshLanguageMetadata({reconnectIfNeeded = true} = {}) {
@@ -199,39 +265,43 @@
     return {text: code, code, isBadge: true, isFlag: false};
   }
 
-  async function ensureLanguageUiStrings(code) {
+  async function ensureLanguageUiStrings(code, {showLoading = true} = {}) {
     if (!code || code === SOURCE_LANGUAGE) return;
-    if (uiStringResolved.has(code) || uiStringRequests.has(code)) return;
+    if (uiStringResolved.has(code)) return;
+    if (uiStringRequests.has(code)) return uiStringRequests.get(code);
     const source = UI_STRING_SOURCES[code] || 'fallback';
     if (UI_STRINGS[code] && source !== 'fallback') {
       uiStringResolved.add(code);
       return;
     }
-    uiStringRequests.add(code);
-    if (code === viewerLanguage) showCaptionLoadNotice('connecting');
-    try {
-      const response = await fetch(`/api/client-ui/${encodeURIComponent(code)}`, {
-        headers: {'Accept': 'application/json'},
-        cache: 'no-store',
-      });
-      if (!response.ok) return;
-      const payload = await response.json();
-      if (payload?.strings && payload.language === code) {
-        UI_STRINGS[code] = {
-          ...(UI_STRINGS[SOURCE_LANGUAGE] || {}),
-          ...(UI_STRINGS[code] || {}),
-          ...payload.strings,
-        };
-        UI_STRING_SOURCES[code] = payload.source || UI_STRING_SOURCES[code] || 'fallback';
-        uiStringResolved.add(code);
-        if (viewerLanguage === code) applyLanguage({fetchUiStrings: false});
+    const request = (async () => {
+      if (showLoading && code === viewerLanguage) showCaptionLoadNotice('connecting');
+      try {
+        const response = await fetch(`/api/client-ui/${encodeURIComponent(code)}`, {
+          headers: {'Accept': 'application/json'},
+          cache: 'no-store',
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (payload?.strings && payload.language === code) {
+          UI_STRINGS[code] = {
+            ...(UI_STRINGS[SOURCE_LANGUAGE] || {}),
+            ...(UI_STRINGS[code] || {}),
+            ...payload.strings,
+          };
+          UI_STRING_SOURCES[code] = payload.source || UI_STRING_SOURCES[code] || 'fallback';
+          uiStringResolved.add(code);
+          if (viewerLanguage === code) applyLanguage({fetchUiStrings: false});
+        }
+      } catch (_) {
+        // Keep the bundled fallback if local UI translation is unavailable.
+      } finally {
+        uiStringRequests.delete(code);
+        if (showLoading && code === viewerLanguage) hideCaptionLoadNotice();
       }
-    } catch (_) {
-      // Keep the bundled fallback if local UI translation is unavailable.
-    } finally {
-      uiStringRequests.delete(code);
-      if (code === viewerLanguage) hideCaptionLoadNotice();
-    }
+    })();
+    uiStringRequests.set(code, request);
+    return request;
   }
 
   function applyFontScale() {
@@ -335,10 +405,12 @@
     );
   }
 
-  function showCaptionLoadNotice(key = 'connecting') {
-    if (!captionLoadNotice || !captionContentAvailable()) return;
+  function showCaptionLoadNotice(key = 'connecting', {fallback = '', requireContent = true} = {}) {
+    if (!captionLoadNotice || (requireContent && !captionContentAvailable())) return;
     if (captionLoadNoticeTimer) clearTimeout(captionLoadNoticeTimer);
-    captionLoadNotice.textContent = t(key);
+    captionLoadNotice.dataset.noticeKey = key;
+    captionLoadNotice.dataset.noticeFallback = fallback || '';
+    captionLoadNotice.textContent = uiText(key, fallback);
     captionLoadNotice.hidden = false;
     captionLoadNoticeShownAt = Date.now();
     captionLoadNoticeTimer = window.setTimeout(() => hideCaptionLoadNotice({force: true}), MAX_CAPTION_LOAD_NOTICE_MS);
@@ -357,6 +429,8 @@
       captionLoadNoticeTimer = null;
     }
     captionLoadNotice.hidden = true;
+    captionLoadNotice.removeAttribute('data-notice-key');
+    captionLoadNotice.removeAttribute('data-notice-fallback');
   }
 
   function bestLineBreakIndex(words, maxChars) {
@@ -488,7 +562,7 @@
           active: seg.id === latestFinalId,
         }))
       );
-      const draftItems = !finalItems.length && currentDraftText
+      const draftItems = currentDraftText
         ? splitCaptionForStream(currentDraftText, limits.chars).map((text, index) => ({
             id: `draft:stream:${index}`,
             text,
@@ -789,6 +863,8 @@
     }
     currentDraftText = '';
     systemMessageText = '';
+    systemMessageKey = '';
+    systemMessageFallback = '';
     queueStableBlock({id: key, text, lines});
     renderHistoryRoll();
   }
@@ -824,6 +900,8 @@
       addLogEntry(text, key, {draft: seg.is_final === false, createdAt: seg.created_at || seg.createdAt || null});
     }
     systemMessageText = '';
+    systemMessageKey = '';
+    systemMessageFallback = '';
     renderHistoryRoll();
   }
 
@@ -890,8 +968,10 @@
     currentDraftText = displayText;
     if (log) addDraftToLog(displayText, segment.created_at || segment.createdAt || null);
     systemMessageText = '';
+    systemMessageKey = '';
+    systemMessageFallback = '';
     lastPartialShownAt = now;
-    if (activeBlock && now >= activeBlockUntil && !blockQueue.length) activeBlock = null;
+    if (activeBlock && (now >= activeBlockUntil || wordDelta >= 2)) activeBlock = null;
     renderSubtitleStack();
   }
 
@@ -899,6 +979,11 @@
     if (paused) return;
     historyLogEnabled = state.transcript_saving_enabled !== false && Number(state.transcript_retention_minutes ?? 1) > 0;
     if (Array.isArray(state.history)) renderHistoryFromState(state.history);
+    if (state.sensitive_mode) {
+      currentDraftText = '';
+      showSystemMessageFromKey('sensitive_paused_message', state.current?.text || '');
+      return;
+    }
     currentDraftText = state.current?.text ? stripCommittedPrefix(cleanCaptionText(state.current.text)) : '';
     if (currentDraftText || finalSegments.length) hideCaptionLoadNotice();
     renderSubtitleStack();
@@ -974,9 +1059,8 @@
       }
 
       if (payload.type === 'sensitive' && !paused) {
-        systemMessageText = payload.message || 'Captions are paused for a private or sensitive moment.';
-        currentDraftText = '';
-        renderSubtitleStack();
+        const messageKey = payload.message_key || (payload.enabled === false ? 'sensitive_resumed_message' : 'sensitive_paused_message');
+        showSystemMessageFromKey(messageKey, payload.message || '');
       }
 
       if (payload.type === 'clear') {
@@ -989,6 +1073,8 @@
         if (blockTimer) clearTimeout(blockTimer);
         currentDraftText = '';
         systemMessageText = '';
+        systemMessageKey = '';
+        systemMessageFallback = '';
         renderSubtitleStack();
         if (history) history.textContent = '';
         seenIds.clear();
@@ -1057,11 +1143,52 @@
     languagePickerButton?.focus();
   }
 
+  async function submitLanguageRequest(code, button) {
+    if (!code) return;
+    const original = button?.textContent || 'Request';
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Sending...';
+    }
+    try {
+      const response = await fetch('/api/language-requests', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({language: code}),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || data.error || 'Church Cap could not send that request.');
+      if (data.translation) translationState = data.translation;
+      renderLanguageList(languageSearch?.value || '');
+    } catch (error) {
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+        button.title = error.message || 'Request failed';
+      }
+    }
+  }
+
   function renderLanguageList(query = '') {
     if (!languageList) return;
     const q = query.trim().toLowerCase();
+    const unavailable = translationCaptionsUnavailable();
+    const available = availableCaptionLanguageCodes();
+    const requestable = requestableCaptionLanguageCodes();
+    const pending = pendingLanguageRequestCodes();
     const matches = filteredLanguagesForCurrentMode().filter(lang => !q || languageSearchText(lang).includes(q));
     languageList.textContent = '';
+    if (unavailable) {
+      const notice = document.createElement('p');
+      notice.className = 'language-empty language-unavailable-notice';
+      notice.textContent = t('caption_languages_unavailable');
+      languageList.appendChild(notice);
+    } else if (requestable.size) {
+      const notice = document.createElement('p');
+      notice.className = 'language-empty language-unavailable-notice';
+      notice.textContent = `The operator has limited translated languages for this service. You can still request another installed language; Church Cap will keep showing the current captions until it is approved.`;
+      languageList.appendChild(notice);
+    }
     if (!matches.length) {
       const empty = document.createElement('p');
       empty.className = 'language-empty';
@@ -1071,12 +1198,14 @@
     }
     const frag = document.createDocumentFragment();
     matches.forEach((lang) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = `language-option${lang.code === viewerLanguage ? ' selected' : ''}`;
-      button.setAttribute('role', 'option');
-      button.setAttribute('aria-selected', lang.code === viewerLanguage ? 'true' : 'false');
-      button.dataset.code = lang.code;
+      const isAvailable = available.has(lang.code);
+      const isRequestable = requestable.has(lang.code) && !isAvailable;
+      const item = document.createElement(isAvailable ? 'button' : 'div');
+      if (isAvailable) item.type = 'button';
+      item.className = `language-option${lang.code === viewerLanguage ? ' selected' : ''}${isRequestable ? ' requestable-language-option' : ''}`;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', lang.code === viewerLanguage ? 'true' : 'false');
+      item.dataset.code = lang.code;
       const marker = languageMarker(lang);
       const flag = document.createElement('span');
       flag.className = 'language-option-flag';
@@ -1092,19 +1221,34 @@
       title.dir = 'auto';
       const meta = document.createElement('small');
       meta.dir = 'auto';
-      meta.textContent = lang.native && lang.native !== lang.name ? `${lang.native} · ${lang.code}` : lang.code;
+      meta.textContent = isRequestable
+        ? (pending.has(lang.code) ? `Request sent · ${lang.code}` : `Not enabled · ${lang.code}`)
+        : (lang.native && lang.native !== lang.name ? `${lang.native} · ${lang.code}` : lang.code);
       text.append(title, meta);
-      button.append(flag, text);
-      button.addEventListener('click', () => {
-        changeViewerLanguage(lang.code);
-        closeLanguagePicker();
-      });
-      frag.appendChild(button);
+      item.append(flag, text);
+      if (isAvailable) {
+        item.addEventListener('click', () => {
+          changeViewerLanguage(lang.code);
+          closeLanguagePicker();
+        });
+      } else if (isRequestable) {
+        const requestButton = document.createElement('button');
+        requestButton.type = 'button';
+        requestButton.className = 'language-request-button';
+        requestButton.textContent = pending.has(lang.code) ? 'Requested' : 'Request';
+        requestButton.disabled = pending.has(lang.code);
+        requestButton.addEventListener('click', () => submitLanguageRequest(lang.code, requestButton));
+        item.appendChild(requestButton);
+      }
+      frag.appendChild(item);
     });
     languageList.appendChild(frag);
   }
 
-  languagePickerButton?.addEventListener('click', openLanguagePicker);
+  languagePickerButton?.addEventListener('click', () => {
+    requestScreenWakeLock();
+    openLanguagePicker();
+  });
   languagePickerBackdrop?.addEventListener('click', closeLanguagePicker);
   languagePickerClose?.addEventListener('click', closeLanguagePicker);
   languageSearch?.addEventListener('input', () => renderLanguageList(languageSearch.value));
@@ -1113,6 +1257,11 @@
       closeLanguagePicker();
     }
   });
+  document.addEventListener('visibilitychange', refreshScreenWakeLock);
+  if (isPhonePage) {
+    requestScreenWakeLock();
+    document.addEventListener('pointerdown', requestScreenWakeLock, {once: true});
+  }
 
   document.getElementById('largerText')?.addEventListener('click', () => {
     fontScale = Math.min(1.8, fontScale + 0.1);

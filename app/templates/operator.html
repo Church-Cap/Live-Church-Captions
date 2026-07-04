@@ -70,22 +70,26 @@
 
     <section class="operator-main-panel premium-main-panel">
       <header class="operator-header-row compact-operator-header glass-card premium-header-card">
-        <div>
+        <div class="operator-header-copy">
           <p class="eyebrow" id="operatorSectionEyebrow">Dashboard</p>
           <h1>Church Cap operator</h1>
           <p class="muted" id="operatorSectionDescription">Start captions, choose audio input, monitor the microphone, and manage sensitive moments.</p>
         </div>
-        <div class="operator-quick-status">
-          <span id="connection" class="status-pill">Connecting</span>
-          <span class="status-pill">Viewers: <strong id="viewerCount">0</strong></span>
-          <span class="status-pill">Mode: <strong id="sensitiveStatus">Normal</strong></span>
-          <span class="status-pill">Mic: <strong id="stripMic">0%</strong></span>
-          <span class="status-pill">CPU: <strong id="stripCpu">—</strong></span>
-          <span class="status-pill">RAM: <strong id="stripRam">—</strong></span>
-          <span class="status-pill">GPU: <strong id="stripGpu">—</strong></span>
-          <span class="status-pill" id="stripAudienceDelayPill">Audience Delay: <strong id="stripAudienceDelay">—</strong></span>
-          <span class="status-pill" id="stripTranslationDelayPill">Translation Delay: <strong id="stripTranslationDelay">—</strong></span>
-          <span class="status-pill">Translate: <strong id="stripTranslate">0 / 1</strong></span>
+        <div class="operator-quick-status" aria-label="Live system and caption monitoring">
+          <div class="quick-status-row quick-status-system" aria-label="System status">
+            <span id="connection" class="status-pill status-fixed status-connection">Connecting</span>
+            <span class="status-pill status-fixed status-viewers">Viewers: <strong id="viewerCount">0</strong></span>
+            <span class="status-pill status-fixed status-mode">Mode: <strong id="sensitiveStatus">Normal</strong></span>
+            <span class="status-pill status-fixed status-percent">Mic: <strong id="stripMic">0%</strong></span>
+            <span class="status-pill status-fixed status-percent">CPU: <strong id="stripCpu">—</strong></span>
+            <span class="status-pill status-fixed status-percent">RAM: <strong id="stripRam">—</strong></span>
+            <span class="status-pill status-fixed status-gpu">GPU: <strong id="stripGpu">—</strong></span>
+          </div>
+          <div class="quick-status-row quick-status-latency" aria-label="Caption and translation latency">
+            <span class="status-pill status-fixed status-delay" id="stripAudienceDelayPill">English Delay: <strong id="stripAudienceDelay">—</strong></span>
+            <span class="status-pill status-fixed status-delay wide" id="stripTranslationDelayPill">Translation Delay: <strong id="stripTranslationDelay">—</strong></span>
+            <span class="status-pill status-fixed status-translate">Translate: <strong id="stripTranslate">0 / 1</strong></span>
+          </div>
         </div>
       </header>
 
@@ -394,9 +398,10 @@
             <label for="translationProvider">Translation mode</label>
             <select id="translationProvider" onchange="syncTranslationModeCopy()">
               <option value="disabled" {% if not runtime.translation_enabled or runtime.translation_provider == 'disabled' %}selected{% endif %}>Off — source captions only</option>
-              <option value="argos" {% if runtime.translation_enabled and (runtime.translation_provider or translation_provider) == 'argos' %}selected{% endif %}>Base — Argos Translate</option>
-              <option value="small100" {% if runtime.translation_enabled and runtime.translation_provider == 'small100' %}selected{% endif %}>Core — SMaLL-100</option>
-              <option value="both" {% if runtime.translation_enabled and runtime.translation_provider == 'both' %}selected{% endif %}>Auto — Base + Core</option>
+              <option value="ct2small100" {% if runtime.translation_enabled and runtime.translation_provider == 'ct2small100' %}selected{% endif %}>Recommended package — CTranslate2 INT8 / SMaLL-100</option>
+              <option value="argos" {% if runtime.translation_enabled and (runtime.translation_provider or translation_provider) == 'argos' %}selected{% endif %}>Base package — Argos Translate</option>
+              <option value="small100" {% if runtime.translation_enabled and runtime.translation_provider == 'small100' %}selected{% endif %}>Compatibility package — PyTorch SMaLL-100</option>
+              <option value="both" {% if runtime.translation_enabled and runtime.translation_provider == 'both' %}selected{% endif %}>Auto — Recommended + Base + Compatibility</option>
             </select>
             <p id="translationModeCopy" class="muted small-result"></p>
             <label for="translationMax">Maximum active translated languages</label>
@@ -423,10 +428,21 @@
             <div class="translation-resource-panel">
               <strong>Language resources</strong>
               <p id="translationResourceSummary" class="muted">Checking installed translation resources…</p>
+              <div id="translationPerformancePrompt" class="translation-performance-card">
+                <div>
+                  <strong id="translationPerformanceTitle">Improve translation performance</strong>
+                  <p id="translationPerformanceCopy" class="muted">Install the faster local translation engine if this computer struggles with more than one translated language. It stays local, but needs internet once and can take several minutes.</p>
+                </div>
+                <div class="button-row">
+                  <button id="translationPerformanceInstallButton" type="button" class="primary-button" onclick="installTranslationResources('ct2small100')">Install faster translation</button>
+                  <button id="translationPerformanceUseButton" type="button" class="secondary-button" onclick="useFasterTranslationMode()" hidden>Use faster translation</button>
+                </div>
+              </div>
               <div class="button-row spacious-actions">
-                <button type="button" class="secondary-button" onclick="installTranslationResources('argos')">Install Base packs</button>
-                <button type="button" class="secondary-button" onclick="installTranslationResources('argos_all')">Install all Base packs</button>
-                <button type="button" class="secondary-button" onclick="installTranslationResources('small100')">Install Core model</button>
+                <button type="button" class="secondary-button" onclick="installTranslationResources('ct2small100')">Install Recommended package</button>
+                <button type="button" class="secondary-button" onclick="installTranslationResources('argos')">Install Base package</button>
+                <button type="button" class="secondary-button" onclick="installTranslationResources('argos_all')">Install all Base packages</button>
+                <button type="button" class="secondary-button" onclick="installTranslationResources('small100')">Install Compatibility package</button>
               </div>
               <p id="translationInstallResult" class="muted small-result"></p>
             </div>
@@ -443,31 +459,37 @@
                 <option value="most_viewers" {% if runtime.translation_priority_mode != 'pinned_first' %}selected{% endif %}>Most viewers first</option>
                 <option value="pinned_first" {% if runtime.translation_priority_mode == 'pinned_first' %}selected{% endif %}>Selected languages first, then most viewers</option>
               </select>
+              <label for="translationTimingMode">Translation timing</label>
+              <select id="translationTimingMode">
+                <option value="live" {% if runtime.translation_timing_mode != 'stable' %}selected{% endif %}>Live — translate partial captions quickly</option>
+                <option value="stable" {% if runtime.translation_timing_mode == 'stable' %}selected{% endif %}>More stable — wait for corrected English</option>
+              </select>
+              <p class="muted small-result">Live is fastest. More stable reduces brief mistranslated partial captions, but translated text appears a little later.</p>
+              <label class="toggle-row premium-toggle-row language-request-toggle-row" for="translationLanguageRequestsEnabled">
+                <input id="translationLanguageRequestsEnabled" type="checkbox" {% if runtime.translation_language_requests_enabled|default(true) %}checked{% endif %}>
+                <span class="toggle-slider" aria-hidden="true"></span>
+                <span class="toggle-copy">
+                  <strong>Visitor language requests</strong>
+                  <small>Allow visitors and service leaders to request installed languages that are not enabled yet. Turn this off if requests become disruptive.</small>
+                </span>
+              </label>
+              <div class="button-row language-save-row">
+                <button type="button" class="primary-button" onclick="saveTranslationSettings()">Save language settings</button>
+              </div>
               <fieldset class="language-fieldset premium-language-fieldset">
                 <legend>Restricted-language list</legend>
                 <div class="language-list-toolbar">
-                  <input id="operatorLanguageSearch" type="search" placeholder="Search languages" oninput="filterOperatorLanguages()">
+                  <input id="operatorLanguageSearch" type="search" placeholder="Search languages" autocomplete="off" aria-label="Search languages">
                   <div class="button-row">
                     <button type="button" class="secondary-button compact-button" onclick="selectAllOperatorLanguages(true)">Select all</button>
                     <button type="button" class="secondary-button compact-button" onclick="selectAllOperatorLanguages(false)">Clear all</button>
                   </div>
                 </div>
-                <div class="operator-language-grid" id="operatorLanguageGrid">
-                  {% for lang in languages %}
-                  <label class="language-toggle premium-language-toggle" data-language-search="{{ lang.code }} {{ lang.code|upper }} {{ lang.name }} {{ lang.native }}">
-                    <input type="checkbox" name="translationLang" value="{{ lang.code }}" {% if lang.code in runtime.translation_allowed_languages %}checked{% endif %} {% if lang.code == 'en' %}disabled checked{% endif %}>
-                    <span class="toggle-slider small" aria-hidden="true"></span>
-                    <span class="language-toggle-label"><span class="language-flag-chip operator-language-code" data-code="{{ lang.code|upper }}" title="{{ lang.name }} · {{ lang.code|upper }}">{{ lang.flag }}</span><span class="language-toggle-copy"><strong dir="auto">{{ lang.name }}</strong><small dir="auto">{{ lang.native }} · {{ lang.code|upper }}</small></span></span>
-                  </label>
-                  {% endfor %}
-                </div>
+                <div class="operator-language-grid" id="operatorLanguageGrid" role="listbox" aria-label="Restricted caption languages"></div>
                 <p id="operatorLanguageEmpty" class="language-empty" hidden>No languages found.</p>
               </fieldset>
             </details>
-            <div class="button-row">
-              <button onclick="saveTranslationSettings()">Save language settings</button>
-            </div>
-            <p class="muted">Base uses installed Argos language packs. Core uses the optional SMaLL-100 model and can use more RAM/CPU. Auto shows languages from both installed providers and uses Base first, then Core when needed.</p>
+            <p class="muted">Recommended package uses CTranslate2 INT8 with a local SMaLL-100 model for broad, efficient translation. Base package uses installed Argos Translate packs. Compatibility package keeps the older PyTorch SMaLL-100 path available. Auto uses Recommended first, then Base, then Compatibility when needed.</p>
             <p id="translationProviderStatus" class="muted small-result">Provider status will appear here.</p>
             <p id="translationResult" class="muted small-result"></p>
           </article>
@@ -482,10 +504,10 @@
             </div>
             <table class="premium-table" aria-label="Viewer language activity">
               <thead>
-                <tr><th>Language</th><th>Viewers</th><th>Status</th></tr>
+                <tr><th>Language</th><th>Viewers</th><th>Status</th><th>Latency</th></tr>
               </thead>
               <tbody id="viewerLanguageRows">
-                <tr><td colspan="3" class="muted">No viewer language data yet.</td></tr>
+                <tr><td colspan="4" class="muted">No viewer language data yet.</td></tr>
               </tbody>
             </table>
             <p class="muted">The phone UI language switch works locally. Translated captions appear only when the operator enables translation and a provider is configured.</p>
@@ -508,34 +530,56 @@
                 <img src="/qr.png" alt="QR code for live captions using local hostname">
                 <p class="address-line"><span class="tiny-label">Hostname</span><code>{{ detected_hostname }}</code></p>
                 <p><a href="{{ caption_url }}">{{ caption_url }}</a></p>
-                <a class="button-link secondary-button qr-download-button" href="/qr.png" download="church-cap-hostname-qr.png">Download QR</a>
+                <a class="button-link secondary-button qr-download-button" href="/qr.png" download="church-cap-hostname-qr.png" onclick="return handleOperatorQrDownload(event, 'audience_qr')"><span class="operatorQrDownloadLabel">Download QR</span></a>
               </div>
               <div class="qr-mini-card">
                 <p class="tiny-label">Android / guest Wi‑Fi fallback</p>
                 <img src="/qr-ip.png" alt="Fallback QR code for live captions using IP address">
                 <p class="address-line"><span class="tiny-label">Direct IP</span><code>{{ caption_ip_url }}</code></p>
                 <p><a href="{{ caption_ip_url }}">{{ caption_ip_url }}</a></p>
-                <a class="button-link secondary-button qr-download-button" href="/qr-ip.png" download="church-cap-ip-fallback-qr.png">Download QR</a>
+                <a class="button-link secondary-button qr-download-button" href="/qr-ip.png" download="church-cap-ip-fallback-qr.png" onclick="return handleOperatorQrDownload(event, 'audience_qr_ip')"><span class="operatorQrDownloadLabel">Download QR</span></a>
               </div>
             </div>
             <p class="muted">Use the hostname QR first. If some Android phones cannot open <code>.local</code>, use the IP fallback QR or configure router DNS/mDNS forwarding.</p>
           </article>
-          <article class="operator-panel glass-card">
+          <article class="operator-panel glass-card output-links-panel">
             <div class="panel-heading-row">
               <div>
                 <p class="eyebrow">Outputs</p>
-                <h2>Display and OBS links</h2>
+                <h2>Room display and livestream</h2>
               </div>
             </div>
-            <p class="muted">Use these for a side screen, confidence monitor, or livestream overlay.</p>
+            <p class="muted">Use these when captions need to appear on a projector, confidence screen, display capture, or OBS browser source. Audience phones should use the QR codes on the left.</p>
             <p class="muted">System IP address: <code>{{ system_ip }}</code></p>
-            <p class="muted">Display URL: <a href="{{ display_url }}">{{ display_url }}</a></p>
-            <p class="muted">Display direct IP: <a href="{{ display_ip_url }}">{{ display_ip_url }}</a></p>
-            <p class="muted">OBS overlay: <a href="{{ obs_url }}">{{ obs_url }}</a></p>
-            <p class="muted">OBS direct IP: <a href="{{ obs_ip_url }}">{{ obs_ip_url }}</a></p>
-            <div class="button-row">
-              <a class="button-link" href="/obs/help">OBS setup guide</a>
-              <a class="button-link secondary" href="/obs?return=operator">Preview overlay</a>
+            {% if deployment.capabilities.is_appliance %}
+            <div class="warning-panel slim-warning output-safeguard-note">
+              <strong>Appliance safeguard:</strong> display and OBS outputs are clean full-screen pages with no operator controls. Opening one on the appliance kiosk may leave the operator page until the shell is reopened or the browser is reset.
+            </div>
+            {% endif %}
+            <div class="output-option-grid">
+              <div class="output-option-card">
+                <p class="tiny-label">Room display</p>
+                <h3>Projector or confidence screen</h3>
+                <p class="muted">Shows a large caption view for in-room screens. Use the direct IP address when the display computer cannot resolve the local hostname.</p>
+                <dl class="output-link-list">
+                  <div><dt>Hostname</dt><dd><a href="{{ display_url }}" onclick="return handleApplianceOutputLink(event, 'display')">{{ display_url }}</a></dd></div>
+                  <div><dt>Direct IP</dt><dd><a href="{{ display_ip_url }}" onclick="return handleApplianceOutputLink(event, 'display-ip')">{{ display_ip_url }}</a></dd></div>
+                </dl>
+                <a class="button-link secondary" href="{{ display_url }}" onclick="return handleApplianceOutputLink(event, 'display')">Open display</a>
+              </div>
+              <div class="output-option-card">
+                <p class="tiny-label">OBS overlay</p>
+                <h3>Livestream browser source</h3>
+                <p class="muted">Transparent lower-third captions for OBS, vMix, or similar software. Add the URL as a browser source on the streaming computer.</p>
+                <dl class="output-link-list">
+                  <div><dt>Hostname</dt><dd><a href="{{ obs_url }}" onclick="return handleApplianceOutputLink(event, 'obs')">{{ obs_url }}</a></dd></div>
+                  <div><dt>Direct IP</dt><dd><a href="{{ obs_ip_url }}" onclick="return handleApplianceOutputLink(event, 'obs-ip')">{{ obs_ip_url }}</a></dd></div>
+                </dl>
+                <div class="button-row output-button-row">
+                  <a class="button-link" href="/obs/help">OBS setup guide</a>
+                  <a class="button-link secondary" href="/obs?return=operator" onclick="return handleApplianceOutputLink(event, 'obs-preview')">Preview overlay</a>
+                </div>
+              </div>
             </div>
           </article>
         </div>
@@ -703,7 +747,7 @@
               <p class="muted">Diagnostics do not include transcripts, captions, passwords, secrets, or .env contents, but system names, device names, error messages, and log details may still identify your church or computer. Do not post the file publicly on GitHub unless you have reviewed it and are comfortable sharing it.</p>
             </div>
             <div class="button-row spacious-actions">
-              <button type="button" onclick="downloadDiagnosticsWithConsent()">Download diagnostics</button>
+              <button type="button" onclick="downloadDiagnosticsWithConsent()"><span id="diagnosticsDownloadButtonText">Download diagnostics</span></button>
               <a class="button-link secondary" href="/feedback">Open feedback page</a>
             </div>
           </article>
@@ -758,6 +802,18 @@
       </footer>
   </main>
 
+  <aside id="languageRequestCard" class="language-request-card glass-card" hidden aria-live="polite">
+    <div class="panel-heading-row">
+      <div>
+        <p class="eyebrow">Language request</p>
+        <h2 id="languageRequestTitle">Requested languages</h2>
+      </div>
+      <span id="languageRequestCount" class="status-pill">0</span>
+    </div>
+    <p id="languageRequestCopy" class="muted small-result">A visitor has requested a translated language that is installed but not enabled.</p>
+    <div id="languageRequestList" class="language-request-list"></div>
+  </aside>
+
   <div id="cpuTranslationPrompt" class="cpu-translation-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="cpuTranslationPromptTitle">
     <div class="cpu-translation-dialog glass-card">
       <p class="eyebrow">CPU appliance language mode</p>
@@ -772,6 +828,36 @@
       </div>
     </div>
   </div>
+
+
+  <dialog id="diagnosticsDownloadDialog" class="service-leader-dialog service-leader-confirm-dialog glass-card">
+    <form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form>
+    <p class="eyebrow">Diagnostics export</p>
+    <h2 id="diagnosticsDownloadTitle">Download diagnostics?</h2>
+    <p id="diagnosticsDownloadMessage" class="muted"></p>
+    <p id="diagnosticsDownloadNetwork" class="muted service-leader-warning-note" hidden></p>
+    <div id="diagnosticsShareQrPanel" class="download-handoff-panel" hidden>
+      <img id="diagnosticsShareQrImage" alt="Temporary download QR code">
+      <p id="diagnosticsShareQrHelp" class="muted small-result"></p>
+      <a id="diagnosticsShareDirectLink" class="button-link secondary full-width" href="#">Open download on this device</a>
+    </div>
+    <div class="button-row spacious-actions">
+      <button id="diagnosticsDownloadConfirm" type="button" class="primary-button">Download diagnostics</button>
+      <button type="button" class="secondary-button" onclick="document.getElementById('diagnosticsDownloadDialog').close()">Cancel</button>
+    </div>
+  </dialog>
+
+  <dialog id="applianceOutputDialog" class="service-leader-dialog service-leader-confirm-dialog glass-card appliance-output-dialog">
+    <form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form>
+    <p class="eyebrow">Appliance safeguard</p>
+    <h2 id="applianceOutputTitle">Open clean output?</h2>
+    <p id="applianceOutputMessage" class="muted"></p>
+    <p class="muted service-leader-warning-note">This output is intentionally clean for public display or livestream use. It does not include operator navigation, so only open it on the appliance kiosk when you are ready to leave the operator controls.</p>
+    <div class="button-row spacious-actions">
+      <button id="applianceOutputConfirm" type="button" class="primary-button">Open output</button>
+      <button type="button" class="secondary-button" onclick="document.getElementById('applianceOutputDialog').close()">Stay here</button>
+    </div>
+  </dialog>
 
   <div id="updateOverlay" class="update-overlay" hidden>
     <div class="update-overlay-panel glass-card">
@@ -790,6 +876,12 @@
     let serviceLeaderPairingTimer = null;
     let serviceLeaderPairingExpiresAt = 0;
     let serviceLeaderPairingSessionBaseline = 0;
+
+    const diagnosticsDownloadButtonText = document.getElementById('diagnosticsDownloadButtonText');
+    if (document.body.dataset.appliance === 'true') {
+      if (diagnosticsDownloadButtonText) diagnosticsDownloadButtonText.textContent = 'Share diagnostics';
+      document.querySelectorAll('.operatorQrDownloadLabel').forEach((label) => { label.textContent = 'Share QR'; });
+    }
 
     const sectionCopy = {};
     document.querySelectorAll('.operator-section').forEach((section) => {
@@ -966,6 +1058,13 @@
     let captionStartNoticeTimer = null;
     let operatorTranslationEditing = false;
     let operatorTranslationSignature = '';
+    const operatorLanguages = {{ languages|tojson }};
+    const operatorSelectedLanguages = new Set({{ runtime.translation_allowed_languages|list|tojson }});
+    Array.from(operatorSelectedLanguages).forEach((code) => {
+      operatorSelectedLanguages.delete(code);
+      operatorSelectedLanguages.add(String(code).toLowerCase());
+    });
+    operatorSelectedLanguages.add('en');
     let cpuTranslationPromptResolver = null;
 
     function operatorCaptionActionLabel(path) {
@@ -1686,12 +1785,13 @@
       const provider = document.getElementById('translationProvider')?.value || 'disabled';
       const copy = document.getElementById('translationModeCopy');
       const pill = document.getElementById('translationModePill');
-      const labels = {disabled: 'Off', argos: 'Base', small100: 'Core', both: 'Auto'};
+      const labels = {disabled: 'Off', argos: 'Base', ct2small100: 'Recommended', small100: 'Compatibility', both: 'Auto'};
       const descriptions = {
         disabled: 'Visitors can still choose the phone UI language, but captions stay in the source language.',
-        argos: 'Base mode uses installed Argos packs. It is more literal and lighter on system resources.',
-        small100: 'Core mode uses SMaLL-100. It covers many languages and may be more accurate, but it uses more RAM and CPU/GPU.',
-        both: 'Auto mode shows languages from both installed providers. Church Cap tries Base first, then Core for languages Base cannot translate.'
+        argos: 'Base package uses installed Argos Translate packs. It can be useful as a fallback, but it is often more literal.',
+        ct2small100: 'Recommended package uses CTranslate2 INT8 with SMaLL-100. It is the preferred v0.6.x path for broad language coverage and lower CPU load.',
+        small100: 'Compatibility package uses SMaLL-100 through PyTorch. Keep it as a safety net for comparison or fallback, but it may add more latency.',
+        both: 'Auto mode shows languages from installed packages. Church Cap tries Recommended first, then Base, then Compatibility for languages earlier packages cannot translate.'
       };
       const capabilities = window.CC_DEPLOYMENT?.capabilities || {};
       let message = descriptions[provider] || descriptions.disabled;
@@ -1750,7 +1850,7 @@
       } else if (gpuWarning) {
         warning.innerHTML = '<strong>GPU recommended:</strong> this installation has no ready GPU acceleration, so translation may increase latency.';
       } else {
-        warning.innerHTML = `<strong>Translation load:</strong> ${activeCount} translated language${activeCount === 1 ? '' : 's'} active. Watch Audience Delay and Translation Delay during speech.`;
+        warning.innerHTML = `<strong>Translation load:</strong> ${activeCount} translated language${activeCount === 1 ? '' : 's'} active. Watch English Delay and Translation Delay during speech.`;
       }
     }
 
@@ -1767,18 +1867,53 @@
       if (!summary || !translation) return;
       const resources = translation.resources || {};
       const argos = resources.argos || {};
+      const fastCore = resources.ct2small100 || {};
       const core = resources.small100 || {};
       const argosCount = Array.isArray(argos.installed_languages) ? argos.installed_languages.length : 0;
+      const fastCoreReady = !!fastCore.status?.ready;
       const coreReady = !!core.status?.ready;
-      summary.textContent = `Base packs installed: ${argosCount}. Core model: ${coreReady ? 'installed' : 'not installed'}.`;
+      summary.textContent = `Recommended package: ${fastCoreReady ? 'installed' : 'not installed'}. Base packages installed: ${argosCount}. Compatibility package: ${coreReady ? 'installed' : 'not installed'}.`;
       const install = translation.install || window.CC_TRANSLATION_INSTALL;
+      renderTranslationPerformancePrompt(translation, install);
       const installResult = document.getElementById('translationInstallResult');
       if (installResult && install?.status === 'installing') {
-        installResult.textContent = `Installing translation resources. Log: ${install.log || 'logs/translation-install.log'}.`;
+        const label = install.kind === 'ct2small100' ? 'Installing the faster local translation engine' : 'Installing translation resources';
+        installResult.textContent = `${label}. This can take several minutes. Log: ${install.log || 'logs/translation-install.log'}.`;
       } else if (installResult && install?.status === 'complete') {
         installResult.textContent = install.message || 'Translation install finished.';
       } else if (installResult && install?.status === 'error') {
         installResult.textContent = install.error || install.message || 'Translation install failed. Check logs/translation-install.log.';
+      }
+    }
+
+    function renderTranslationPerformancePrompt(translation, install) {
+      const card = document.getElementById('translationPerformancePrompt');
+      if (!card || !translation) return;
+      const title = document.getElementById('translationPerformanceTitle');
+      const copy = document.getElementById('translationPerformanceCopy');
+      const installButton = document.getElementById('translationPerformanceInstallButton');
+      const useButton = document.getElementById('translationPerformanceUseButton');
+      const resources = translation.resources || {};
+      const fastCoreReady = !!resources.ct2small100?.status?.ready;
+      const installingFastCore = install?.status === 'installing' && install?.kind === 'ct2small100';
+      const provider = translation.enabled ? (translation.provider || 'argos') : 'disabled';
+      const maxLanguages = Number(translation.max_active_languages || 1);
+      const activeLanguages = Array.isArray(translation.active_translated_languages) ? translation.active_translated_languages.length : 0;
+      const shouldRecommend = installingFastCore || (!fastCoreReady && (maxLanguages > 1 || activeLanguages > 1 || provider === 'small100' || provider === 'both' || window.CC_DEPLOYMENT?.capabilities?.cpu_translation_warning));
+      card.hidden = fastCoreReady ? false : !shouldRecommend;
+      if (title) title.textContent = fastCoreReady ? 'Faster translation is installed' : 'Improve translation performance';
+      if (copy) {
+        copy.textContent = fastCoreReady
+          ? 'The faster local translation engine is ready. Use Auto or Faster translation for services with several audience languages, then watch English Delay and Translation Delay during real speech.'
+          : 'If this computer struggles with more than one translated language, install the faster local translation engine. It stays local, needs internet once, and can take several minutes.';
+      }
+      if (installButton) {
+        installButton.hidden = fastCoreReady;
+        installButton.disabled = installingFastCore;
+        installButton.textContent = installingFastCore ? 'Installing…' : 'Install faster translation';
+      }
+      if (useButton) {
+        useButton.hidden = !fastCoreReady || provider === 'ct2small100' || provider === 'both';
       }
     }
 
@@ -1790,7 +1925,9 @@
         allowed: translation.allowed_languages || ['en'],
         max: translation.max_active_languages || 1,
         policy: translation.language_policy || 'automatic',
-        priority: translation.priority_mode || 'most_viewers'
+        priority: translation.priority_mode || 'most_viewers',
+        timing: translation.timing_mode || 'live',
+        requests: translation.language_requests_enabled !== false
       });
       if (signature === operatorTranslationSignature || operatorTranslationEditing) return;
       operatorTranslationSignature = signature;
@@ -1800,10 +1937,14 @@
       if (policy) policy.value = translation.language_policy || 'automatic';
       const priority = document.getElementById('translationPriorityMode');
       if (priority) priority.value = translation.priority_mode || 'most_viewers';
-      const allowed = new Set(translation.allowed_languages || ['en']);
-      document.querySelectorAll('input[name="translationLang"]').forEach((input) => {
-        input.checked = input.disabled || allowed.has(input.value);
-      });
+      const timing = document.getElementById('translationTimingMode');
+      if (timing) timing.value = translation.timing_mode || 'live';
+      const requestToggle = document.getElementById('translationLanguageRequestsEnabled');
+      if (requestToggle) requestToggle.checked = translation.language_requests_enabled !== false;
+      operatorSelectedLanguages.clear();
+      (translation.allowed_languages || ['en']).forEach((code) => operatorSelectedLanguages.add(String(code).toLowerCase()));
+      operatorSelectedLanguages.add('en');
+      filterOperatorLanguages();
       const maximum = String(translation.max_active_languages || 1);
       const slider = document.getElementById('translationMaxSlider');
       const input = document.getElementById('translationMax');
@@ -1830,7 +1971,11 @@
     async function installTranslationResources(kind) {
       if (!(await ensureCpuTranslationAcknowledged())) return;
       const result = document.getElementById('translationInstallResult');
-      if (result) result.textContent = kind === 'small100' ? 'Starting Core model install…' : 'Starting Base language pack install…';
+      if (result) {
+        result.textContent = kind === 'ct2small100'
+          ? 'Starting faster local translation install. This needs internet once and can take several minutes…'
+          : (kind === 'small100' ? 'Starting Compatibility package / PyTorch SMaLL-100 install…' : 'Starting Base package / Argos Translate install…');
+      }
       const res = await fetch('/api/translation/install', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1843,7 +1988,17 @@
         return;
       }
       if (result) result.textContent = `${data.message || 'Translation install started.'} Log: ${data.install?.log || 'logs/translation-install.log'}.`;
+      renderTranslationPerformancePrompt({...(window.CC_LAST_TRANSLATION || {}), install: data.install}, data.install);
       refreshStatus();
+    }
+
+    async function useFasterTranslationMode() {
+      const provider = document.getElementById('translationProvider');
+      if (provider) provider.value = 'both';
+      syncTranslationModeCopy();
+      const result = document.getElementById('translationResult');
+      if (result) result.textContent = 'Saving Auto mode so Church Cap can use the faster translation engine where available…';
+      await saveTranslationSettings();
     }
 
     async function applyRecommendedSettings() {
@@ -1968,11 +2123,11 @@
       const result = document.getElementById('translationResult');
       const providerSelect = document.getElementById('translationProvider');
       const provider = providerSelect?.value || 'disabled';
-      const selected = Array.from(document.querySelectorAll('input[name="translationLang"]:checked')).map(x => x.value);
+      operatorSelectedLanguages.add('en');
+      const selected = Array.from(operatorSelectedLanguages);
       const selectedTranslated = selected.filter((code) => code !== 'en');
-      if (!selected.includes('en')) selected.push('en');
       if (provider === 'disabled' && selectedTranslated.length) {
-        if (result) result.textContent = 'Translation mode is Off. Choose Base, Core, or Auto before saving selected translated languages, or clear the translated-language list to leave captions in English only.';
+        if (result) result.textContent = 'Translation mode is Off. Choose Recommended, Base, Compatibility, or Auto before saving selected translated languages, or clear the translated-language list to leave captions in English only.';
         providerSelect?.focus();
         return;
       }
@@ -1984,6 +2139,8 @@
           translation_provider: provider,
           translation_language_policy: document.getElementById('translationLanguagePolicy')?.value || 'automatic',
           translation_priority_mode: document.getElementById('translationPriorityMode')?.value || 'most_viewers',
+          translation_timing_mode: document.getElementById('translationTimingMode')?.value || 'live',
+          translation_language_requests_enabled: document.getElementById('translationLanguageRequestsEnabled')?.checked !== false,
           translation_allowed_languages: selected,
           translation_max_active_languages: Number(document.getElementById('translationMax').value)
         })
@@ -2111,29 +2268,105 @@
     function normaliseLanguageSearch(value) {
       return String(value || '')
         .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[̀-ͯ]/g, '')
         .toLocaleLowerCase();
     }
 
-    function filterOperatorLanguages() {
-      const query = normaliseLanguageSearch(document.getElementById('operatorLanguageSearch')?.value.trim() || '');
-      let visibleCount = 0;
-      document.querySelectorAll('.premium-language-toggle[data-language-search]').forEach((item) => {
-        const text = item.dataset.normalizedLanguageSearch || normaliseLanguageSearch(item.dataset.languageSearch || item.textContent || '');
-        item.dataset.normalizedLanguageSearch = text;
-        const visible = !query || text.includes(query);
-        item.hidden = !visible;
-        if (visible) visibleCount += 1;
-      });
+    function operatorLanguageSearchText(language) {
+      return normaliseLanguageSearch(`${language.code || ''} ${(language.code || '').toUpperCase()} ${language.name || ''} ${language.native || ''}`);
+    }
+
+    function translationLatencyTextForLanguage(code, translation = window.CC_LAST_TRANSLATION) {
+      const key = String(code || '').toLowerCase();
+      if (key === 'en') return '—';
+      const latency = asFiniteNumber(translation?.translation_delay_seconds_by_language?.[key]);
+      return latency == null ? '—' : `${latency.toFixed(1)}s`;
+    }
+
+    function renderOperatorLanguageList(query = '') {
+      const grid = document.getElementById('operatorLanguageGrid');
+      if (!grid) return;
+      const q = normaliseLanguageSearch(query.trim());
+      const matches = operatorLanguages.filter((language) => !q || operatorLanguageSearchText(language).includes(q));
       const empty = document.getElementById('operatorLanguageEmpty');
-      if (empty) empty.hidden = visibleCount > 0;
+      grid.textContent = '';
+      if (empty) empty.hidden = matches.length > 0;
+      if (!matches.length) return;
+      const fragment = document.createDocumentFragment();
+      for (const language of matches) {
+        const code = String(language.code || '').toLowerCase();
+        const codeLabel = code.toUpperCase();
+        const selected = code === 'en' || operatorSelectedLanguages.has(code);
+        const label = document.createElement('label');
+        label.className = 'language-toggle premium-language-toggle';
+        label.dataset.languageSearch = `${code} ${codeLabel} ${language.name || ''} ${language.native || ''}`;
+        label.setAttribute('role', 'option');
+        label.setAttribute('aria-selected', selected ? 'true' : 'false');
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.name = 'translationLang';
+        input.value = code;
+        input.checked = selected;
+        input.disabled = code === 'en';
+        input.addEventListener('change', () => {
+          if (input.checked) operatorSelectedLanguages.add(code);
+          else operatorSelectedLanguages.delete(code);
+          operatorSelectedLanguages.add('en');
+          label.classList.toggle('selected', input.checked);
+          label.setAttribute('aria-selected', input.checked ? 'true' : 'false');
+          operatorTranslationEditing = true;
+        });
+
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider small';
+        slider.setAttribute('aria-hidden', 'true');
+
+        const copyWrap = document.createElement('span');
+        copyWrap.className = 'language-toggle-label';
+        const marker = document.createElement('span');
+        const flagText = String(language.flag || '').trim();
+        marker.dataset.code = codeLabel;
+        marker.title = `${language.name || language.native || codeLabel} · ${codeLabel}`;
+        if (flagText && flagText !== '🌐') {
+          marker.className = 'language-flag-chip operator-language-code';
+          marker.textContent = flagText;
+        } else {
+          marker.className = 'language-code-badge operator-language-code';
+          marker.textContent = codeLabel.slice(0, 3);
+        }
+
+        const text = document.createElement('span');
+        text.className = 'language-toggle-copy';
+        const title = document.createElement('strong');
+        title.dir = 'auto';
+        title.textContent = language.name || language.native || codeLabel;
+        const meta = document.createElement('small');
+        meta.dir = 'auto';
+        meta.textContent = language.native && language.native !== language.name ? `${language.native} · ${codeLabel}` : codeLabel;
+        text.append(title, meta);
+        copyWrap.append(marker, text);
+        label.append(input, slider, copyWrap);
+        fragment.appendChild(label);
+      }
+      grid.appendChild(fragment);
+    }
+
+    function filterOperatorLanguages() {
+      renderOperatorLanguageList(document.getElementById('operatorLanguageSearch')?.value || '');
     }
 
     function selectAllOperatorLanguages(checked) {
-      document.querySelectorAll('input[name="translationLang"]').forEach((input) => {
-        if (!input.disabled) input.checked = checked;
-      });
+      operatorSelectedLanguages.clear();
+      operatorSelectedLanguages.add('en');
+      if (checked) {
+        operatorLanguages.forEach((language) => {
+          const code = String(language.code || '').toLowerCase();
+          if (code) operatorSelectedLanguages.add(code);
+        });
+      }
       operatorTranslationEditing = true;
+      filterOperatorLanguages();
     }
 
     function updateTranscriptExportButtons(count) {
@@ -2191,11 +2424,181 @@
       if (result) result.textContent = text;
     }
 
+    function setDiagnosticsSharePanel(data, helpText = 'Scan this with a trusted phone to download the file.') {
+      const panel = document.getElementById('diagnosticsShareQrPanel');
+      const image = document.getElementById('diagnosticsShareQrImage');
+      const help = document.getElementById('diagnosticsShareQrHelp');
+      const link = document.getElementById('diagnosticsShareDirectLink');
+      if (!panel || !image || !help || !link) return;
+      if (!data) {
+        panel.hidden = true;
+        image.removeAttribute('src');
+        help.textContent = '';
+        link.href = '#';
+        return;
+      }
+      image.src = `${data.qr_url}?t=${Date.now()}`;
+      link.href = data.download_url;
+      help.textContent = `${helpText} Link expires in about ${Math.round((data.expires_seconds || 600) / 60)} minutes.`;
+      panel.hidden = false;
+    }
+
+    async function createOperatorDownloadHandoff(target) {
+      const response = await fetch('/api/download-handoff', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({target}),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || data.error || 'Church Cap could not create the download QR.');
+      return data;
+    }
+
+    function operatorShareCopy(target) {
+      if (target === 'audience_qr') {
+        return {
+          title: 'Share audience QR to a phone?',
+          message: 'This creates a temporary QR code that lets a phone download the audience QR image for slides, presentation software, or printing.',
+          confirm: 'Create phone QR',
+          help: 'Scan this with a trusted phone to download the audience QR image.',
+        };
+      }
+      if (target === 'audience_qr_ip') {
+        return {
+          title: 'Share IP fallback QR to a phone?',
+          message: 'This creates a temporary QR code that lets a phone download the IP-address audience QR image for guest Wi-Fi or Android fallback use.',
+          confirm: 'Create phone QR',
+          help: 'Scan this with a trusted phone to download the IP fallback QR image.',
+        };
+      }
+      return {
+        title: 'Share diagnostics to a phone?',
+        message: 'This file can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted. It does not include transcripts, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.',
+        confirm: 'Create phone QR',
+        help: 'Scan this with a trusted phone to download diagnostics.',
+      };
+    }
+
+    function shareOperatorDownload(target) {
+      const copy = operatorShareCopy(target);
+      const dialog = document.getElementById('diagnosticsDownloadDialog');
+      const title = document.getElementById('diagnosticsDownloadTitle');
+      const message = document.getElementById('diagnosticsDownloadMessage');
+      const network = document.getElementById('diagnosticsDownloadNetwork');
+      const confirm = document.getElementById('diagnosticsDownloadConfirm');
+      title.textContent = copy.title;
+      message.textContent = copy.message;
+      network.textContent = 'Only use this on a trusted staff or AV network. Anyone on the same public or unsecured LAN who sees the temporary QR code before it expires may be able to download the file.';
+      network.hidden = false;
+      setDiagnosticsSharePanel(null);
+      confirm.disabled = false;
+      confirm.textContent = copy.confirm;
+      confirm.onclick = async () => {
+        confirm.disabled = true;
+        confirm.textContent = 'Creating QR...';
+        try {
+          const data = await createOperatorDownloadHandoff(target);
+          setDiagnosticsSharePanel(data, copy.help);
+          confirm.disabled = false;
+          confirm.textContent = 'Create new QR';
+        } catch (error) {
+          confirm.disabled = false;
+          confirm.textContent = copy.confirm;
+          message.textContent = error.message || 'Church Cap could not create the download QR.';
+        }
+      };
+      if (dialog?.showModal) dialog.showModal();
+    }
+
+    function handleOperatorQrDownload(event, target) {
+      if (document.body.dataset.appliance !== 'true') return true;
+      event.preventDefault();
+      shareOperatorDownload(target);
+      return false;
+    }
+
+    function outputLinkCopy(type) {
+      if (type === 'display' || type === 'display-ip') {
+        return {
+          title: 'Open room display?',
+          message: 'The room display page is designed for a projector, TV, or confidence monitor. On the appliance screen it can cover the operator controls and has no in-page back button.'
+        };
+      }
+      return {
+        title: 'Open OBS overlay?',
+        message: 'The OBS overlay is designed for livestream software and may appear mostly transparent or blank until captions are running. On the appliance screen it can cover the operator controls and has no in-page back button.'
+      };
+    }
+
+    function handleApplianceOutputLink(event, type) {
+      if (document.body.dataset.appliance !== 'true') return true;
+      const link = event?.currentTarget;
+      const targetUrl = link?.href;
+      if (!targetUrl) return true;
+      event.preventDefault();
+      const copy = outputLinkCopy(type);
+      const dialog = document.getElementById('applianceOutputDialog');
+      const title = document.getElementById('applianceOutputTitle');
+      const message = document.getElementById('applianceOutputMessage');
+      const confirm = document.getElementById('applianceOutputConfirm');
+      if (!dialog || !title || !message || !confirm || !dialog.showModal) {
+        if (window.confirm(`${copy.title}
+
+${copy.message}`)) window.location.href = targetUrl;
+        return false;
+      }
+      title.textContent = copy.title;
+      message.textContent = copy.message;
+      confirm.textContent = type === 'display' || type === 'display-ip' ? 'Open display' : 'Open overlay';
+      confirm.onclick = () => {
+        dialog.close();
+        window.location.href = targetUrl;
+      };
+      dialog.showModal();
+      return false;
+    }
+
     function downloadDiagnosticsWithConsent() {
-      const ok = window.confirm(
-        'Download diagnostics for support?\n\nThis file can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted. It does not include transcripts, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.'
-      );
-      if (ok) window.location.href = '/api/diagnostics/export?confirmed=1';
+      const isAppliance = document.body.dataset.appliance === 'true';
+      const dialog = document.getElementById('diagnosticsDownloadDialog');
+      const title = document.getElementById('diagnosticsDownloadTitle');
+      const message = document.getElementById('diagnosticsDownloadMessage');
+      const network = document.getElementById('diagnosticsDownloadNetwork');
+      const confirm = document.getElementById('diagnosticsDownloadConfirm');
+      const directUrl = '/api/diagnostics/export?confirmed=1';
+      const copy = operatorShareCopy('operator_diagnostics');
+      const warning = copy.message;
+      title.textContent = isAppliance ? copy.title : 'Download diagnostics?';
+      message.textContent = warning;
+      network.textContent = isAppliance
+        ? 'Only use this on a trusted staff or AV network. Anyone on the same public or unsecured LAN who sees the temporary QR code before it expires may be able to download the diagnostics file.'
+        : 'If this computer is on public or unsecured Wi-Fi, move the file carefully and avoid posting diagnostics publicly.';
+      network.hidden = false;
+      setDiagnosticsSharePanel(null);
+      confirm.disabled = false;
+      confirm.textContent = isAppliance ? 'Create phone QR' : 'Download diagnostics';
+      confirm.onclick = async () => {
+        if (!isAppliance) {
+          dialog.close();
+          window.location.href = directUrl;
+          return;
+        }
+        confirm.disabled = true;
+        confirm.textContent = 'Creating QR...';
+        try {
+          const data = await createOperatorDownloadHandoff('operator_diagnostics');
+          setDiagnosticsSharePanel(data, copy.help);
+          confirm.disabled = false;
+          confirm.textContent = 'Create new QR';
+        } catch (error) {
+          confirm.disabled = false;
+          confirm.textContent = 'Create phone QR';
+          message.textContent = error.message || 'Church Cap could not create the diagnostics QR.';
+        }
+      };
+      if (dialog?.showModal) dialog.showModal();
+      else if (isAppliance) window.location.href = directUrl;
+      else window.location.href = directUrl;
     }
 
     function setUpdateControlsDisabled(disabled) {
@@ -2313,6 +2716,63 @@
       return (window.CC_LANGUAGES || []).find(item => item.code === code);
     }
 
+    function renderLanguageRequests(translation) {
+      const card = document.getElementById('languageRequestCard');
+      const list = document.getElementById('languageRequestList');
+      const count = document.getElementById('languageRequestCount');
+      const copy = document.getElementById('languageRequestCopy');
+      if (!card || !list) return;
+      const requestsEnabled = translation?.language_requests_enabled !== false;
+      const requests = requestsEnabled ? (translation?.language_requests || []) : [];
+      card.hidden = !requestsEnabled || requests.length === 0;
+      if (count) count.textContent = String(requests.length);
+      if (copy) {
+        const limit = Number(translation?.max_active_languages || 1);
+        copy.textContent = `Visitors can request installed languages even when Manual mode is limited. Accepting enables the language; the active translation limit remains ${limit}.`;
+      }
+      list.textContent = '';
+      for (const request of requests) {
+        const code = String(request.code || '').toLowerCase();
+        const language = request.language || languageForCode(code) || {code, name: code.toUpperCase()};
+        const row = document.createElement('div');
+        row.className = 'language-request-row';
+        const name = language.name || language.native || code.toUpperCase();
+        row.innerHTML = `<span class="table-language-cell">${languageFlagChip(code)}<span><strong>${name}</strong><small class="muted">${String(code).toUpperCase()} · ${request.count || 1} request${Number(request.count || 1) === 1 ? '' : 's'}</small></span></span>`;
+        const actions = document.createElement('span');
+        actions.className = 'language-request-actions';
+        const accept = document.createElement('button');
+        accept.type = 'button';
+        accept.className = 'compact-button';
+        accept.textContent = 'Accept';
+        accept.onclick = () => resolveLanguageRequest(code, 'accept');
+        const reject = document.createElement('button');
+        reject.type = 'button';
+        reject.className = 'secondary-button compact-button';
+        reject.textContent = 'Reject';
+        reject.onclick = () => resolveLanguageRequest(code, 'reject');
+        actions.append(accept, reject);
+        row.appendChild(actions);
+        list.appendChild(row);
+      }
+    }
+
+    async function resolveLanguageRequest(code, action) {
+      const result = document.getElementById('translationResult');
+      try {
+        const response = await fetch(`/api/language-requests/${encodeURIComponent(code)}/${action}`, {method: 'POST'});
+        if (response.status === 401) { location.href = '/login'; return; }
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || data.error || 'Could not update the language request.');
+        operatorTranslationSignature = '';
+        syncOperatorTranslationControls(data.translation);
+        renderLanguageRequests(data.translation);
+        if (result) result.textContent = action === 'accept' ? `${languageName(code)} enabled for this service.` : `${languageName(code)} request dismissed.`;
+        refreshStatus();
+      } catch (error) {
+        if (result) result.textContent = error.message || String(error);
+      }
+    }
+
     function languageName(code) {
       const lang = languageForCode(code);
       return lang?.name || code.toUpperCase();
@@ -2335,14 +2795,15 @@
       tbody.innerHTML = '';
       if (!entries.length) {
         const row = document.createElement('tr');
-        row.innerHTML = '<td colspan="3" class="muted">No viewer language data yet.</td>';
+        row.innerHTML = '<td colspan="4" class="muted">No viewer language data yet.</td>';
         tbody.appendChild(row);
         return;
       }
       for (const [code, count] of entries) {
         const row = document.createElement('tr');
         const status = code === 'en' ? 'Source captions' : (active.has(code) ? 'Translated' : 'Source / capacity');
-        row.innerHTML = `<td><span class="table-language-cell">${languageFlagChip(code)}<span>${languageName(code)} <small class="muted">${String(code).toUpperCase()}</small></span></span></td><td>${count}</td><td>${status}</td>`;
+        const latency = translationLatencyTextForLanguage(code, translationState);
+        row.innerHTML = `<td><span class="table-language-cell">${languageFlagChip(code)}<span>${languageName(code)} <small class="muted">${String(code).toUpperCase()}</small></span></span></td><td>${count}</td><td>${status}</td><td><span class="table-latency-chip">${latency}</span></td>`;
         tbody.appendChild(row);
       }
     }
@@ -2375,9 +2836,11 @@
         const activeTranslationLanguages = document.getElementById('activeTranslationLanguages');
         if (activeTranslationLanguages) activeTranslationLanguages.textContent = activeText;
         runStatusPanel('viewer languages', () => renderViewerLanguageTable(data.translation));
+        window.CC_LAST_TRANSLATION = data.translation || null;
         runStatusPanel('translation resources', () => renderTranslationResources({...data.translation, install: data.translation_install}));
         runStatusPanel('translation capacity', () => renderTranslationCapacityWarning(data));
         runStatusPanel('translation controls', () => syncOperatorTranslationControls(data.translation));
+        runStatusPanel('language requests', () => renderLanguageRequests(data.translation));
         runStatusPanel('service leader', () => renderServiceLeaderAccess(data.service_leader_access));
         const providerStatus = document.getElementById('translationProviderStatus');
         if (providerStatus && data.translation?.provider_status) providerStatus.textContent = data.translation.provider_status.message || '';
@@ -2516,9 +2979,11 @@
     });
     document.getElementById('translationMax')?.addEventListener('blur', (event) => syncTranslationMax(event.target));
     document.querySelectorAll('.premium-range').forEach((range) => updatePremiumRange(range, {animate: false}));
-    document.querySelectorAll('#translationProvider, #translationLanguagePolicy, #translationPriorityMode, #translationMaxSlider, #translationMax, input[name="translationLang"]').forEach((control) => {
+    document.querySelectorAll('#translationProvider, #translationLanguagePolicy, #translationPriorityMode, #translationTimingMode, #translationLanguageRequestsEnabled, #translationMaxSlider, #translationMax').forEach((control) => {
       control.addEventListener('change', () => { operatorTranslationEditing = true; });
     });
+    document.getElementById('operatorLanguageSearch')?.addEventListener('input', filterOperatorLanguages);
+    renderOperatorLanguageList(document.getElementById('operatorLanguageSearch')?.value || '');
     syncTranslationMax(document.getElementById('translationMax'));
     loadAudioDevices();
     updateTranscriptExportButtons(0);

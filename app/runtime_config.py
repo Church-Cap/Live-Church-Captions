@@ -37,6 +37,8 @@ DEFAULTS: dict[str, Any] = {
     "translation_max_active_languages": 2,
     "translation_language_policy": "automatic",
     "translation_priority_mode": "most_viewers",
+    "translation_language_requests_enabled": True,
+    "translation_timing_mode": "live",
     "profanity_filter_enabled": True,
     "security_mode": "secure_operator",
     "lock_operator_to_localhost": True,
@@ -72,12 +74,15 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
             cfg["translation_max_active_languages"] = DEFAULTS["translation_max_active_languages"]
         cfg["transcript_saving_enabled"] = bool(cfg["transcript_saving_enabled"])
         cfg["translation_enabled"] = bool(cfg["translation_enabled"])
-        if cfg.get("translation_provider") not in {"disabled", "argos", "small100", "both", "demo"}:
+        if cfg.get("translation_provider") not in {"disabled", "argos", "ct2small100", "small100", "both", "demo"}:
             cfg["translation_provider"] = "argos"
         if cfg.get("translation_language_policy") not in {"automatic", "restricted"}:
             cfg["translation_language_policy"] = "automatic"
         if cfg.get("translation_priority_mode") not in {"most_viewers", "pinned_first"}:
             cfg["translation_priority_mode"] = "most_viewers"
+        cfg["translation_language_requests_enabled"] = bool(cfg.get("translation_language_requests_enabled", True))
+        if cfg.get("translation_timing_mode") not in {"live", "stable"}:
+            cfg["translation_timing_mode"] = "live"
         cfg["profanity_filter_enabled"] = bool(cfg["profanity_filter_enabled"])
         cfg["lock_operator_to_localhost"] = bool(cfg.get("lock_operator_to_localhost", True))
         if not isinstance(cfg.get("performance_preset"), str) or cfg.get("performance_preset") not in {"fastest", "fast", "balanced", "accurate", "most_accurate", "custom"}:
@@ -163,6 +168,8 @@ def set_translation_config(
     provider: str | None = None,
     language_policy: str | None = None,
     priority_mode: str | None = None,
+    language_requests_enabled: bool | None = None,
+    timing_mode: str | None = None,
 ) -> dict[str, Any]:
     cfg = load_runtime_config()
     cfg["translation_enabled"] = bool(enabled)
@@ -172,6 +179,10 @@ def set_translation_config(
         cfg["translation_language_policy"] = language_policy
     if priority_mode is not None:
         cfg["translation_priority_mode"] = priority_mode
+    if language_requests_enabled is not None:
+        cfg["translation_language_requests_enabled"] = bool(language_requests_enabled)
+    if timing_mode is not None:
+        cfg["translation_timing_mode"] = timing_mode
     if allowed_languages is not None:
         cfg["translation_allowed_languages"] = allowed_languages
     cfg["translation_max_active_languages"] = max_active_languages

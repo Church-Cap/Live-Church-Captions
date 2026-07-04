@@ -17,6 +17,8 @@ class DiagnosticsSourceTests(unittest.TestCase):
 
     def test_diagnostics_route_exists(self):
         self.assertIn('"/api/diagnostics/export"', self.source)
+        self.assertIn('"/api/diagnostics/download-handoff"', self.source)
+        self.assertIn('"/api/download-handoff"', self.source)
         self.assertIn("diagnostics_payload", self.source)
 
     def test_diagnostics_payload_avoids_transcript_and_secret_sources(self):
@@ -37,6 +39,10 @@ class DiagnosticsSourceTests(unittest.TestCase):
         operator = pathlib.Path("app/templates/operator.html").read_text(encoding="utf-8")
         feedback = pathlib.Path("app/templates/feedback.html").read_text(encoding="utf-8")
         self.assertIn("Do not post the file publicly on GitHub", operator)
+        self.assertIn("public or unsecured LAN", operator)
+        self.assertIn("diagnosticsDownloadDialog", operator)
+        self.assertIn("handleOperatorQrDownload", operator)
+        self.assertIn("Share QR", operator)
         self.assertIn("Do not post the file publicly on GitHub", feedback)
         self.assertIn("do not post it publicly on GitHub", self.source)
 

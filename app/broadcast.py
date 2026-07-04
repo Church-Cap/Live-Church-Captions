@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,9 @@ from app.i18n import LocalTranslator, MAX_TRANSLATION_LANGUAGES, SOURCE_LANGUAGE
 from app.transcript_store import TranscriptStore
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.metrics import get_metrics, update_metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 class CaptionHub:
@@ -37,10 +41,14 @@ class CaptionHub:
         self.translation_max_active_languages = 2
         self.translation_language_policy = "automatic"
         self.translation_priority_mode = "most_viewers"
+        self.translation_timing_mode = "live"
         self.translator = LocalTranslator(self.source_language)
         self._translation_sequence = 0
         self._latest_translation_sequence: dict[str, int] = {}
         self._last_partial_translation_at: dict[str, datetime] = {}
+        self._last_partial_translation_text: dict[str, str] = {}
+        self._translation_latency_seconds: dict[str, float] = {}
+        self._translation_latency_at: dict[str, str] = {}
         self._pending_translation_job: dict | None = None
         self._translation_worker_event: asyncio.Event | None = None
         self._translation_worker_task: asyncio.Task | None = None
@@ -86,6 +94,7 @@ class CaptionHub:
         max_active_languages: int,
         language_policy: str = "automatic",
         priority_mode: str = "most_viewers",
+        timing_mode: str = "live",
     ) -> None:
         self.translation_enabled = bool(enabled)
         self.translation_provider = provider or "disabled"
@@ -94,6 +103,7 @@ class CaptionHub:
         self.translation_max_active_languages = max(1, min(MAX_TRANSLATION_LANGUAGES, int(max_active_languages)))
         self.translation_language_policy = language_policy if language_policy in {"automatic", "restricted"} else "automatic"
         self.translation_priority_mode = priority_mode if priority_mode in {"most_viewers", "pinned_first"} else "most_viewers"
+        self.translation_timing_mode = timing_mode if timing_mode in {"live", "stable"} else "live"
         if not self.translation_enabled or self.translation_provider not in {"small100", "both"}:
             self.translator.unload_models()
 
@@ -123,8 +133,10 @@ class CaptionHub:
         provider_languages.add(self.source_language)
         if self.translation_enabled and self.translation_language_policy == "restricted":
             available_languages = sorted((self.translation_allowed_languages | {self.source_language}) & provider_languages)
+            requestable_languages = sorted(provider_languages - self.translation_allowed_languages - {self.source_language})
         else:
             available_languages = sorted(provider_languages)
+            requestable_languages = []
         try:
             provider_status = self.translator.provider_status(self.translation_provider)
         except Exception as exc:
@@ -143,10 +155,14 @@ class CaptionHub:
             "max_active_languages": self.translation_max_active_languages,
             "language_policy": self.translation_language_policy,
             "priority_mode": self.translation_priority_mode,
+            "timing_mode": self.translation_timing_mode,
             "viewer_languages": self.language_counts(),
             "active_translated_languages": self.active_translated_languages(),
+            "translation_latency_seconds": dict(self._translation_latency_seconds),
+            "translation_latency_at": dict(self._translation_latency_at),
             "resources": resources,
             "available_languages": available_languages,
+            "requestable_languages": requestable_languages,
         }
 
     def configure_retention(self, retention_minutes: int, transcript_saving_enabled: bool) -> None:
@@ -192,19 +208,22 @@ class CaptionHub:
         return history[-self._history_limit:]
 
     def _persist_history(self) -> None:
-        if not self._transcript_saving_enabled or self._retention_minutes <= 0:
-            self._transcript_store.clear()
-            self._session_cache_written = False
-            return
-        display_history = self._display_history()
-        if not display_history and not self._session_cache_written:
-            return
-        self._transcript_store.save_segments(
-            display_history,
-            retention_minutes=self._retention_minutes,
-            history_limit=self._history_limit,
-        )
-        self._session_cache_written = bool(display_history)
+        try:
+            if not self._transcript_saving_enabled or self._retention_minutes <= 0:
+                self._transcript_store.clear()
+                self._session_cache_written = False
+                return
+            display_history = self._display_history()
+            if not display_history and not self._session_cache_written:
+                return
+            self._transcript_store.save_segments(
+                display_history,
+                retention_minutes=self._retention_minutes,
+                history_limit=self._history_limit,
+            )
+            self._session_cache_written = bool(display_history)
+        except Exception as exc:
+            logger.warning("Transcript history cache could not be saved; live captions will continue: %s", exc)
 
     def _start_new_session(self) -> None:
         self._history.clear()
@@ -303,13 +322,23 @@ class CaptionHub:
                 raw_text="sensitive mode",
                 is_final=False,
             )
-            await self._broadcast({"type": "sensitive", "enabled": True, "message": self._current.text})
+            await self._broadcast({
+                "type": "sensitive",
+                "enabled": True,
+                "message": self._current.text,
+                "message_key": "sensitive_paused_message",
+            })
         else:
             self._sensitive_mode = False
             self._discard_sensitive_transcript_draft()
             self._sensitive_resume_ignore_until = datetime.now(timezone.utc) + timedelta(seconds=3)
             self._current = CaptionSegment(text="Captions have resumed.", raw_text="resumed", is_final=False)
-            await self._broadcast({"type": "sensitive", "enabled": False, "message": self._current.text})
+            await self._broadcast({
+                "type": "sensitive",
+                "enabled": False,
+                "message": self._current.text,
+                "message_key": "sensitive_resumed_message",
+            })
 
     async def clear(self) -> None:
         self._current = None
@@ -492,13 +521,26 @@ class CaptionHub:
         return segment.model_copy(update={"text": text, "raw_text": segment.text})
 
     def _should_translate_partial(self, language: str, segment: CaptionSegment) -> bool:
-        if segment.is_final or self._word_count(segment.text) < 3:
-            return segment.is_final
+        text = segment.text.strip()
+        if segment.is_final:
+            self._last_partial_translation_text.pop(language, None)
+            self._last_partial_translation_at.pop(language, None)
+            return bool(text)
+        if self._word_count(text) < 3:
+            return False
+
         now = datetime.now(timezone.utc)
         previous = self._last_partial_translation_at.get(language)
-        if previous and (now - previous).total_seconds() < 2.0:
+        minimum_gap = 2.8 if self.translation_timing_mode == "stable" else 2.0
+        minimum_words = 5 if self.translation_timing_mode == "stable" else 3
+        if self._word_count(text) < minimum_words:
+            return False
+        if self._last_partial_translation_text.get(language) == text:
+            return False
+        if previous and (now - previous).total_seconds() < minimum_gap:
             return False
         self._last_partial_translation_at[language] = now
+        self._last_partial_translation_text[language] = text
         return True
 
     def _ensure_translation_worker(self) -> None:
@@ -606,13 +648,19 @@ class CaptionHub:
                 enabled=self.translation_enabled,
                 provider=self.translation_provider,
             )
+            elapsed = max(0.0, time.monotonic() - started_at)
+            self._translation_latency_seconds[language] = elapsed
+            self._translation_latency_at[language] = datetime.now(timezone.utc).isoformat()
             update_metrics(
-                last_translation_seconds=max(0.0, time.monotonic() - started_at),
+                last_translation_seconds=elapsed,
                 last_translation_at=time.monotonic(),
                 translations_completed=int(get_metrics().get("translations_completed", 0)) + 1,
             )
         except Exception as exc:
-            update_metrics(last_translation_seconds=max(0.0, time.monotonic() - started_at), last_translation_at=time.monotonic())
+            elapsed = max(0.0, time.monotonic() - started_at)
+            self._translation_latency_seconds[language] = elapsed
+            self._translation_latency_at[language] = datetime.now(timezone.utc).isoformat()
+            update_metrics(last_translation_seconds=elapsed, last_translation_at=time.monotonic())
             result = None
             warning = f"Translation failed for {language}: {exc}"
         if result is None:
@@ -677,7 +725,10 @@ class CaptionHub:
                 warning = "Translation capacity is full right now, so captions are shown in the source language. Please speak to the welcome team if you need help."
             else:
                 should_translate = True
-                warning = "Translating captions locally. New translated text will appear as soon as it is ready."
+                if self.translation_timing_mode == "stable" and not segment.is_final:
+                    warning = "Preparing a steadier translation from corrected English. New translated text updates during speech after the wording settles."
+                else:
+                    warning = "Translating captions locally. New translated text will appear as soon as it is ready."
 
             if should_translate:
                 payload = self._translation_status_payload(language=lang, warning=warning)
