@@ -43,21 +43,21 @@
     </div>
 
     {% if dnd_reminder %}
-    <section class="notice compact-notice glass-card" id="dndNotice">
-      <button class="notice-close" aria-label="Dismiss reminder" data-i18n-aria-label="dismiss_reminder" onclick="document.getElementById('dndNotice').remove()">×</button>
+    <section class="notice compact-notice glass-card viewer-notice" id="dndNotice" data-viewer-notice>
+      <button class="notice-close" aria-label="Dismiss reminder" data-i18n-aria-label="dismiss_reminder" data-dismiss-viewer-notice="remove">×</button>
       <strong data-i18n="dnd_title">Do Not Disturb</strong>
       <p data-i18n="dnd_text">Consider turning on Do Not Disturb so notifications do not distract you and you can focus on the Word of God.</p>
     </section>
     {% endif %}
 
-    <section class="notice compact-notice accuracy-notice glass-card" id="accuracyNotice">
-      <button class="notice-close" aria-label="Dismiss accuracy notice" data-i18n-aria-label="dismiss_accuracy_notice" onclick="document.getElementById('accuracyNotice').remove()">×</button>
+    <section class="notice compact-notice accuracy-notice glass-card viewer-notice" id="accuracyNotice" data-viewer-notice>
+      <button class="notice-close" aria-label="Dismiss accuracy notice" data-i18n-aria-label="dismiss_accuracy_notice" data-dismiss-viewer-notice="remove">×</button>
       <strong data-i18n="ai_notice_title">AI caption notice</strong>
       <p data-i18n="ai_notice_text">Captions are generated automatically and may be inaccurate at times. Please check with the speaker or church team if something seems unclear.</p>
     </section>
 
-    <section class="notice compact-notice translation-notice glass-card" id="translationNotice" hidden>
-      <button class="notice-close" aria-label="Dismiss translation notice" data-i18n-aria-label="dismiss_translation_notice" onclick="document.getElementById('translationNotice').hidden = true">×</button>
+    <section class="notice compact-notice translation-notice glass-card viewer-notice" id="translationNotice" data-viewer-notice hidden>
+      <button class="notice-close" aria-label="Dismiss translation notice" data-i18n-aria-label="dismiss_translation_notice" data-dismiss-viewer-notice="hide">×</button>
       <strong data-i18n="translation_notice_title">Experimental translation</strong>
       <p data-i18n="translation_notice_text">Translated captions are experimental and may be inaccurate or unavailable. Scripture, names, theology, and pastoral details should be checked with the church team.</p>
     </section>
@@ -76,12 +76,12 @@
       <button id="largerText" type="button">A+</button>
       <button id="toggleTheme" type="button" data-i18n="theme">Theme</button>
       <button id="toggleCompact" type="button" data-i18n="comfort">Comfort</button>
-      <button id="toggleTranscript" type="button">Hide transcript</button>
+      <button id="toggleTranscript" type="button" data-i18n="show_transcript" aria-expanded="false" aria-controls="historyWrap">Show transcript</button>
       <button id="pauseScroll" type="button" data-i18n="pause">Pause</button>
       <button id="clearLocal" type="button" data-i18n="clear">Clear</button>
     </section>
 
-    <section class="history-wrap compact-history-wrap glass-card" id="historyWrap">
+    <section class="history-wrap compact-history-wrap glass-card" id="historyWrap" hidden>
       <div class="caption-label-row">
         <h2 data-i18n="recent_captions">Session transcript</h2>
         <span class="caption-hint" data-i18n="history_log_hint">Newest at top · scroll for earlier</span>
@@ -100,6 +100,6 @@
     window.CC_UI_STRING_SOURCES = {{ ui_string_sources | tojson }};
     window.CC_TRANSLATION_STATE = {{ translation_state | tojson }};
   </script>
-  <script src="/static/client.js"></script>
+  <script src="/static/client.js?v=0.7.0-responsive-context-1"></script>
 </body>
 </html>

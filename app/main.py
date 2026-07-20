@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+import inspect
 import json
 import os
 import platform
@@ -23,7 +24,18 @@ from app.auth import COOKIE_NAME, bootstrap_auth_store, create_session_token, ge
 from app.broadcast import CaptionHub
 from app.glossary import Glossary
 from app.models import CaptionSegment
-from app.metrics import get_metrics
+from app.metrics import (
+    clear_service_metrics,
+    finish_service_metrics,
+    get_metrics,
+    get_service_metrics,
+    get_service_metrics_report,
+    initialise_service_metrics_storage,
+    record_system_sample,
+    record_viewer_counts,
+    service_report_payload,
+    start_service_metrics,
+)
 from app.exporting import segments_to_srt, segments_to_vtt, segments_to_json
 from app.hardware import HardwareAccelerationStatus, detect_hardware_acceleration, resolve_whisper_runtime
 from app.deployment import deployment_context
@@ -36,6 +48,7 @@ from app.localisation import get_client_ui_language_strings, get_client_ui_sourc
 from app.paths import app_support_dir
 from app.service_leader_auth import SERVICE_LEADER_COOKIE_NAME, ServiceLeaderAccessManager, ServiceLeaderSession
 from app.platforms import performance_platform_key
+from app.storage import clear_storage_candidates, rotate_log_file, rotate_runtime_logs, storage_snapshot, tail_log_lines
 from app.transcript_store import TranscriptStore
 from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, update_script_for_system, version_label
 
@@ -204,6 +217,13 @@ def safe_translation_state() -> dict:
             "priority_mode": "most_viewers",
             "viewer_languages": {},
             "active_translated_languages": [],
+            "scheduler": {
+                "scheduler_type": "bounded_fair_per_language",
+                "queue_capacity_per_language": settings.translation_queue_capacity_per_language,
+                "queue_depths": {},
+                "oldest_final_age_seconds": {},
+                "degraded_languages": [],
+            },
             "resources": {},
             "available_languages": [SOURCE_LANGUAGE],
             "requestable_languages": [],
@@ -224,6 +244,7 @@ if isinstance(startup_translation_limit, int) and startup_translation_limit > 0:
 hub = CaptionHub(
     retention_minutes=int(runtime_config.get("transcript_retention_minutes", settings.transcript_retention_minutes)),
     transcript_saving_enabled=bool(runtime_config.get("transcript_saving_enabled", settings.transcript_saving_enabled)),
+    translation_queue_capacity_per_language=settings.translation_queue_capacity_per_language,
 )
 hub.configure_translation(
     enabled=startup_translation_allowed and bool(runtime_config.get("translation_enabled", settings.translation_enabled)),
@@ -232,11 +253,22 @@ hub.configure_translation(
     max_active_languages=startup_translation_max_active,
     language_policy=runtime_config.get("translation_language_policy", "automatic"),
     priority_mode=runtime_config.get("translation_priority_mode", "most_viewers"),
-    timing_mode=runtime_config.get("translation_timing_mode", "live"),
+    timing_mode=runtime_config.get("translation_timing_mode", "responsive"),
 )
 glossary = Glossary()
 profanity_filter = ProfanityFilter()
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "app" / "templates"))
+_TEMPLATE_RESPONSE_ACCEPTS_REQUEST = "request" in inspect.signature(templates.TemplateResponse).parameters
+
+
+def template_response(name: str, context: dict, **kwargs):
+    """Render with both legacy and current Starlette TemplateResponse signatures."""
+    request = context.get("request")
+    if _TEMPLATE_RESPONSE_ACCEPTS_REQUEST:
+        if request is None:
+            raise ValueError("Template context must include the current request.")
+        return templates.TemplateResponse(request=request, name=name, context=context, **kwargs)
+    return templates.TemplateResponse(name, context, **kwargs)
 
 
 DOC_FILES = {
@@ -739,6 +771,7 @@ def launch_cuda_runtime_install() -> dict:
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "cuda-runtime-install.log"
+    rotate_log_file(log_path)
     with log_path.open("ab") as log:
         log.write(b"\n--- Starting CUDA runtime force reinstall from operator page ---\n")
         creationflags = 0
@@ -823,6 +856,7 @@ def recommended_performance_config(status: dict | None = None) -> dict:
 
 
 _last_linux_cpu_snapshot: tuple[int, int] | None = None
+_last_process_cpu_snapshot: tuple[float, float] | None = None
 
 
 def _linux_cpu_usage_percent() -> float | None:
@@ -851,6 +885,66 @@ def _linux_cpu_usage_percent() -> float | None:
     return round(max(0.0, min(100.0, ((total_delta - idle_delta) / total_delta) * 100.0)), 1)
 
 
+def _process_performance_snapshot() -> dict[str, float | int | None]:
+    """Return cross-platform Church Cap process CPU and resident memory."""
+    global _last_process_cpu_snapshot
+    now = time.monotonic()
+    process_cpu = time.process_time()
+    previous = _last_process_cpu_snapshot
+    _last_process_cpu_snapshot = (now, process_cpu)
+    process_cpu_percent = None
+    if previous is not None:
+        wall_delta = now - previous[0]
+        cpu_delta = process_cpu - previous[1]
+        if wall_delta > 0:
+            process_cpu_percent = round(max(0.0, (cpu_delta / wall_delta) * 100.0), 1)
+
+    rss_bytes: int | None = None
+    try:
+        if platform.system() == "Linux":
+            for line in Path("/proc/self/status").read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("VmRSS:"):
+                    rss_bytes = int(line.split()[1]) * 1024
+                    break
+        elif platform.system() == "Windows":
+            import ctypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.c_ulong),
+                    ("PageFaultCount", ctypes.c_ulong),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(counters)
+            if ctypes.windll.psapi.GetProcessMemoryInfo(
+                ctypes.windll.kernel32.GetCurrentProcess(),
+                ctypes.byref(counters),
+                counters.cb,
+            ):
+                rss_bytes = int(counters.WorkingSetSize)
+        else:
+            import resource
+
+            raw_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+            rss_bytes = raw_rss if platform.system() == "Darwin" else raw_rss * 1024
+    except Exception:
+        rss_bytes = None
+    return {
+        "process_cpu_percent": process_cpu_percent,
+        "process_rss_bytes": rss_bytes,
+        "process_rss_mib": None if rss_bytes is None else round(rss_bytes / (1024 ** 2), 2),
+    }
+
+
 def system_performance_snapshot() -> dict:
     cpu_count = os.cpu_count() or 1
     load_1m = load_5m = load_15m = None
@@ -872,6 +966,7 @@ def system_performance_snapshot() -> dict:
         "load_1m_percent": load_percent,
         "cpu_percent": cpu_percent,
         **memory,
+        **_process_performance_snapshot(),
     }
 
 
@@ -1106,13 +1201,17 @@ def _redact_local_paths(text: str) -> str:
 
 
 def _tail_log(path: Path, max_lines: int = 160) -> list[str]:
-    if not path.exists() or not path.is_file():
-        return []
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception as exc:
-        return [f"Could not read log: {exc}"]
-    return [_redact_local_paths(line) for line in lines[-max_lines:]]
+    return [_redact_local_paths(line) for line in tail_log_lines(path, max_lines=max_lines)]
+
+
+def _storage_runtime_config() -> dict:
+    runtime = load_runtime_config()
+    effective = effective_performance_config(runtime)
+    return {
+        **runtime,
+        "transcriber_mode": effective.get("transcriber_mode"),
+        "whisper_model": effective.get("whisper_model"),
+    }
 
 
 def _redact_diagnostics_value(value):
@@ -1150,6 +1249,7 @@ def diagnostics_payload() -> dict:
         "language_requests_enabled": translation.get("language_requests_enabled"),
         "active_translated_languages": translation.get("active_translated_languages", []),
         "viewer_language_counts": translation.get("viewer_languages", {}),
+        "scheduler": translation.get("scheduler", {}),
         "argos_installed_language_count": len(translation.get("resources", {}).get("argos", {}).get("installed_languages", [])),
         "argos_installed_pair_count": len(translation.get("resources", {}).get("argos", {}).get("installed_pairs", [])),
         "ct2small100_ready": translation.get("resources", {}).get("ct2small100", {}).get("status", {}).get("ready"),
@@ -1164,6 +1264,7 @@ def diagnostics_payload() -> dict:
         if key not in {"audio_device"}
     }
     payload = {
+        "diagnostics_schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "app": {
             "name": settings.app_name,
@@ -1178,15 +1279,18 @@ def diagnostics_payload() -> dict:
         "runtime_config_sanitized": safe_runtime,
         "translation": translation_diagnostics,
         "metrics": safe_metrics,
+        "last_service_metrics": get_service_metrics(),
+        "service_metrics": get_service_metrics_report(),
         "cuda_runtime_install": cuda_runtime_capability_state(),
         "translation_install": _translation_install_state,
+        "storage": storage_snapshot(PROJECT_ROOT, app_support_dir(), _storage_runtime_config()),
         "logs": {
             "update.log": _tail_log(logs_dir / "update.log"),
             "cuda-runtime-install.log": _tail_log(logs_dir / "cuda-runtime-install.log"),
             "translation-install.log": _tail_log(support_logs_dir / "translation-install.log"),
             "update-restart.log": _tail_log(logs_dir / "update-restart.log"),
         },
-        "privacy_note": "Diagnostics are generated only when an operator chooses to download them. They can include OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, runtime metrics, and recent updater/CUDA log lines with local paths redacted. They exclude transcripts, captions, operator passwords, session secrets, and .env contents. Review the file before sharing it for support, and do not post it publicly on GitHub unless you are comfortable with the contents.",
+        "privacy_note": "Diagnostics are generated only when an operator chooses to download them. They can include OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, privacy-safe numeric service measurements, storage category sizes and cleanup availability, and recent updater/CUDA log lines with local paths redacted. They exclude audio, transcripts, captions, translations, operator passwords, session secrets, and .env contents. Review the file before sharing it for support, and do not post it publicly on GitHub unless you are comfortable with the contents.",
     }
     return _redact_diagnostics_value(payload)
 
@@ -1276,18 +1380,60 @@ def create_transcriber():
         return WhisperLiveTranscriber(**common, beam_size=performance["whisper_beam_size"])
     if mode == "faster_whisper":
         from app.transcription.faster_whisper_live import FasterWhisperTranscriber
-        return FasterWhisperTranscriber(**common, compute_type=performance["whisper_compute_type"])
+        return FasterWhisperTranscriber(
+            **common,
+            compute_type=performance["whisper_compute_type"],
+            word_timestamps_enabled=settings.stream_word_timestamps_enabled,
+            edge_guard_seconds=settings.stream_edge_guard_seconds,
+            edge_confidence_threshold=settings.stream_edge_confidence_threshold,
+            committed_audio_overlap_seconds=settings.stream_committed_audio_overlap_seconds,
+        )
     raise RuntimeError(
         "Demo/mock captions have been disabled. "
         "Set TRANSCRIBER_MODE=whisper for accuracy-first local Whisper, or faster_whisper for the faster backend."
     )
 
 
+async def _sample_service_performance() -> None:
+    while True:
+        record_system_sample(system_performance_snapshot())
+        await asyncio.sleep(5)
+
+
 async def transcription_loop():
     global _transcriber
-    _transcriber = create_transcriber()
-    hub.set_status("listening")
+    _transcriber = None
+    runtime = load_runtime_config()
+    effective = effective_performance_config(runtime)
+    start_service_metrics({
+        "app_version": settings.app_version,
+        "diagnostics_schema_version": 2,
+        "transcriber_mode": effective.get("transcriber_mode"),
+        "whisper_model": effective.get("whisper_model"),
+        "whisper_device_requested": effective.get("whisper_device"),
+        "whisper_compute_type_requested": effective.get("whisper_compute_type"),
+        "stream_update_interval_seconds": effective.get("stream_update_interval_seconds"),
+        "stream_window_seconds": effective.get("stream_window_seconds"),
+        "word_timestamps_enabled": bool(
+            effective.get("transcriber_mode") == "faster_whisper"
+            and settings.stream_word_timestamps_enabled
+        ),
+        "edge_guard_seconds": settings.stream_edge_guard_seconds,
+        "translation_enabled": bool(runtime.get("translation_enabled", settings.translation_enabled)),
+        "translation_provider": runtime.get("translation_provider", settings.translation_provider),
+        "translation_timing_mode": runtime.get("translation_timing_mode", "responsive"),
+        "translation_allowed_languages": sorted(hub.translation_allowed_languages),
+        "translation_max_active_languages": hub.translation_max_active_languages,
+        "translation_queue_capacity_per_language": hub.translation_queue_capacity_per_language,
+    })
+    # Audience viewers often join before the operator starts captions. Seed the
+    # run immediately so peak counts and viewer-seconds include those viewers.
+    record_viewer_counts(hub.language_counts())
+    sampler_task = asyncio.create_task(_sample_service_performance())
+    service_status = "completed"
     try:
+        _transcriber = create_transcriber()
+        hub.set_status("listening")
         async for segment in _transcriber.stream():
             runtime = load_runtime_config()
             filter_enabled = bool(runtime.get("profanity_filter_enabled", True))
@@ -1300,23 +1446,42 @@ async def transcription_loop():
                     start_seconds=segment.start_seconds,
                     end_seconds=segment.end_seconds,
                     is_final=segment.is_final,
+                    recognition_spans=segment.recognition_spans,
+                    capture_started_monotonic=segment.capture_started_monotonic,
+                    source_ready_monotonic=segment.source_ready_monotonic,
                 )
             )
+            if hasattr(_transcriber, "acknowledge_audio_until"):
+                _transcriber.acknowledge_audio_until(hub.sealed_audio_end_monotonic())
     except asyncio.CancelledError:
         hub.set_status("stopped")
         raise
     except Exception as exc:
+        service_status = "error"
         hub.set_status("error")
         await hub.publish(CaptionSegment(text=f"Caption system error: {exc}", raw_text=str(exc), is_final=True))
     finally:
+        sampler_task.cancel()
+        try:
+            await sampler_task
+        except asyncio.CancelledError:
+            pass
         if _transcriber is not None:
             await _transcriber.stop()
+        await hub.drain_translation_work(timeout_seconds=2.0)
+        finish_service_metrics(
+            service_status,
+            error=service_status == "error",
+            stop_reason="caption_error" if service_status == "error" else "operator_stop",
+        )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app_support_dir().mkdir(parents=True, exist_ok=True)
     (app_support_dir() / "data").mkdir(parents=True, exist_ok=True)
+    rotate_runtime_logs(PROJECT_ROOT, app_support_dir())
+    initialise_service_metrics_storage()
     bootstrap_auth_store(env_password=settings.operator_password, env_secret=settings.session_secret)
     yield
     global _transcription_task
@@ -1369,7 +1534,7 @@ async def security_boundary_middleware(request: Request, call_next):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(
+    return template_response(
         "captions.html",
         {
             **base_template_context(request),
@@ -1384,7 +1549,7 @@ async def index(request: Request):
 
 @app.get("/display", response_class=HTMLResponse)
 async def display(request: Request):
-    return templates.TemplateResponse(
+    return template_response(
         "display.html",
         {"request": request, "church_name": settings.church_name},
     )
@@ -1393,7 +1558,7 @@ async def display(request: Request):
 @app.get("/obs", response_class=HTMLResponse)
 async def obs_overlay(request: Request):
     return_to_operator = request.query_params.get("return") in {"1", "true", "operator"}
-    return templates.TemplateResponse(
+    return template_response(
         "obs.html",
         {
             **base_template_context(request),
@@ -1404,7 +1569,7 @@ async def obs_overlay(request: Request):
 
 @app.get("/obs/help", response_class=HTMLResponse)
 async def obs_help(request: Request, _: None = Depends(require_operator)):
-    return templates.TemplateResponse(
+    return template_response(
         "obs_help.html",
         {
             **base_template_context(request),
@@ -1425,7 +1590,7 @@ async def operator_doc(doc_key: str, request: Request, _: None = Depends(require
         content = path.read_text(encoding="utf-8")
     except Exception:
         content = "Document not found."
-    return templates.TemplateResponse(
+    return template_response(
         "doc.html",
         {"request": request, "church_name": settings.church_name, "title": title, "content": content},
     )
@@ -1433,12 +1598,12 @@ async def operator_doc(doc_key: str, request: Request, _: None = Depends(require
 
 @app.get("/feedback", response_class=HTMLResponse)
 async def feedback_page(request: Request, _: None = Depends(require_operator)):
-    return templates.TemplateResponse("feedback.html", base_template_context(request))
+    return template_response("feedback.html", base_template_context(request))
 
 
 @app.get("/setup/network", response_class=HTMLResponse)
 async def setup_network_page(request: Request, _: None = Depends(require_operator)):
-    return templates.TemplateResponse(
+    return template_response(
         "network_setup.html",
         {"request": request, "church_name": settings.church_name, "base_url": base_url(request)},
     )
@@ -1449,7 +1614,7 @@ async def setup_page(request: Request):
     config = auth_config()
     if not config.needs_setup:
         return RedirectResponse("/operator", status_code=303)
-    return templates.TemplateResponse("setup.html", {**base_template_context(request), "error": None})
+    return template_response("setup.html", {**base_template_context(request), "error": None})
 
 
 @app.post("/setup")
@@ -1458,12 +1623,12 @@ async def setup_operator(request: Request, password: str = Form(...), confirm_pa
     if not config.needs_setup:
         return RedirectResponse("/operator", status_code=303)
     if password != confirm_password:
-        return templates.TemplateResponse("setup.html", {**base_template_context(request), "error": "Passwords do not match."}, status_code=400)
+        return template_response("setup.html", {**base_template_context(request), "error": "Passwords do not match."}, status_code=400)
     try:
         set_operator_password(password)
         set_security_config(security_mode)
     except ValueError as exc:
-        return templates.TemplateResponse("setup.html", {**base_template_context(request), "error": str(exc)}, status_code=400)
+        return template_response("setup.html", {**base_template_context(request), "error": str(exc)}, status_code=400)
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(COOKIE_NAME)
     return response
@@ -1475,7 +1640,7 @@ async def login_page(request: Request):
         return RedirectResponse("/setup", status_code=303)
     # Clear any stale cookie left from a previous server run so operators can
     # sign back in cleanly after Sunday-morning restarts.
-    response = templates.TemplateResponse("login.html", {**base_template_context(request), "error": None})
+    response = template_response("login.html", {**base_template_context(request), "error": None})
     response.delete_cookie(COOKIE_NAME)
     return response
 
@@ -1486,7 +1651,7 @@ async def create_service_leader_pairing(request: Request, service_leader_passwor
         return JSONResponse({"detail": "Create service-leader pairing codes on the Church Cap computer."}, status_code=403)
     config = auth_config()
     if not password_is_valid(service_leader_password, config):
-        response = templates.TemplateResponse(
+        response = template_response(
             "login.html",
             {
                 **base_template_context(request),
@@ -1499,7 +1664,7 @@ async def create_service_leader_pairing(request: Request, service_leader_passwor
         return _no_store(response)
     token = service_leader_access.create_pairing()
     pairing_url = f"{service_leader_base_url(request)}/service-leader/pair#{token}"
-    response = templates.TemplateResponse(
+    response = template_response(
         "service_leader_pairing.html",
         {
             **base_template_context(request),
@@ -1513,7 +1678,7 @@ async def create_service_leader_pairing(request: Request, service_leader_passwor
 
 @app.get("/service-leader/pair", response_class=HTMLResponse)
 async def service_leader_pair_page(request: Request):
-    return _no_store(templates.TemplateResponse("service_leader_pair.html", base_template_context(request)))
+    return _no_store(template_response("service_leader_pair.html", base_template_context(request)))
 
 
 @app.post("/service-leader/pair/exchange")
@@ -1545,7 +1710,7 @@ async def service_leader_pair_exchange(request: Request):
 
 @app.get("/service-leader", response_class=HTMLResponse)
 async def service_leader_page(request: Request, session: ServiceLeaderSession = Depends(require_service_leader)):
-    response = templates.TemplateResponse(
+    response = template_response(
         "service_leader.html",
         {
             **base_template_context(request),
@@ -1597,7 +1762,7 @@ async def legacy_pastor_redirect(legacy_path: str = ""):
 async def login(request: Request, password: str = Form(...)):
     config = auth_config()
     if not password_is_valid(password, config):
-        return templates.TemplateResponse(
+        return template_response(
             "login.html",
             {**base_template_context(request), "error": "Incorrect password."},
             status_code=401,
@@ -1623,7 +1788,7 @@ async def logout(_: None = Depends(require_operator)):
 
 @app.get("/account", response_class=HTMLResponse)
 async def account_page(request: Request, _: None = Depends(require_operator)):
-    return templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": None, "success": None})
+    return template_response("account.html", {"request": request, "church_name": settings.church_name, "error": None, "success": None})
 
 
 @app.post("/account/password")
@@ -1636,15 +1801,15 @@ async def change_operator_password(
 ):
     config = auth_config()
     if not password_is_valid(current_password, config):
-        return templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": "Current password is incorrect.", "success": None}, status_code=400)
+        return template_response("account.html", {"request": request, "church_name": settings.church_name, "error": "Current password is incorrect.", "success": None}, status_code=400)
     if new_password != confirm_password:
-        return templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": "New passwords do not match.", "success": None}, status_code=400)
+        return template_response("account.html", {"request": request, "church_name": settings.church_name, "error": "New passwords do not match.", "success": None}, status_code=400)
     try:
         set_operator_password(new_password)
         service_leader_access.revoke_all()
     except ValueError as exc:
-        return templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": str(exc), "success": None}, status_code=400)
-    response = templates.TemplateResponse("account.html", {"request": request, "church_name": settings.church_name, "error": None, "success": "Password changed. Please sign in again."})
+        return template_response("account.html", {"request": request, "church_name": settings.church_name, "error": str(exc), "success": None}, status_code=400)
+    response = template_response("account.html", {"request": request, "church_name": settings.church_name, "error": None, "success": "Password changed. Please sign in again."})
     response.delete_cookie(COOKIE_NAME)
     return response
 
@@ -1652,7 +1817,7 @@ async def change_operator_password(
 @app.get("/operator", response_class=HTMLResponse)
 async def operator(request: Request, _: None = Depends(require_operator)):
     runtime = load_runtime_config()
-    return templates.TemplateResponse(
+    return template_response(
         "operator.html",
         {
             **base_template_context(request),
@@ -1717,6 +1882,12 @@ def _download_handoff_target_response(request: Request, target: str) -> Response
         return _qr_png_response(f"{base_url(request)}/", "church-cap-audience-qr.png")
     if target == "audience_qr_ip":
         return _qr_png_response(f"{ip_base_url(request)}/", "church-cap-audience-ip-qr.png")
+    if target == "service_report":
+        return Response(
+            json.dumps(service_report_payload(), indent=2, sort_keys=True),
+            media_type="application/json",
+            headers=_download_headers(f"church-cap-service-report-{settings.app_version}.json"),
+        )
     if target in {"support_logs", "operator_diagnostics"}:
         filename = "church-cap-support-logs" if target == "support_logs" else "church-cap-diagnostics"
         body = json.dumps(diagnostics_payload(), indent=2, sort_keys=True)
@@ -1785,7 +1956,7 @@ async def create_operator_download_handoff(request: Request, _: None = Depends(r
     except Exception:
         body = {}
     target = str(body.get("target", ""))
-    if target not in {"audience_qr", "audience_qr_ip", "operator_diagnostics"}:
+    if target not in {"audience_qr", "audience_qr_ip", "operator_diagnostics", "service_report"}:
         raise HTTPException(status_code=400, detail="Unsupported operator download handoff")
     return _download_handoff_urls(request, _create_download_handoff(target))
 
@@ -2055,6 +2226,7 @@ async def api_status(_: None = Depends(require_operator)):
         "current": state.current.model_dump(mode="json") if state.current else None,
         "transcript_count": len(hub.final_segments()),
         "metrics": metrics,
+        "last_service_metrics": get_service_metrics(),
         "system_performance": system_perf,
         "settings": {
             "model": performance["effective"]["whisper_model"],
@@ -2124,6 +2296,96 @@ async def export_diagnostics(request: Request, _: None = Depends(require_operato
         media_type="application/json",
         headers=_download_headers(f"church-cap-diagnostics-{settings.app_version}.json"),
     )
+
+
+@app.get("/api/diagnostics/service-report")
+async def export_anonymised_service_report(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Download the anonymised service report from the Church Cap computer."},
+            status_code=403,
+        )
+    body = json.dumps(service_report_payload(), indent=2, sort_keys=True)
+    return Response(
+        body,
+        media_type="application/json",
+        headers=_download_headers(f"church-cap-service-report-{settings.app_version}.json"),
+    )
+
+
+@app.post("/api/diagnostics/reset-service-metrics")
+async def reset_service_diagnostics(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Reset test measurements from the Church Cap computer."},
+            status_code=403,
+        )
+    if captions_are_running():
+        return JSONResponse(
+            {"status": "error", "error": "Stop captions before resetting test measurements."},
+            status_code=409,
+        )
+    clear_service_metrics()
+    return {"status": "reset"}
+
+
+@app.get("/api/diagnostics/storage")
+async def diagnostics_storage(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "View storage use from the Church Cap computer."},
+            status_code=403,
+        )
+    snapshot = await asyncio.to_thread(
+        storage_snapshot,
+        PROJECT_ROOT,
+        app_support_dir(),
+        _storage_runtime_config(),
+    )
+    return {"status": "ok", "storage": snapshot}
+
+
+@app.post("/api/diagnostics/storage/cleanup")
+async def diagnostics_storage_cleanup(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Clear unused downloads from the Church Cap computer."},
+            status_code=403,
+        )
+    if captions_are_running():
+        return JSONResponse(
+            {"status": "error", "error": "Stop captions before clearing unused downloads."},
+            status_code=409,
+        )
+    body = await request.json()
+    if body.get("confirmed") is not True:
+        return JSONResponse(
+            {"status": "error", "error": "Confirm the selected cleanup items before continuing."},
+            status_code=400,
+        )
+    candidate_ids = body.get("candidate_ids")
+    if not isinstance(candidate_ids, list) or not candidate_ids:
+        return JSONResponse(
+            {"status": "error", "error": "Select at least one unused download or archived log."},
+            status_code=400,
+        )
+    try:
+        result = await asyncio.to_thread(
+            clear_storage_candidates,
+            candidate_ids,
+            PROJECT_ROOT,
+            app_support_dir(),
+            _storage_runtime_config(),
+        )
+    except (ValueError, RuntimeError) as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+    snapshot = await asyncio.to_thread(
+        storage_snapshot,
+        PROJECT_ROOT,
+        app_support_dir(),
+        _storage_runtime_config(),
+    )
+    return {"status": "cleared", **result, "storage": snapshot}
 
 
 @app.post("/api/cuda/check")
@@ -2421,7 +2683,7 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
         language_policy,
         str(runtime.get("translation_priority_mode") or "most_viewers"),
         bool(runtime.get("translation_language_requests_enabled", True)),
-        str(runtime.get("translation_timing_mode") or "live"),
+        str(runtime.get("translation_timing_mode") or "responsive"),
     )
     hub.configure_translation(
         enabled=bool(cfg["translation_enabled"]),
@@ -2557,7 +2819,7 @@ async def update_translation(request: Request, _: None = Depends(require_operato
     language_policy = str(body.get("translation_language_policy") or "automatic")
     priority_mode = str(body.get("translation_priority_mode") or "most_viewers")
     requests_enabled = bool(body.get("translation_language_requests_enabled", True))
-    timing_mode = str(body.get("translation_timing_mode") or "live")
+    timing_mode = str(body.get("translation_timing_mode") or "responsive")
     cfg = set_translation_config(enabled, allowed, max_active, provider, language_policy, priority_mode, requests_enabled, timing_mode)
     if not requests_enabled:
         _language_requests.clear()
@@ -2620,7 +2882,7 @@ async def accept_language_request(language: str, _: None = Depends(require_opera
         "restricted",
         str(runtime.get("translation_priority_mode") or "most_viewers"),
         bool(runtime.get("translation_language_requests_enabled", True)),
-        str(runtime.get("translation_timing_mode") or "live"),
+        str(runtime.get("translation_timing_mode") or "responsive"),
     )
     hub.configure_translation(
         enabled=bool(cfg["translation_enabled"]),
@@ -2711,6 +2973,7 @@ async def install_translation_resources(request: Request, _: None = Depends(requ
     logs_dir = app_support_dir() / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / "translation-install.log"
+    rotate_log_file(log_path)
     try:
         log_file = log_path.open("a", encoding="utf-8")
         log_file.write(f"\n[{datetime.now(timezone.utc).isoformat()}] Starting {kind} translation install\n")
@@ -2721,10 +2984,10 @@ async def install_translation_resources(request: Request, _: None = Depends(requ
         return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
     _translation_install_state = {"status": "installing", "kind": kind, "log": TRANSLATION_INSTALL_LOG_LABEL}
     install_messages = {
-        "ct2small100": "Installing the Recommended package / CTranslate2 INT8 SMaLL-100. This can take several minutes.",
-        "small100": "Installing the Compatibility package / PyTorch SMaLL-100.",
+        "ct2small100": "Installing the Recommended package / CTranslate2 INT8 SMaLL-100. Allow about 2 GB of temporary free space while the roughly 1.2 GB source download is converted.",
+        "small100": "Installing the Compatibility package / PyTorch SMaLL-100. Its model download is approximately 1.2 GB.",
         "argos": "Installing common Base package / Argos Translate language packs.",
-        "argos_all": "Installing all available Base package / Argos Translate language packs.",
+        "argos_all": "Installing all available Base package / Argos Translate language packs. Total storage varies and can reach several GB.",
     }
     return {"status": "installing", "message": install_messages.get(kind, "Installing translation resources."), "install": _translation_install_state}
 

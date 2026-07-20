@@ -1,17 +1,40 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from importlib import metadata
 import importlib.util
 import os
 from pathlib import Path
 import sys
 from typing import Any
 
+# Church Cap sends short, bounded cues to Argos and does not need its Stanza
+# sentence-boundary pipeline. Keep that pipeline disabled before Argos is lazily
+# imported: this avoids service-time model loading/network attempts and prevents
+# packaged Stanza model files from entering the translation path.
+os.environ["ARGOS_STANZA_AVAILABLE"] = "0"
+
 SOURCE_LANGUAGE = "en"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CT2_SMALL100_PROVIDER = "ct2small100"
 CT2_SMALL100_MODEL_NAME = "alirezamsh/small100"
 CT2_SMALL100_MODEL_DIR = Path(os.environ.get("CHURCHCAP_CT2_SMALL100_DIR") or PROJECT_ROOT / "data" / "models" / "small100-ct2-int8")
+CHINESE_SIMPLIFIED = "zh-hans"
+CHINESE_TRADITIONAL = "zh-hant"
+CHINESE_VARIANTS = {
+    CHINESE_SIMPLIFIED: {"model_language": "zh", "opencc_profile": "t2s", "label": "Simplified Chinese"},
+    CHINESE_TRADITIONAL: {"model_language": "zh", "opencc_profile": "s2hk", "label": "Traditional Chinese (Hong Kong)"},
+}
+LANGUAGE_ALIASES = {
+    "zh": CHINESE_SIMPLIFIED,
+    "zh-cn": CHINESE_SIMPLIFIED,
+    "zh-sg": CHINESE_SIMPLIFIED,
+    "zh-hans": CHINESE_SIMPLIFIED,
+    "zh-hk": CHINESE_TRADITIONAL,
+    "zh-mo": CHINESE_TRADITIONAL,
+    "zh-tw": CHINESE_TRADITIONAL,
+    "zh-hant": CHINESE_TRADITIONAL,
+}
 
 BASE_LANGUAGES: list[dict[str, str]] = [
     {"code": "en", "name": "English", "native": "English", "flag": "🇬🇧", "dir": "ltr"},
@@ -22,6 +45,8 @@ BASE_LANGUAGES: list[dict[str, str]] = [
     {"code": "uk", "name": "Ukrainian", "native": "Українська", "flag": "🇺🇦", "dir": "ltr"},
     {"code": "ar", "name": "Arabic", "native": "العربية", "flag": "🇸🇦", "dir": "rtl"},
     {"code": "fa", "name": "Farsi", "native": "فارسی", "flag": "🇮🇷", "dir": "rtl"},
+    {"code": CHINESE_SIMPLIFIED, "name": "Chinese (Simplified)", "native": "简体中文", "flag": "🇨🇳", "dir": "ltr"},
+    {"code": CHINESE_TRADITIONAL, "name": "Chinese (Traditional, Hong Kong)", "native": "繁體中文（香港）", "flag": "🇭🇰", "dir": "ltr"},
 ]
 
 
@@ -81,6 +106,8 @@ def _language_dir(code: str) -> str:
 def _merge_supported_languages() -> list[dict[str, str]]:
     by_code = {item["code"]: dict(item) for item in BASE_LANGUAGES}
     for code, name in SMALL100_LANGUAGE_NAMES.items():
+        if code == "zh":
+            continue
         if code not in by_code:
             by_code[code] = {
                 "code": code,
@@ -104,14 +131,30 @@ ARGOS_ENGLISH_TARGET_LANGUAGE_CODES = {
 }
 ARGOS_LANGUAGE_ALIASES = {
     "no": "nb",
+    CHINESE_SIMPLIFIED: "zh",
+    CHINESE_TRADITIONAL: "zt",
 }
-ARGOS_TO_CHURCH_LANGUAGE_ALIASES = {value: key for key, value in ARGOS_LANGUAGE_ALIASES.items()}
+ARGOS_TO_CHURCH_LANGUAGE_ALIASES = {
+    "nb": "no",
+}
 
 def normalise_language(code: str | None) -> str:
     if not code:
         return SOURCE_LANGUAGE
-    code = str(code).lower().split("-")[0].strip()
-    return code if code in LANGUAGE_BY_CODE else SOURCE_LANGUAGE
+    code = str(code).lower().replace("_", "-").strip()
+    if code in LANGUAGE_ALIASES:
+        return LANGUAGE_ALIASES[code]
+    if code in LANGUAGE_BY_CODE:
+        return code
+    base = code.split("-", 1)[0]
+    if base in LANGUAGE_ALIASES:
+        return LANGUAGE_ALIASES[base]
+    return base if base in LANGUAGE_BY_CODE else SOURCE_LANGUAGE
+
+
+def translation_model_language(code: str) -> str:
+    normalised = normalise_language(code)
+    return str(CHINESE_VARIANTS.get(normalised, {}).get("model_language") or normalised)
 
 
 @dataclass(frozen=True)
@@ -119,6 +162,14 @@ class TranslationResult:
     text: str
     applied: bool
     warning: str | None = None
+    requested_provider: str | None = None
+    actual_provider: str | None = None
+    fallback_chain: tuple[str, ...] = ()
+    retry_count: int = 0
+    outcome: str = "source_shown"
+    target_variant: str | None = None
+    conversion_profile: str | None = None
+    conversion_profile_version: str | None = None
 
 
 class LocalTranslator:
@@ -142,6 +193,50 @@ class LocalTranslator:
         self._small100_tokenizer: Any | None = None
         self._ct2small100_translator: Any | None = None
         self._ct2small100_tokenizer: Any | None = None
+        self._opencc_converters: dict[str, Any] = {}
+
+    @staticmethod
+    def chinese_script_conversion_status() -> dict[str, Any]:
+        ready = importlib.util.find_spec("opencc") is not None
+        version = None
+        if ready:
+            try:
+                version = metadata.version("OpenCC")
+            except metadata.PackageNotFoundError:
+                version = "unknown"
+        return {
+            "ready": ready,
+            "version": version,
+            "license": "Apache-2.0",
+            "profiles": {
+                CHINESE_SIMPLIFIED: "t2s",
+                CHINESE_TRADITIONAL: "s2hk",
+            },
+            "message": (
+                "OpenCC is ready for consistent Simplified and Hong Kong Traditional Chinese output."
+                if ready
+                else "Install the OpenCC translation dependency to enable separate Simplified and Traditional Chinese choices."
+            ),
+        }
+
+    def _convert_chinese_script(self, text: str, target_language: str) -> tuple[str, str | None, str | None]:
+        variant = CHINESE_VARIANTS.get(target_language)
+        if variant is None:
+            return text, None, None
+        profile = str(variant["opencc_profile"])
+        try:
+            from opencc import OpenCC  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(f"OpenCC Chinese script conversion is not installed: {exc}") from exc
+        converter = self._opencc_converters.get(profile)
+        if converter is None:
+            converter = OpenCC(profile)
+            self._opencc_converters[profile] = converter
+        try:
+            version = metadata.version("OpenCC")
+        except metadata.PackageNotFoundError:
+            version = "unknown"
+        return str(converter.convert(text)), profile, version
 
     def provider_status(self, provider: str) -> dict:
         provider = (provider or "disabled").lower().strip()
@@ -233,6 +328,7 @@ class LocalTranslator:
     def translation_resources(self) -> dict[str, Any]:
         argos_installed: list[str] = []
         argos_pairs: list[str] = []
+        chinese_conversion = self.chinese_script_conversion_status()
         try:
             from argostranslate import translate as argos_translate  # type: ignore
             installed = argos_translate.get_installed_languages()
@@ -244,7 +340,11 @@ class LocalTranslator:
                     if translation is not None:
                         argos_pairs.append(f"{source.code}->{target.code}")
                         if source.code == self.source_language:
-                            argos_installed.append(ARGOS_TO_CHURCH_LANGUAGE_ALIASES.get(target.code, target.code))
+                            if target.code in {"zh", "zt"}:
+                                if chinese_conversion["ready"]:
+                                    argos_installed.extend((CHINESE_SIMPLIFIED, CHINESE_TRADITIONAL))
+                            else:
+                                argos_installed.append(ARGOS_TO_CHURCH_LANGUAGE_ALIASES.get(target.code, target.code))
         except Exception:
             pass
         return {
@@ -254,15 +354,22 @@ class LocalTranslator:
                 "status": self.provider_status("argos"),
             },
             "ct2small100": {
-                "languages": sorted(SMALL100_LANGUAGE_NAMES.keys()),
+                "languages": sorted(
+                    (set(SMALL100_LANGUAGE_NAMES) - {"zh"})
+                    | (set(CHINESE_VARIANTS) if chinese_conversion["ready"] else set())
+                ),
                 "status": self.provider_status(CT2_SMALL100_PROVIDER),
                 "license": "MIT model weights; converted CTranslate2 files inherit the source model distribution obligations",
             },
             "small100": {
-                "languages": sorted(SMALL100_LANGUAGE_NAMES.keys()),
+                "languages": sorted(
+                    (set(SMALL100_LANGUAGE_NAMES) - {"zh"})
+                    | (set(CHINESE_VARIANTS) if chinese_conversion["ready"] else set())
+                ),
                 "status": self.provider_status("small100"),
                 "license": "MIT",
             },
+            "chinese_script_conversion": chinese_conversion,
         }
 
     def supported_languages_for_provider(self, provider: str) -> list[str]:
@@ -286,6 +393,8 @@ class LocalTranslator:
             languages = argos_languages | ct2_languages | small100_languages
         elif provider == "demo":
             languages = set(LANGUAGE_BY_CODE)
+            if not bool(resources.get("chinese_script_conversion", {}).get("ready")):
+                languages -= set(CHINESE_VARIANTS)
         else:
             languages = set()
         languages.add(self.source_language)
@@ -315,46 +424,129 @@ class LocalTranslator:
 
     def translate(self, text: str, target_language: str, *, enabled: bool, provider: str) -> TranslationResult:
         target_language = normalise_language(target_language)
-        if target_language == self.source_language:
-            return TranslationResult(text=text, applied=False)
-        if not enabled:
-            return TranslationResult(text=text, applied=False, warning="Translated captions are not currently enabled. Showing the source language.")
         provider = (provider or "disabled").lower().strip()
+        if target_language == self.source_language:
+            return TranslationResult(
+                text=text,
+                applied=False,
+                requested_provider=provider,
+                outcome="source_language",
+                target_variant=target_language,
+            )
+        if not enabled:
+            return TranslationResult(
+                text=text,
+                applied=False,
+                warning="Translated captions are not currently enabled. Showing the source language.",
+                requested_provider=provider,
+                outcome="disabled",
+                target_variant=target_language,
+            )
         if provider in {"", "disabled", "none"}:
-            return TranslationResult(text=text, applied=False, warning="No local translation provider is configured.")
+            return TranslationResult(
+                text=text,
+                applied=False,
+                warning="No local translation provider is configured.",
+                requested_provider=provider or "disabled",
+                outcome="disabled",
+                target_variant=target_language,
+            )
 
         cache_key = (provider, target_language, text)
         if cache_key in self._cache:
             return self._cache[cache_key]
 
+        attempts: list[str] = []
+        actual_provider: str | None = None
         if provider == "demo":
+            attempts.append("demo")
             result = TranslationResult(
                 text=f"[{target_language.upper()} demo] {text}",
                 applied=True,
                 warning="Demo provider only; not a real translation.",
             )
+            actual_provider = "demo"
         elif provider == "argos":
+            attempts.append("argos")
             result = self._translate_with_argos(text, target_language)
+            actual_provider = "argos"
         elif provider == CT2_SMALL100_PROVIDER:
+            attempts.append(CT2_SMALL100_PROVIDER)
             result = self._translate_with_ct2small100(text, target_language)
+            actual_provider = CT2_SMALL100_PROVIDER
         elif provider == "small100":
+            attempts.append("small100")
             result = self._translate_with_small100(text, target_language)
+            actual_provider = "small100"
         elif provider == "both":
             warnings = []
+            attempts.append(CT2_SMALL100_PROVIDER)
             result = self._translate_with_ct2small100(text, target_language)
+            if result.applied:
+                actual_provider = CT2_SMALL100_PROVIDER
             if not result.applied:
                 if result.warning:
                     warnings.append(result.warning)
+                attempts.append("argos")
                 result = self._translate_with_argos(text, target_language)
+                if result.applied:
+                    actual_provider = "argos"
             if not result.applied:
                 if result.warning:
                     warnings.append(result.warning)
+                attempts.append("small100")
                 result = self._translate_with_small100(text, target_language)
+                if result.applied:
+                    actual_provider = "small100"
             if not result.applied and warnings and result.warning:
                 warnings.append(result.warning)
                 result = TranslationResult(text=text, applied=False, warning=" ".join(dict.fromkeys(warnings)))
+                actual_provider = attempts[-1]
         else:
             result = TranslationResult(text=text, applied=False, warning=f"Unknown translation provider: {provider}")
+
+        if result.applied and target_language in CHINESE_VARIANTS:
+            try:
+                converted, conversion_profile, conversion_version = self._convert_chinese_script(
+                    result.text,
+                    target_language,
+                )
+            except Exception as exc:
+                result = TranslationResult(
+                    text=text,
+                    applied=False,
+                    warning=str(exc),
+                    target_variant=target_language,
+                )
+            else:
+                result = replace(
+                    result,
+                    text=converted,
+                    target_variant=target_language,
+                    conversion_profile=conversion_profile,
+                    conversion_profile_version=conversion_version,
+                )
+
+        warning = str(result.warning or "").lower()
+        if result.applied:
+            outcome = "applied"
+        elif "failed" in warning or "error" in warning:
+            outcome = "failed"
+        elif any(marker in warning for marker in ("not installed", "no installed", "does not support", "unavailable", "unknown translation provider")):
+            outcome = "unavailable"
+        elif result.text == text and not warning:
+            outcome = "unchanged"
+        else:
+            outcome = "source_shown"
+        result = replace(
+            result,
+            requested_provider=provider,
+            actual_provider=actual_provider,
+            fallback_chain=tuple(attempts),
+            retry_count=max(0, len(attempts) - 1),
+            outcome=outcome,
+            target_variant=target_language,
+        )
 
         if len(self._cache) > 2000:
             self._cache.clear()
@@ -372,10 +564,18 @@ class LocalTranslator:
             return TranslationResult(text=text, applied=False, warning=f"Argos Translate is not installed: {exc}")
 
         try:
-            argos_target_language = ARGOS_LANGUAGE_ALIASES.get(target_language, target_language)
             installed = argos_translate.get_installed_languages()
             source = next((lang for lang in installed if getattr(lang, "code", None) == self.source_language), None)
-            target = next((lang for lang in installed if getattr(lang, "code", None) == argos_target_language), None)
+            if target_language == CHINESE_TRADITIONAL:
+                target_codes = ("zt", "zh")
+            elif target_language == CHINESE_SIMPLIFIED:
+                target_codes = ("zh", "zt")
+            else:
+                target_codes = (ARGOS_LANGUAGE_ALIASES.get(target_language, target_language),)
+            target = next(
+                (lang for code in target_codes for lang in installed if getattr(lang, "code", None) == code),
+                None,
+            )
             if source is None or target is None:
                 return TranslationResult(
                     text=text,
@@ -492,9 +692,10 @@ class LocalTranslator:
             return " ".join(tokens).replace("▁", " ").strip()
 
     def _translate_with_ct2small100(self, text: str, target_language: str) -> TranslationResult:
-        target_language = normalise_language(target_language)
+        target_variant = normalise_language(target_language)
+        target_language = translation_model_language(target_variant)
         if target_language not in SMALL100_LANGUAGE_NAMES:
-            return TranslationResult(text=text, applied=False, warning=f"Recommended package translation does not support {target_language}.")
+            return TranslationResult(text=text, applied=False, warning=f"Recommended package translation does not support {target_variant}.")
         try:
             translator, tokenizer = self._load_ct2small100()
             try:
@@ -541,9 +742,10 @@ class LocalTranslator:
             return TranslationResult(text=text, applied=False, warning=f"Recommended package / CTranslate2 INT8 translation failed: {exc}")
 
     def _translate_with_small100(self, text: str, target_language: str) -> TranslationResult:
-        target_language = normalise_language(target_language)
+        target_variant = normalise_language(target_language)
+        target_language = translation_model_language(target_variant)
         if target_language not in SMALL100_LANGUAGE_NAMES:
-            return TranslationResult(text=text, applied=False, warning=f"Core translation does not support {target_language}.")
+            return TranslationResult(text=text, applied=False, warning=f"Core translation does not support {target_variant}.")
         try:
             import torch  # type: ignore
             model, tokenizer = self._load_small100()

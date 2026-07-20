@@ -20,6 +20,10 @@ class DiagnosticsSourceTests(unittest.TestCase):
         self.assertIn('"/api/diagnostics/download-handoff"', self.source)
         self.assertIn('"/api/download-handoff"', self.source)
         self.assertIn("diagnostics_payload", self.source)
+        self.assertIn('"/api/diagnostics/reset-service-metrics"', self.source)
+        self.assertIn('"/api/diagnostics/service-report"', self.source)
+        self.assertIn('"/api/diagnostics/storage"', self.source)
+        self.assertIn('"/api/diagnostics/storage/cleanup"', self.source)
 
     def test_diagnostics_payload_avoids_transcript_and_secret_sources(self):
         for forbidden in ("settings.operator_password", "settings.session_secret", "hub.final_segments", "segments_to_json", "CONFIG_PATH", "os.environ"):
@@ -34,6 +38,7 @@ class DiagnosticsSourceTests(unittest.TestCase):
         self.assertIn('data-section="diagnostics"', operator)
         self.assertIn('id="operator-section-diagnostics"', operator)
         self.assertIn("/operator#diagnostics", pathlib.Path("app/templates/feedback.html").read_text(encoding="utf-8"))
+        self.assertIn("Download anonymised service report", operator)
 
     def test_diagnostics_public_sharing_warning_exists(self):
         operator = pathlib.Path("app/templates/operator.html").read_text(encoding="utf-8")
@@ -73,6 +78,45 @@ class DiagnosticsSourceTests(unittest.TestCase):
             '"viewer_language_counts": translation.get("viewer_languages", {})',
         ):
             self.assertIn(expected, self.payload_source)
+
+    def test_diagnostics_includes_privacy_safe_retained_service_metrics(self):
+        self.assertIn('"diagnostics_schema_version": 2', self.payload_source)
+        self.assertIn('"last_service_metrics": get_service_metrics()', self.payload_source)
+        self.assertIn('"service_metrics": get_service_metrics_report()', self.payload_source)
+        self.assertIn("They exclude audio, transcripts, captions, translations", self.payload_source)
+
+    def test_service_start_seeds_already_connected_viewers(self):
+        self.assertIn("record_viewer_counts,", self.source)
+        self.assertIn("record_viewer_counts(hub.language_counts())", self.source)
+
+    def test_anonymised_service_report_has_a_separate_allow_listed_route(self):
+        self.assertIn("def export_anonymised_service_report", self.source)
+        self.assertIn("service_report_payload()", self.source)
+        self.assertIn("church-cap-service-report-", self.source)
+        operator = pathlib.Path("app/templates/operator.html").read_text(encoding="utf-8")
+        self.assertIn("/api/diagnostics/service-report", operator)
+        self.assertIn("service_report", operator)
+
+    def test_reset_measurements_uses_themed_confirmation_dialog(self):
+        operator = pathlib.Path("app/templates/operator.html").read_text(encoding="utf-8")
+        self.assertIn('id="resetServiceMeasurementsDialog"', operator)
+        self.assertIn('class="service-leader-dialog service-leader-confirm-dialog glass-card"', operator)
+        self.assertIn('id="resetServiceMeasurementsConfirm"', operator)
+        self.assertIn("service-leader-danger-button", operator)
+        self.assertIn("confirmResetServiceMeasurements", operator)
+        self.assertIn("dialog.showModal();", operator)
+        self.assertNotIn("window.confirm('Reset all retained test measurements", operator)
+
+    def test_storage_use_is_inside_diagnostics_and_uses_themed_cleanup_dialog(self):
+        operator = pathlib.Path("app/templates/operator.html").read_text(encoding="utf-8")
+        diagnostics_start = operator.index('id="operator-section-diagnostics"')
+        updates_start = operator.index('id="operator-section-updates"')
+        diagnostics_section = operator[diagnostics_start:updates_start]
+        self.assertIn("Storage use", diagnostics_section)
+        self.assertIn('id="storageUseTotal"', diagnostics_section)
+        self.assertIn('id="storageCleanupDialog"', operator)
+        self.assertIn('id="storageCleanupConfirm"', operator)
+        self.assertIn("MAX_BENCHMARK_SAMPLES", operator)
 
     def test_system_specs_are_included(self):
         self.assertIn("def _system_specs_snapshot", self.source)

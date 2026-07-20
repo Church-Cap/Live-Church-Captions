@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v0.6.0 public preview**
+Version: **v0.7.0**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -23,6 +23,8 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - `config/` — editable glossary and profanity-filter additions.
 - `docs/` — user guides, legal notes, architecture, networking, and translation docs.
 - `docs/project/ROADMAP_TO_V1.md` — staged route from the v0.6 preview architecture to v1.0.0.
+- `docs/project/V0.7.0_IMPLEMENTATION.md` — v0.7.0 action-plan mapping, scope, and Linux acceptance gates.
+- `docs/project/TRANSLATION_MODEL_RESEARCH.md` — commercial/open-source model and licence audit for contextual and Chinese translation.
 - `.github/` — GitHub-standard contribution, security, code of conduct, issue, pull request, and CI files.
 - `docker/` — optional Docker development files.
 - `scripts/` — helper scripts used by setup, development, diagnostics, and maintenance.
@@ -31,22 +33,24 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 
 - Local FastAPI web server.
 - QR codes for audience access, including hostname and IP fallback links.
-- Mobile caption page with a left-to-right, bottom-to-top caption stream, optional server-backed scrollable session transcript with newest captions first, timestamps, font size, automatic system light/dark theme with local override, comfort/compact, pause, and local clear controls.
+- Mobile caption page with a viewport-bounded, internally scrollable accumulated Live feed for English and every translated language, plus an optional independently scrollable session transcript that starts closed on each visit. A word-timestamp-aware cue ledger shows safe English words immediately, briefly guards only a weak word at the live audio edge, and updates corrected wording in place before sealing it into the shared reader. The page also includes newest-first timestamps, font size, automatic system light/dark theme with local override, comfort/compact, pause, and local clear controls. Dismissing viewer notices returns their space to the caption panels without making the page longer.
 - Operator login, first-run password setup, and account/password page.
+- Privacy-safe service measurements retained across restarts, with separate English operational-response and rolling-window estimates, stage timing, provider/scheduler outcomes, viewer-seconds, process/system resource aggregates, and a separate anonymised report.
 - One-use QR pairing for a restricted service-leader page with start/stop, private-moment, status, and multi-language controls.
-- Operator feedback page with version-aware email link, plus a dedicated diagnostics menu item for support exports.
+- Operator feedback page with version-aware email link, plus a dedicated Diagnostics menu for support exports and a Storage use view with opt-in cleanup of inactive model downloads and archived logs.
 - Secure dual-port mode: public viewer port and localhost-focused operator port.
 - Audio input selection from the operator page.
 - Local OpenAI Whisper transcription with rolling partial/final captions tuned for accuracy-first readable live subtitle pacing.
-- Optional `faster-whisper` backend for installs that need lower latency.
+- Optional `faster-whisper` backend with word-level alignment, guarded incomplete-edge words, sealed-audio buffer trimming, and start-to-start decode cadence for installs that need lower latency.
 - Operator performance controls for switching between faster/lower-accuracy and slower/higher-accuracy presets, including model size, backend, CPU/GPU selection, and advanced latency tuning.
 - Glossary correction for church-specific words.
 - Bad-word censor for likely speech-to-text mistakes.
 - Sensitive blank/pause mode for private or pastoral moments, with audience notices rendered through the selected client UI language where available.
 - Transcript retention controls, encrypted local transcript cache, operator current-session transcript export as `.txt`, `.vtt`, `.srt`, and `.json`, plus restricted Service Leader TXT/VTT transcript export for appliance support after a privacy warning.
 - OBS browser-source overlay and setup guide. The `/display` and `/obs` caption surfaces use the same subtle line glide and trailing-word entry animation as the phone viewer, with a stable two-line layout to reduce jumpy text on room screens and livestream overlays.
+- On Church Cap appliances, local Display and OBS previews stay on the appliance shell origin so the persistent Home/System controls remain available and failed preview routes can return to the local recovery environment.
 - Local multilingual support: phone UI labels use the lightweight catalogue in `app/locales/client_ui.json`, with Argos runtime fallback where needed. Experimental translated captions use package-style choices: **Recommended package** CTranslate2 INT8 / SMaLL-100, **Base package** Argos Translate, **Compatibility package** PyTorch SMaLL-100, or **Auto** mode across installed packages.
-- v0.6.0 starts the translation-performance track: make the Recommended package / CTranslate2 INT8 SMaLL-100 the preferred broad translation path, keep Base / Argos as a fallback for installed packs, keep PyTorch SMaLL-100 as the Compatibility package, and document AMD ROCm as a future experimental research path rather than a supported runtime today.
+- v0.7.0 adds real Faster-Whisper word timestamps and confidence, a two-pass guard only for weak words at the captured-audio edge, timestamp-driven removal of sealed audio from later rolling windows, and a decode schedule that subtracts processing time from the configured interval. Corrected drafts replace the existing cue rather than adding a duplicate line. Responsive Context retranslates the stable portion of the current English cue instead of waiting for completed paragraphs; the final English wording refines that same translated cue. Separate Simplified and Hong Kong Traditional Chinese choices are available.
 - Local HTTPS helper scripts for testing and managed-device deployments.
 - macOS, Windows, and Linux setup/start support, permission repair/password reset, and macOS LaunchAgent helper scripts.
 
@@ -158,6 +162,10 @@ Linux NVIDIA acceleration uses the system-managed driver/CUDA runtime. Church Ca
 
 More detail: [docs/linux.md](docs/linux.md).
 
+## Recorded Sermon Testing
+
+v0.7.0 keeps the v0.6.1 service-run measurements and advances service-metrics schema to 9. Reports identify cue-engine v5 and its immediate stable-prefix/guarded-edge-tail strategy. They add word-timestamp pass and aligned-word counts, weak edge words withheld or confirmed, actual start-to-start recognition-pass intervals, translated draft/final counts, and first translated-cue timing alongside cue, queue, shutdown, and resource measurements. The report retains no audio, recognition timestamps, confidence values, caption text, or translation text. Download the separate anonymised service report and follow [docs/recorded-sermon-testing.md](docs/recorded-sermon-testing.md).
+
 ## Normal Use
 
 After the first setup, use:
@@ -261,7 +269,9 @@ Open `/operator`, then use **Performance** on the dashboard.
 - Move the slider toward **Most accurate** when the computer has enough CPU/GPU headroom and wording matters more than delay. The far-right setting uses `medium.en` and can noticeably increase latency, so check it with the benchmark before a service.
 - Use **More settings** for deeper tuning. Easy mode shows platform, backend, model size, and processor. Advanced mode adds compute type, caption refresh, listening window, silence finalise timing, stability checks, and OpenAI Whisper beam size. The platform view is automatic by default, but can be set to macOS, Windows, or Linux if detection is wrong.
 
-Performance adjustments save automatically when captions are stopped. Stop captions before changing the model, backend, processor, or other performance settings because the model and audio stream are loaded when captions start. The top operator bar includes **English Delay** and **Translation Delay** tiles so the operator can distinguish source English caption latency from translated-caption latency during a service. The Performance panel also includes a 15-second benchmark and a live monitor that sample live transcription time, estimated caption delay, audio level, model load time, runtime, and available system load. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
+Performance adjustments save automatically when captions are stopped. Stop captions before changing the model, backend, processor, or other performance settings because the model and audio stream are loaded when captions start. The top operator bar includes **English Delay** and **Translation Delay** tiles so the operator can distinguish source English caption latency from translated-caption latency during a service. The Performance panel includes an operator-started 15-second benchmark and live monitor; neither runs automatically. Live-monitor samples are capped in memory. It can recommend conservative live-service settings from local hardware/runtime information and apply them offline without any internet access. The medium model stays available on the slider, but it should be selected manually only after a successful benchmark. The live transcribers and session transcript include a repetition guard that trims obvious stuck word or phrase loops before they reach the audience captions or retained transcript.
+
+Operator → **Diagnostics → Storage use** shows the application, local data, Hugging Face downloads, OpenAI Whisper downloads, and bounded log use. Church Cap rotates its own diagnostic logs at 5 MB with two backups and disables routine HTTP access logging. Cleanup is never automatic: the operator must review and confirm exact inactive downloads or archived logs, and Church Cap protects the active model, current logs, settings, transcripts, and current service data.
 
 ## Main Pages
 
@@ -413,7 +423,7 @@ Remove it with:
 
 The operator page includes an **Updates** section. It checks the latest GitHub release tag, reports when Church Cap is already up to date, asks for confirmation before updating, replaces this folder in place, and restarts Church Cap.
 
-The scripts below provide the same in-place update flow. They preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. The displayed version is code-owned in v0.6.0 so a stale `APP_VERSION` in `.env` cannot keep Windows showing an older release. Legacy update scripts may still refresh `APP_VERSION` for compatibility, and app-owned defaults such as `FEEDBACK_EMAIL` are refreshed where appropriate.
+The scripts below provide the same in-place update flow. They preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. The displayed version is code-owned so a stale `APP_VERSION` in `.env` cannot keep Windows showing an older release. Legacy update scripts may still refresh `APP_VERSION` for compatibility, and app-owned defaults such as `FEEDBACK_EMAIL` are refreshed where appropriate.
 
 Update resilience:
 

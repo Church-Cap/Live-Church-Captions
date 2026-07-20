@@ -2,17 +2,17 @@
 
 Church Cap is an open-source, local-first live caption application for churches. It listens to one audio input, transcribes speech locally, and publishes captions to phones, tablets, room displays, and OBS browser sources over the local network.
 
-This document describes the current public preview architecture.
+This document describes the current alpha architecture.
 
 ## Current Release
 
-Version: `v0.6.0 public preview`
+Version: `v0.7.0`
 
-Status: public preview for local church testing and deployment. Church Cap is open-source software, not a compliance-certified service, and churches remain responsible for their own privacy, safeguarding, accessibility, copyright, and operational policies.
+Status: controlled local church testing. Church Cap is open-source software, not a compliance-certified service, and churches remain responsible for their own privacy, safeguarding, accessibility, copyright, and operational policies.
 
 ## Deployment Model
 
-Church Cap v0.6.0 keeps explicit deployment profiles and starts the translation-performance track. Hardware detection reports capability only; it never decides that a computer is an appliance. Appliance mode is activated by an installer-owned identity file at `/etc/churchcap-appliance/identity.json` or by explicit environment variables.
+Church Cap v0.7.0 keeps explicit deployment profiles and begins the translation-readability implementation. Hardware detection reports capability only; it never decides that a computer is an appliance. Appliance mode is activated by an installer-owned identity file at `/etc/churchcap-appliance/identity.json` or by explicit environment variables.
 
 Profiles:
 
@@ -23,6 +23,8 @@ Profiles:
 This keeps one codebase while allowing the appliance shell, kiosk setup, and updater to present a simpler product surface.
 
 Roadmap detail: [ROADMAP_TO_V1.md](ROADMAP_TO_V1.md).
+
+v0.7.0 action-plan status: [V0.7.0_IMPLEMENTATION.md](V0.7.0_IMPLEMENTATION.md).
 
 ## Project Goals
 
@@ -58,6 +60,7 @@ Church microphones
 - `/docs/church-notice` — operator-only suggested church notice wording.
 - `/docs/disclaimer` — operator-only disclaimer notes.
 - Operator **Diagnostics** section — operator-only local support export with confirmation, system specs, runtime status, metrics, and redacted updater/CUDA logs.
+- v0.7.0 diagnostics expose the v0.6.1 measurements plus word-timestamp, actual decode-cadence, cue-engine, bounded-queue, responsive translation revision, and first translated cue outcomes through service-metrics schema 9. Reports contain numeric counts and distributions only; they never retain audio, recognition spans, word times or confidence, device metadata, captions, translations, transcripts, glossary contents, paths, network identifiers, or operator data.
 - Operator **Updates** section — operator-only GitHub release-tag check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
 - `/service-leader` — restricted service-leader controls reached through a one-use QR pairing flow on the operator port.
 - `/api/diagnostics/export` — local diagnostics JSON export, operator login and local computer required.
@@ -112,18 +115,20 @@ config/profanity_filter.txt
 
 ### Caption Broadcast
 
-Captions are transcribed once, then broadcast to connected clients using WebSockets. This avoids running transcription per viewer. The broadcast layer also maintains the retained session transcript, including stable sections derived from rolling partial captions so continuous speech can still appear in the scrollback history.
+Captions are transcribed once, then broadcast to connected clients using WebSockets. This avoids running transcription per viewer. Raw English is sent immediately and does not wait for translation. `SourceUnitBuilder` also turns rolling hypotheses into stable draft revisions and final units: the English payload exposes those updates to fill its accumulated Live reader, while translated viewers use the same source-unit stream as translation input. `BoundedFairTranslationScheduler` keeps a bounded queue per language, coalesces replaceable drafts, preserves completed units, drops drafts before finals under pressure, and rotates between languages. The broadcast layer separately maintains the retained session transcript.
 
 Key file:
 
 ```text
 app/broadcast.py
+app/source_units.py
+app/translation_scheduler.py
 app/transcript_store.py
 ```
 
 ### Client Viewer
 
-The public caption viewer is designed for phones and tablets. It uses a start-aligned, bottom-to-top caption stream: captions read from the left edge in left-to-right languages, wrap naturally, and use the available caption box from the bottom upward as new lines arrive. This avoids a middle-of-the-box caption feel and gives viewers a stable reading surface. The display and OBS pages reuse this rendering model with a constrained two-line presentation layout, so new words enter subtly and existing lines glide rather than snapping around the screen. If no confirmed caption is available yet, it can show a live draft so continuous speech does not leave viewers on the waiting screen. It includes an optional server-backed, scrollable, timestamped session transcript for the current app session with newest captions first, export controls with privacy warnings, font controls, automatic system light/dark theme with local override, transcript show/hide, pause/clear controls, lightweight UI language selection from `app/locales/client_ui.json`, a stable in-card language-loading notice for active language switches, AI accuracy notices, and optional translated-caption routing. Sensitive moment mode discards captions and transcript drafts while blanked, resets live transcription buffers, and briefly drops captions after resume so private speech is not retained or exported. A new app start keeps the visible transcript empty while pruning any saved local cache according to the retention window stored with that cache. On phone and tablet landscape viewports, the viewer uses a compact side-by-side layout so the live caption feed takes about 75% of the width while the transcript remains available when enabled; transcript history scrolls inside its panel so it does not push the live feed down, and hiding the transcript lets the live feed use the full width.
+The public caption viewer is designed for phones and tablets. It uses a start-aligned, bottom-to-top caption stream: captions read from the left edge in left-to-right languages, wrap naturally, and use the available caption box from the bottom upward as new lines arrive. This avoids a middle-of-the-box caption feel and gives viewers a stable reading surface. English and translated captions both accumulate in this scrollable Live reader. The first cue draft appears immediately; subsequent revisions update that cue in place until the server seals it. The display and OBS pages reuse this rendering model with a constrained two-line presentation layout, so new words enter subtly and existing lines glide rather than snapping around the screen. If no confirmed caption is available yet, it shows the mutable cue so continuous speech does not leave viewers on the waiting screen. It includes an optional server-backed, scrollable, timestamped session transcript for the current app session with newest captions first, export controls with privacy warnings, font controls, automatic system light/dark theme with local override, transcript show/hide, pause/clear controls, lightweight UI language selection from `app/locales/client_ui.json`, a stable in-card language-loading notice for active language switches, AI accuracy notices, and optional translated-caption routing. The Session transcript starts closed on each viewer-page visit so Live initially receives the available space. Sensitive moment mode discards captions and transcript drafts while blanked, resets live transcription buffers, and briefly drops captions after resume so private speech is not retained or exported. A new app start keeps the visible transcript empty while pruning any saved local cache according to the retention window stored with that cache. On phone and tablet landscape viewports, the viewer uses a compact side-by-side layout so the live caption feed takes about 75% of the width while the transcript remains available when enabled; transcript history scrolls inside its panel so it does not push the live feed down, and hiding the transcript lets the live feed use the full width.
 
 Key files:
 
@@ -177,7 +182,7 @@ app/templates/operator.html
 
 ### Translation
 
-Translation support is experimental. Phone UI language selection is separate from caption translation: UI labels come from static strings in `app/locales/client_ui.json` via `app/localisation.py`. The catalogue includes static strings for every supported caption language; missing future keys fall back to English per label. If a selected UI language is not in the catalogue, `/api/client-ui/{language}` can translate the UI labels locally at runtime using installed Base / Argos packs, then falls back to English if Argos cannot translate that language. Caption translation can use the Recommended package / CTranslate2 INT8 SMaLL-100, Base package / Argos Translate, Compatibility package / PyTorch SMaLL-100, or Auto / Recommended + Base + Compatibility. The setup scripts and operator **Languages** page can install common Base package / Argos packs, all Base package / Argos packs, the Recommended package / CTranslate2 INT8, and the Compatibility package / PyTorch SMaLL-100. Visitor language availability is automatic by default; Church Cap translates the most-requested languages up to the operator's active limit, which defaults to 2 for fresh installs and can be raised on powerful hardware. Advanced operators can restrict the available language list or prioritise selected languages first. In restricted mode, installed but not enabled languages can still be requested from visitor and Service Leader pages, and the operator can accept or reject those requests from a floating card.
+Translation support is experimental. Phone UI language selection is separate from caption translation. Caption translation can use the Recommended package / CTranslate2 INT8 SMaLL-100, Base package / Argos Translate, Compatibility package / PyTorch SMaLL-100, or Auto. Translated work consumes stable cue revisions through independent language queues. Older revisions of the same cue are coalesced or rejected as stale; unrelated sealed cues remain durable unless an explicit privacy action clears the session. Responsive Context retranslates the stable prefix of the current English cue after a short debounce and meaningful word growth; the full final wording updates that same cue. It does not wait for previous completed thoughts. Simplified and Hong Kong Traditional Chinese remain separate and OpenCC applies deterministic script conversion after provider output.
 
 Key files:
 
@@ -186,6 +191,8 @@ app/i18n.py
 app/localisation.py
 app/locales/client_ui.json
 app/broadcast.py
+app/source_units.py
+app/translation_scheduler.py
 scripts/install-translation-models-argos.sh
 scripts/install-translation-models-argos.ps1
 requirements-translation.txt
@@ -324,7 +331,9 @@ If permissions are lost in a copied or unzipped folder, users can run:
 bash fix-permissions.sh
 ```
 
-## v0.6.0 Translation Performance Track
+## v0.6.1 Translation Performance Track
+
+v0.6.1 is the measurement release before contextual translation changes. Starting captions creates a random non-identifying run ID and an atomic active marker, then seeds language demand from audience viewers who joined before Start. Stopping captions finalises an allow-listed summary; the latest five summaries persist in the normal per-user data folder across app restarts. An abandoned marker is reported as incomplete without invented measurements. Diagnostics expose current and latest completed services, and a separate anonymised service report excludes host details and logs. Service-metrics schema 2 separates the oldest-frame rolling-window upper bound from the operational English response estimate and records why completed translation work was not published. Metrics are language-agnostic: Farsi and Chinese are pilot validation targets, not hard-coded special cases. Reservoirs are bounded, while aggregate counts, averages and peaks cover the full run. The recorded-sermon helper accepts a local PCM WAV file and sends it in real time to an operator-selected output/loopback device; Church Cap's live audio path remains unchanged and the external-routing limitation is recorded in its privacy-safe manifest.
 
 The v0.6.x branch should improve multilingual performance without splitting the project into separate apps. Recommended / CTranslate2 INT8 SMaLL-100 is the preferred broad-language path. Base / Argos remains available as a local fallback for installed packs. Compatibility / PyTorch SMaLL-100 remains optional for comparison and fallback while conversion quality and latency are benchmarked. AMD ROCm is a research item for Linux appliance experiments, not a supported runtime until detection, setup, diagnostics, fallback, and benchmark results are reliable.
 
@@ -335,6 +344,16 @@ Implementation guardrails:
 - expose runtime status clearly in diagnostics and the operator language panel
 - do not raise CPU appliance language limits without benchmark evidence
 - do not advertise ROCm support until it is tested on real AMD hardware
+
+## v0.7.0 Streaming Word Timing And Translation Readability
+
+The v0.7.0 Faster-Whisper path adds real word alignment and confidence to the server-owned cue lifecycle. Safe words publish immediately; only a weak final word at the captured-audio edge waits for a second matching decode. Words shared by consecutive passes form a stable prefix and only the guarded newest tail remains mutable. Confirmed text seals at punctuation, 14 words, five seconds, audio-window advancement, or a real final. Sealed word boundaries let later rolling windows omit immutable audio while retaining one second of overlap. Both Whisper backends schedule recognition start-to-start so model compute no longer receives an additional full configured sleep.
+
+Each translated language has a bounded queue. New revisions coalesce every older job for the same cue, including an obsolete final revision; unrelated sealed cues remain durable. Under pressure, the scheduler removes the oldest draft before a sealed cue, permits sealed-only overflow rather than losing completed speech, and rotates languages round-robin. Queue state is cleared by Sensitive mode and Clear. At Stop, Church Cap waits up to two seconds for outstanding work, then explicitly records and cancels anything remaining. Service-metrics schema 9 records word-alignment use, guarded-edge outcomes, actual pass intervals, cue processing, stable/mutable counts, cue lifetime, translated draft/final publications, and time from the first English cue update to its first translated publication without retaining caption text, recognition timestamps, confidence values, or translated wording.
+
+The translation foundation exposes Responsive Context, Live, More Stable, `zh-Hans`, and `zh-Hant` for controlled testing. Responsive Context is the recommended default for new configurations: it translates at least three stable English words, normally waits for three more stable words and at least 1.5 seconds before revising, and publishes the final refinement under the same cue identity. Legacy Contextual/Extended settings migrate to Responsive Context, eliminating their two-/four-thought wait. No mode sends provider-specific instructions. SMaLL-100's single `zh` output and Argos `zh`/`zt` output are normalised with Apache-2.0 OpenCC using `t2s` or Hong Kong `s2hk`. Previous-sentence context and Farsi presentation improvements remain pending measured work.
+
+Operator Diagnostics calculates storage only when requested and reports category sizes without returning local paths. Cleanup accepts only current server-generated identifiers for inactive model downloads or archived logs and requires explicit confirmation. Active models, settings, transcripts, retained measurements, and current logs are protected. Church Cap-owned logs rotate at 5 MB with two backups, log-tail reads are byte-bounded, and the benchmark remains operator-started with a capped in-memory sample list.
 
 ## Windows Reliability QA Targets
 

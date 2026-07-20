@@ -13,6 +13,7 @@ This folder keeps reference material out of the project root.
 - `android_networking.md`
 - `internal_https.md`
 - `translation.md`
+- `recorded-sermon-testing.md`
 - `linux.md`
 - `service_leader_controls.md`
 
@@ -26,3 +27,7 @@ This folder keeps reference material out of the project root.
 ## Project Planning
 
 - `project/BLUEPRINT.md`
+- `project/ROADMAP_TO_V1.md`
+- `project/V0.7.0_IMPLEMENTATION.md`
+- `project/V0.7.0_RELEASE_NOTES.md`
+- `project/TRANSLATION_MODEL_RESEARCH.md`

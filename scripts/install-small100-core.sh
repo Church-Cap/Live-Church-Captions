@@ -9,7 +9,7 @@ fi
 
 source .venv/bin/activate
 python -m pip install --upgrade "setuptools<82" wheel
-python -m pip install "transformers<5" sentencepiece safetensors
+python -m pip install "transformers<5" sentencepiece safetensors "OpenCC==1.4.1"
 
 python - <<'PY'
 from huggingface_hub import hf_hub_download

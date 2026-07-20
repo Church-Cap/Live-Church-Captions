@@ -34,9 +34,12 @@ class TranscriptHistoryTests(unittest.IsolatedAsyncioTestCase):
             await hub.publish(CaptionSegment(text="and welcome to church as we gather to worship", is_final=False, created_at=datetime.now(timezone.utc)))
 
             segments = hub.final_segments()
-            self.assertGreaterEqual(len(segments), 2)
-            self.assertEqual(segments[0].text, "Good morning everyone and welcome to church")
-            self.assertEqual(segments[-1].text, "as we gather to worship")
+            self.assertEqual(len(segments), 1)
+            self.assertEqual(
+                segments[0].text,
+                "Good morning everyone and welcome to church as we gather to worship",
+            )
+            self.assertFalse(segments[0].is_final)
             self.assertTrue((root / "transcript.json.enc").exists() or (root / "transcript.json").exists())
 
             reloaded = CaptionHub(history_limit=10, retention_minutes=60, transcript_saving_enabled=True, transcript_store=store)
@@ -45,6 +48,26 @@ class TranscriptHistoryTests(unittest.IsolatedAsyncioTestCase):
                 [seg.text for seg in store.load_segments(retention_minutes=60, history_limit=10)],
                 [seg.text for seg in segments],
             )
+
+    async def test_corrected_rolling_hypotheses_update_one_transcript_cue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.make_store(root)
+            hub = CaptionHub(history_limit=10, retention_minutes=60, transcript_saving_enabled=True, transcript_store=store)
+
+            await hub.publish(CaptionSegment(text="Empty space does not stay empty", raw_text="Empty space does not stay empty", is_final=False))
+            first = hub.final_segments()[0]
+            await hub.publish(CaptionSegment(text="Empty space does not remain empty", raw_text="Empty space does not remain empty", is_final=False))
+            revised = hub.final_segments()[0]
+            await hub.publish(CaptionSegment(text="Empty space does not remain empty", raw_text="Empty space does not remain empty", is_final=True))
+
+            segments = hub.final_segments()
+            self.assertEqual(len(segments), 1)
+            self.assertEqual(segments[0].text, "Empty space does not remain empty")
+            self.assertTrue(segments[0].is_final)
+            self.assertEqual(first.cue_id, revised.cue_id)
+            self.assertEqual(revised.cue_id, segments[0].cue_id)
+            self.assertGreater(segments[0].cue_revision, revised.cue_revision)
 
     async def test_startup_prunes_expired_cache_without_loading_previous_session(self):
         with tempfile.TemporaryDirectory() as tmp:

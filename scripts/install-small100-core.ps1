@@ -9,7 +9,7 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 & $VenvPython -m pip install --upgrade "setuptools<82" wheel
-& $VenvPython -m pip install "transformers<5" sentencepiece safetensors
+& $VenvPython -m pip install "transformers<5" sentencepiece safetensors "OpenCC==1.4.1"
 
 $pythonScript = @'
 from huggingface_hub import hf_hub_download

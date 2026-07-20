@@ -32,7 +32,7 @@ MSG
 python - <<PY
 from argostranslate import package
 SCOPE = "$INSTALL_SCOPE"
-COMMON_TARGETS = ["es", "fr", "pt", "pl", "uk", "ar", "fa"]
+COMMON_TARGETS = ["es", "fr", "pt", "pl", "uk", "ar", "fa", "zh", "zt"]
 print("Updating Argos package index…")
 package.update_package_index()
 available = package.get_available_packages()

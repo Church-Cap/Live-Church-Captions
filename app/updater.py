@@ -7,6 +7,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from app.storage import rotate_log_file
+
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/Church-Cap/Live-Church-Captions/releases/latest"
 
@@ -89,6 +91,7 @@ def launch_update_process(project_root: Path, target_version: str | None = None)
     log_dir = project_root / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "update.log"
+    rotate_log_file(log_path)
     log_file = open(log_path, "ab", buffering=0)
     env = os.environ.copy()
     env["CHURCH_CAP_UPDATE_STARTED_FROM"] = "operator"

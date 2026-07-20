@@ -182,6 +182,11 @@ h2 { margin: 0; font-size: 0.92rem; }
   transition: transform 260ms ease, opacity 260ms ease;
   will-change: transform, opacity;
 }
+.phone-page .subtitle-line {
+  transform: none;
+  transition: opacity 180ms ease;
+  will-change: opacity;
+}
 .active-subtitle-line {
   font-weight: 730;
   opacity: 1;
@@ -2835,6 +2840,128 @@ select {
   }
 }
 
+/* Fixed audience viewport: Live and Session transcript scroll internally.
+   Removing a notice releases its row so the caption panels grow in place. */
+.phone-page {
+  height: 100dvh;
+  min-height: 100svh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.phone-page .phone-shell {
+  height: 100dvh;
+  min-height: 0;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.phone-page .live-card {
+  flex: 1.4 1 0;
+  min-height: 5.5rem;
+  overflow: hidden;
+}
+
+.phone-page .current-caption,
+.phone-page .compact-current,
+.phone-page.comfort-mode .current-caption {
+  min-height: 0;
+  justify-content: flex-start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  padding-inline-end: 0.2rem;
+}
+
+.phone-page .current-caption::before {
+  content: "";
+  margin-top: auto;
+}
+
+.phone-page .history-wrap {
+  flex: 1 1 0;
+  min-height: 4.5rem;
+  max-height: none;
+}
+
+.phone-page.viewer-notices-visible #viewerHint {
+  color: var(--accent);
+  font-weight: 720;
+  opacity: 0.9;
+}
+
+.phone-page.viewer-notices-visible #viewerHint::before {
+  content: "↕";
+  display: inline-block;
+  margin-inline-end: 0.3rem;
+  font-weight: 900;
+}
+
+@media (max-width: 640px) {
+  .phone-page.viewer-notices-visible .live-card #viewerHint {
+    display: inline;
+    max-width: 76%;
+    font-size: 0.68rem;
+    line-height: 1.18;
+  }
+
+  .phone-page .live-card {
+    flex: 1.45 1 0;
+    min-height: 5.5rem;
+  }
+
+  .phone-page .history-wrap {
+    flex: 1 1 0;
+    min-height: 4.5rem;
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) and (max-height: 720px) {
+  .phone-page .phone-shell {
+    gap: 0.38rem;
+    padding-bottom: max(0.45rem, env(safe-area-inset-bottom));
+  }
+
+  .phone-page .compact-notice {
+    padding: 0.42rem 0.58rem;
+  }
+
+  .phone-page .notice p {
+    margin-top: 0.1rem;
+    font-size: 0.78rem;
+    line-height: 1.16;
+  }
+
+  .phone-page .notice strong {
+    font-size: 0.88rem;
+  }
+
+  .phone-page .notice-close {
+    top: 0.3rem;
+    right: 0.3rem;
+  }
+
+  .phone-page .live-card {
+    min-height: 7rem;
+  }
+
+  .phone-page .history-wrap {
+    min-height: 3.5rem;
+  }
+
+  .phone-page .controls button {
+    min-height: 2.25rem;
+    padding-block: 0.35rem;
+  }
+
+  .phone-page .subtle-product-footer {
+    display: none;
+  }
+}
+
 /* Subtle footer links */
 .subtle-product-footer {
   text-align: center;
@@ -3190,7 +3317,8 @@ select {
   background: rgba(14, 165, 233, 0.10);
   border-color: rgba(14, 116, 144, 0.20);
 }
-.service-leader-page.light-mode .service-leader-dialog {
+.service-leader-page.light-mode .service-leader-dialog,
+.operator-page.light-mode .service-leader-dialog {
   background: rgba(255,255,255,0.96);
 }
 
@@ -3751,6 +3879,59 @@ select {
   border-color: rgba(248, 113, 113, 0.42);
   color: #fff;
 }
+
+.storage-category-list,
+.storage-cleanup-list {
+  display: grid;
+  gap: 0.72rem;
+  margin-top: 0.9rem;
+}
+.storage-category-row {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.82rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.22);
+}
+.storage-category-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.storage-category-heading span,
+.storage-category-row small,
+.storage-cleanup-option small { color: var(--muted); }
+.storage-meter {
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+}
+.storage-meter span {
+  display: block;
+  min-width: 0.3rem;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #60a5fa);
+}
+.storage-cleanup-dialog { width: min(94vw, 620px); }
+.storage-cleanup-list { max-height: min(46vh, 28rem); overflow: auto; }
+.storage-cleanup-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.72rem;
+  align-items: start;
+  padding: 0.78rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+}
+.storage-cleanup-option input { margin-top: 0.22rem; accent-color: var(--accent); }
+.storage-cleanup-option span { display: grid; gap: 0.25rem; }
+.operator-page.light-mode .storage-category-row,
+.operator-page.light-mode .storage-cleanup-option { background: rgba(255,255,255,0.58); }
 
 .service-leader-dialog::backdrop {
   background: rgba(2, 6, 23, 0.72);

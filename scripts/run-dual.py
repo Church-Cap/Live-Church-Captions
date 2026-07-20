@@ -43,6 +43,7 @@ async def main() -> None:
         port=settings.viewer_port,
         log_level="info",
         lifespan="on",
+        access_log=False,
     )
     operator_config = uvicorn.Config(
         app,
@@ -50,6 +51,7 @@ async def main() -> None:
         port=settings.operator_port,
         log_level="info",
         lifespan="off",
+        access_log=False,
     )
 
     viewer_server = uvicorn.Server(viewer_config)

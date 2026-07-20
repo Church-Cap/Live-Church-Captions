@@ -1,6 +1,6 @@
 # Roadmap To v1.0.0
 
-Church Cap v0.6.0 continues the move from a single preview app toward one maintained codebase with two supported experiences:
+Church Cap v0.7.0 continues the move from a single preview app toward one maintained codebase with two supported experiences:
 
 - the open-source desktop app for macOS, Windows, and Linux
 - the Church Cap Appliance profile for locked-down AlmaLinux boxes
@@ -24,14 +24,22 @@ The aim is not to fork the app. Shared captioning, audio, translation, security,
 - Benchmark CPU-only systems with 1-2 active translated languages and GPU systems with higher active-language limits.
 - Add clearer operator recommendations based on measured latency, CPU load, GPU readiness, and active viewer-language demand.
 
-## v0.7.x Appliance Update And Recovery
+## v0.7.x Translation Readability And Context
 
-- Provide a signed or checksum-verified updater path for the Church Cap app.
-- Provide a matching updater path for the appliance shell.
-- Document rollback, recovery, and factory reset procedures.
-- Keep `/etc/churchcap-appliance/identity.json` and appliance secrets outside app release folders.
+- Preserve the low-latency English route while giving translated viewers a rolling reader option.
+- **Alpha 1 complete:** replace the single translation slot with timestamp-aligned cue revisions and bounded per-language queues that coalesce stale revisions, preserve unrelated sealed cues, rotate fairly, and expose privacy-safe cue/queue-health measurements.
+- **Alpha 2 superseded after Linux evidence:** retire the two-thought Contextual and four-thought Extended waits. Responsive Context now retranslates the current stable English cue and finalises it in place; legacy settings migrate automatically. Separate `zh-Hans`/`zh-Hant` choices retain deterministic OpenCC conversion.
+- Compare Responsive Context against Live and More Stable using first translated cue time, revision counts, queue pressure, and native-reader scores. Tune its debounce only from repeated reference-appliance evidence.
+- Keep runtime storage bounded: on-demand Diagnostics storage accounting, rotated Church Cap logs, capped benchmark samples, clear download-size guidance, and explicit allow-listed cleanup.
+- Evaluate Apache-2.0 OPUS-MT English→Chinese as an optional Chinese quality package; do not add it unless it beats SMaLL-100 + OpenCC on the reference hardware.
+- Improve Farsi mixed-direction presentation and add passage-level Farsi and Traditional Chinese review gates.
 
-## v0.8.x Release Hardening
+Responsive Context and Chinese-script controls are implemented for controlled testing. Responsive Context is recommended for new configurations, while Live remains the lowest-delay control. Chinese naturalness and Farsi presentation still require native review.
+
+## v0.8.x Appliance Update, Recovery, And Release Hardening
+
+- Keep the existing checksum-verified Church Cap updater and provide a matching appliance-shell path.
+- Document rollback, recovery, and factory-reset procedures while keeping identity and secrets outside release folders.
 
 - Run a repeatable test matrix across macOS, Windows CPU, Windows NVIDIA, Linux CPU, Linux NVIDIA, AlmaLinux CPU appliance, and AlmaLinux GPU appliance.
 - Add diagnostics that clearly report deployment profile, CUDA readiness, audio device formats, and translation capacity.

@@ -4,3 +4,4 @@
 # Fast Core / CTranslate2 INT8 is installed separately by scripts/install-small100-ct2-int8.*.
 # Legacy PyTorch Core / SMaLL-100 is installed separately by scripts/install-small100-core.*.
 argostranslate==1.9.6
+OpenCC==1.4.1

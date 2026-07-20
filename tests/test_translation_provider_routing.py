@@ -1,7 +1,16 @@
+import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from app.i18n import LocalTranslator, TranslationResult
+from app.i18n import (
+    CHINESE_SIMPLIFIED,
+    CHINESE_TRADITIONAL,
+    LANGUAGE_BY_CODE,
+    LocalTranslator,
+    TranslationResult,
+    normalise_language,
+)
 
 
 class FakeCT2Result:
@@ -109,12 +118,20 @@ class ResourceStubTranslator(LocalTranslator):
 
 
 class TranslationProviderRoutingTests(unittest.TestCase):
+    def test_argos_stanza_sentence_boundary_pipeline_is_disabled(self):
+        self.assertEqual(os.environ.get("ARGOS_STANZA_AVAILABLE"), "0")
+
     def test_both_mode_prefers_recommended_fast_core_when_available(self):
         translator = StubTranslator()
         result = translator.translate("Good morning", "fr", enabled=True, provider="both")
         self.assertTrue(result.applied)
         self.assertEqual(result.text, "fast core text")
         self.assertEqual([call[0] for call in translator.calls], ["ct2small100"])
+        self.assertEqual(result.requested_provider, "both")
+        self.assertEqual(result.actual_provider, "ct2small100")
+        self.assertEqual(result.fallback_chain, ("ct2small100",))
+        self.assertEqual(result.retry_count, 0)
+        self.assertEqual(result.outcome, "applied")
 
     def test_both_mode_falls_back_to_base_argos_before_compatibility_core(self):
         translator = StubTranslator()
@@ -123,6 +140,18 @@ class TranslationProviderRoutingTests(unittest.TestCase):
         self.assertTrue(result.applied)
         self.assertEqual(result.text, "argos text")
         self.assertEqual([call[0] for call in translator.calls], ["ct2small100", "argos"])
+        self.assertEqual(result.actual_provider, "argos")
+        self.assertEqual(result.fallback_chain, ("ct2small100", "argos"))
+        self.assertEqual(result.retry_count, 1)
+
+    def test_provider_failure_has_a_machine_readable_failed_outcome(self):
+        translator = StubTranslator()
+        translator.argos_result = TranslationResult("Good morning", False, "Argos Translate failed: simulated")
+        result = translator.translate("Good morning", "fr", enabled=True, provider="argos")
+        self.assertFalse(result.applied)
+        self.assertEqual(result.outcome, "failed")
+        self.assertEqual(result.requested_provider, "argos")
+        self.assertEqual(result.actual_provider, "argos")
 
     def test_argos_aliases_norwegian_bokmal_to_norwegian(self):
         translator = ResourceStubTranslator()
@@ -144,6 +173,44 @@ class TranslationProviderRoutingTests(unittest.TestCase):
         self.assertEqual(translator.fake_tokenizer.tgt_lang_when_tokenized, "fr")
         self.assertEqual(translator.fake_translator.calls[0][1].get("target_prefix"), None)
 
+    def test_chinese_language_codes_are_kept_separate_and_legacy_zh_is_simplified(self):
+        self.assertIn(CHINESE_SIMPLIFIED, LANGUAGE_BY_CODE)
+        self.assertIn(CHINESE_TRADITIONAL, LANGUAGE_BY_CODE)
+        self.assertNotIn("zh", LANGUAGE_BY_CODE)
+        self.assertEqual(normalise_language("zh"), CHINESE_SIMPLIFIED)
+        self.assertEqual(normalise_language("zh-CN"), CHINESE_SIMPLIFIED)
+        self.assertEqual(normalise_language("zh-HK"), CHINESE_TRADITIONAL)
+        self.assertEqual(normalise_language("zh-Hant"), CHINESE_TRADITIONAL)
+
+    def test_chinese_variant_is_enforced_after_any_provider_translation(self):
+        translator = StubTranslator()
+        with patch.object(
+            translator,
+            "_convert_chinese_script",
+            return_value=("歡迎來到教會", "s2hk", "1.4.1"),
+        ) as convert:
+            result = translator.translate(
+                "Welcome to church",
+                CHINESE_TRADITIONAL,
+                enabled=True,
+                provider="ct2small100",
+            )
+
+        self.assertTrue(result.applied)
+        self.assertEqual(result.text, "歡迎來到教會")
+        self.assertEqual(result.target_variant, CHINESE_TRADITIONAL)
+        self.assertEqual(result.conversion_profile, "s2hk")
+        self.assertEqual(result.conversion_profile_version, "1.4.1")
+        convert.assert_called_once_with("fast core text", CHINESE_TRADITIONAL)
+
+    def test_small100_routes_both_chinese_variants_through_model_chinese(self):
+        translator = CT2RuntimeStubTranslator()
+
+        result = translator._translate_with_ct2small100("Good morning", CHINESE_TRADITIONAL)
+
+        self.assertTrue(result.applied)
+        self.assertEqual(translator.fake_tokenizer.tgt_lang_when_tokenized, "zh")
+
     def test_restricted_policy_filters_audience_available_languages(self):
         source = Path("app/broadcast.py").read_text(encoding="utf-8")
 
@@ -159,17 +226,22 @@ class TranslationProviderRoutingTests(unittest.TestCase):
         self.assertIn("requestable_languages = sorted(provider_languages - self.translation_allowed_languages - {self.source_language})", source)
         self.assertIn('"requestable_languages": requestable_languages', source)
 
-    def test_translation_timing_mode_can_wait_for_stable_english(self):
+    def test_translation_timing_mode_uses_responsive_stable_english(self):
         runtime = Path("app/runtime_config.py").read_text(encoding="utf-8")
         broadcast = Path("app/broadcast.py").read_text(encoding="utf-8")
         operator = Path("app/templates/operator.html").read_text(encoding="utf-8")
         main = Path("app/main.py").read_text(encoding="utf-8")
 
-        self.assertIn('"translation_timing_mode": "live"', runtime)
-        self.assertIn('minimum_gap = 2.8 if self.translation_timing_mode == "stable" else 2.0', broadcast)
-        self.assertIn('minimum_words = 5 if self.translation_timing_mode == "stable" else 3', broadcast)
+        self.assertIn('"translation_timing_mode": "responsive"', runtime)
+        self.assertIn('self.translation_timing_mode == "responsive"', broadcast)
+        self.assertIn('minimum_gap = 1.5', broadcast)
+        self.assertIn('minimum_words = 3', broadcast)
         self.assertIn("updates during speech after the wording settles", broadcast)
         self.assertIn("translationTimingMode", operator)
+        self.assertIn('option value="responsive"', operator)
+        self.assertNotIn('option value="contextual"', operator)
+        self.assertNotIn('option value="extended"', operator)
+        self.assertIn('{"contextual", "extended"}', broadcast)
         self.assertIn("translation_timing_mode", main)
 
     def test_language_requests_can_be_disabled(self):

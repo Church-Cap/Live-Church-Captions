@@ -15,12 +15,21 @@
   const translationNotice = document.getElementById('translationNotice');
   const captionLoadNotice = document.getElementById('captionLoadNotice');
   const viewerHint = document.getElementById('viewerHint');
+  const viewerNotices = Array.from(document.querySelectorAll('[data-viewer-notice]'));
   const isPhonePage = document.body.classList.contains('phone-page');
   const isPresentationPage = document.body.classList.contains('display-page') || document.body.classList.contains('obs-page');
 
   const MAX_LIVE_SEGMENTS = 120;
   const MAX_TRANSCRIPT_ITEMS = 1000;
   const SOURCE_LANGUAGE = 'en';
+  const VIEWER_LANGUAGE_ALIASES = {
+    zh: 'zh-hans',
+    'zh-cn': 'zh-hans',
+    'zh-sg': 'zh-hans',
+    'zh-hk': 'zh-hant',
+    'zh-mo': 'zh-hant',
+    'zh-tw': 'zh-hant',
+  };
   const UI_STRINGS = window.CC_UI_STRINGS || {};
   const UI_STRING_SOURCES = window.CC_UI_STRING_SOURCES || {};
   const LANGUAGES = window.CC_LANGUAGES || [{code: 'en', native: 'English', flag: '', dir: 'ltr'}];
@@ -33,10 +42,17 @@
   let paused = false;
   let fontScale = Number(localStorage.getItem('captionFontScale') || '1');
   let comfortMode = localStorage.getItem('captionComfortMode') === '1';
-  let transcriptVisible = localStorage.getItem('captionTranscriptVisible') !== '0';
+  // The transcript is an optional secondary reader and starts closed on every
+  // audience-page visit so the Live feed receives the available space first.
+  let transcriptVisible = false;
   let viewerThemePreference = initialiseViewerThemePreference();
   let viewerTheme = resolveViewerTheme();
-  let viewerLanguage = localStorage.getItem('captionLanguage') || navigator.language?.split('-')[0] || SOURCE_LANGUAGE;
+  const preferredLanguage = String(localStorage.getItem('captionLanguage') || navigator.language || SOURCE_LANGUAGE).toLowerCase();
+  let viewerLanguage = VIEWER_LANGUAGE_ALIASES[preferredLanguage] || preferredLanguage;
+  if (!LANGUAGES.find(l => l.code === viewerLanguage)) {
+    const baseLanguage = preferredLanguage.split('-')[0];
+    viewerLanguage = VIEWER_LANGUAGE_ALIASES[baseLanguage] || baseLanguage;
+  }
   if (!LANGUAGES.find(l => l.code === viewerLanguage)) viewerLanguage = SOURCE_LANGUAGE;
   if (Array.isArray(translationState.available_languages) && !translationState.available_languages.includes(viewerLanguage)) {
     viewerLanguage = SOURCE_LANGUAGE;
@@ -54,20 +70,26 @@
   let blockQueue = [];
   let blockTimer = null;
   let currentDraftText = '';
+  let currentDraftUnitId = null;
+  let currentDraftRevision = 0;
+  let currentDraftStableWordCount = 0;
+  let currentDraftLines = [];
+  let currentDraftLayoutChars = 0;
+  let suppressSubtitleGlideOnce = false;
   let systemMessageText = '';
   let systemMessageKey = '';
   let systemMessageFallback = '';
-  let lastPartialShownAt = 0;
   let historyLogEnabled = true;
   let socket = null;
   let reconnectTimer = null;
   let manualReconnect = false;
   let captionLoadNoticeTimer = null;
   let captionLoadNoticeShownAt = 0;
+  let translationNoticeDismissed = false;
+  let captionMeasureContext = null;
   const uiStringRequests = new Map();
   const uiStringResolved = new Set();
 
-  const MIN_PARTIAL_UPDATE_MS = 1100;
   const TARGET_READING_CPS = 19;
   const MIN_BLOCK_MS = 1100;
   const MAX_BLOCK_MS = 3600;
@@ -111,6 +133,11 @@
     systemMessageFallback = fallback || '';
     systemMessageText = uiText(key, fallback);
     currentDraftText = '';
+    currentDraftUnitId = null;
+    currentDraftRevision = 0;
+    currentDraftStableWordCount = 0;
+    currentDraftLines = [];
+    currentDraftLayoutChars = 0;
     renderSubtitleStack();
     if (viewerLanguage !== SOURCE_LANGUAGE) {
       await ensureLanguageUiStrings(viewerLanguage, {showLoading: false});
@@ -127,6 +154,30 @@
     connection.dataset.connectionKey = key;
     connection.textContent = t(key) || key;
     connection.classList.toggle('ok', !!ok);
+  }
+
+  function syncViewerNoticeLayout() {
+    const visibleNotices = viewerNotices.filter(notice => notice.isConnected && !notice.hidden).length;
+    document.body.classList.toggle('viewer-notices-visible', visibleNotices > 0);
+    if (viewerHint) {
+      viewerHint.textContent = t(visibleNotices > 0 ? 'close_notices_hint' : 'line_by_line');
+    }
+    window.requestAnimationFrame(() => {
+      renderSubtitleStack();
+      renderHistoryRoll();
+    });
+  }
+
+  function dismissViewerNotice(button) {
+    const notice = button.closest('[data-viewer-notice]');
+    if (!notice) return;
+    if (notice === translationNotice || button.dataset.dismissViewerNotice === 'hide') {
+      translationNoticeDismissed = notice === translationNotice;
+      notice.hidden = true;
+    } else {
+      notice.remove();
+    }
+    syncViewerNoticeLayout();
   }
 
   function applyLanguage({fetchUiStrings = true} = {}) {
@@ -166,7 +217,7 @@
       systemMessageText = uiText(systemMessageKey, systemMessageFallback);
     }
     if (current && current.dataset.i18n === 'waiting') current.textContent = t('waiting');
-    if (translationNotice) translationNotice.hidden = viewerLanguage === SOURCE_LANGUAGE;
+    if (translationNotice) translationNotice.hidden = viewerLanguage === SOURCE_LANGUAGE || translationNoticeDismissed;
     localStorage.setItem('captionLanguage', viewerLanguage);
     applyViewerTheme();
     applyComfortMode();
@@ -174,6 +225,7 @@
     renderLanguageList(languageSearch?.value || '');
     renderSubtitleStack();
     renderHistoryRoll();
+    syncViewerNoticeLayout();
     if (fetchUiStrings) ensureLanguageUiStrings(viewerLanguage);
   }
 
@@ -361,7 +413,6 @@
     document.body.classList.toggle('transcript-hidden', !transcriptVisible);
     if (historyWrap) historyWrap.hidden = !transcriptVisible;
     updateTranscriptToggleButton();
-    localStorage.setItem('captionTranscriptVisible', transcriptVisible ? '1' : '0');
     if (transcriptVisible) renderHistoryRoll();
     renderSubtitleStack();
   }
@@ -373,9 +424,11 @@
     const estimatedLineHeight = current ? Math.max(24, parseFloat(getComputedStyle(current).lineHeight) || 30) : 30;
     const availableHeight = current ? Math.max(220, current.clientHeight - 24) : 300;
     const capacity = isPresentationPage ? 2 : Math.max(4, Math.floor(availableHeight / estimatedLineHeight));
+    const maxLines = isPresentationPage ? 2 : Math.max(4, capacity);
     return {
       chars: Math.max(28, Math.round(baseChars / Math.max(fontScale, 0.9))),
-      maxLines: isPresentationPage ? 2 : Math.max(4, capacity),
+      maxLines,
+      renderLines: isPhonePage ? Math.min(36, Math.max(maxLines, maxLines * 3)) : maxLines,
     };
   }
 
@@ -495,13 +548,35 @@
     return sentences.map(part => part.trim()).filter(Boolean);
   }
 
+  function captionLineWidthLimit() {
+    if (!current || !current.clientWidth) return null;
+    const style = getComputedStyle(current);
+    if (!captionMeasureContext) {
+      captionMeasureContext = document.createElement('canvas').getContext('2d');
+    }
+    if (!captionMeasureContext) return null;
+    captionMeasureContext.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const horizontalPadding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    return Math.max(120, current.clientWidth - horizontalPadding - 6);
+  }
+
+  function streamTextFits(text, maxChars, maxPixels) {
+    if (String(text || '').length > maxChars) return false;
+    if (!captionMeasureContext || !maxPixels) return true;
+    return captionMeasureContext.measureText(text).width <= maxPixels;
+  }
+
   function wrapStreamSentence(sentence, maxChars) {
-    const words = String(sentence || '').split(/\s+/).filter(Boolean);
+    const source = String(sentence || '').trim();
+    const spaced = /\s/u.test(source);
+    const words = spaced ? source.split(/\s+/).filter(Boolean) : Array.from(source);
+    const separator = spaced ? ' ' : '';
+    const maxPixels = captionLineWidthLimit();
     const lines = [];
     let line = '';
     for (const word of words) {
-      const next = line ? `${line} ${word}` : word;
-      if (line && next.length > maxChars) {
+      const next = line ? `${line}${separator}${word}` : word;
+      if (line && !streamTextFits(next, maxChars, maxPixels)) {
         lines.push(line);
         line = word;
       } else {
@@ -514,6 +589,48 @@
 
   function splitCaptionForStream(text, maxChars) {
     return splitCaptionSentences(text).flatMap(sentence => wrapStreamSentence(sentence, maxChars));
+  }
+
+  function extendDraftLines(previousText, previousLines, nextText, maxChars) {
+    const before = String(previousText || '').replace(/\s+/g, ' ').trim();
+    const after = String(nextText || '').replace(/\s+/g, ' ').trim();
+    if (!before || !previousLines.length || (after !== before && !after.startsWith(`${before} `))) {
+      return splitCaptionForStream(after, maxChars);
+    }
+    if (after === before) return previousLines.slice();
+    const suffix = after.slice(before.length).trim();
+    const stableLines = previousLines.slice(0, -1);
+    const growingTail = `${previousLines[previousLines.length - 1]} ${suffix}`.trim();
+    return [...stableLines, ...splitCaptionForStream(growingTail, maxChars)];
+  }
+
+  function reviseMutableDraftTail(previousText, previousLines, nextText, stableWordCount, maxChars) {
+    const afterWords = String(nextText || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    const beforeComparable = wordsForCompare(previousText);
+    const afterComparable = wordsForCompare(nextText);
+    let commonPrefix = 0;
+    while (
+      commonPrefix < beforeComparable.length &&
+      commonPrefix < afterComparable.length &&
+      beforeComparable[commonPrefix] === afterComparable[commonPrefix]
+    ) {
+      commonPrefix += 1;
+    }
+
+    // Preserve every complete line that is both unchanged and inside the
+    // server-confirmed prefix. Rewrap only the line containing the mutable
+    // tail and the lines after it.
+    const stableBoundary = Math.min(commonPrefix, Math.max(0, Number(stableWordCount || 0)));
+    const preserved = [];
+    let consumedWords = 0;
+    for (const line of previousLines) {
+      const lineWordCount = String(line || '').trim().split(/\s+/).filter(Boolean).length;
+      if (!lineWordCount || consumedWords + lineWordCount > stableBoundary) break;
+      preserved.push(line);
+      consumedWords += lineWordCount;
+    }
+    const mutableText = afterWords.slice(consumedWords).join(' ');
+    return [...preserved, ...splitCaptionForStream(mutableText, maxChars)];
   }
 
   function stripCommittedPrefix(text) {
@@ -555,21 +672,39 @@
     if (systemLineItems.length) {
       visible = systemLineItems.slice(-limits.maxLines);
     } else {
-      const finalItems = finalSegments.flatMap(seg =>
-        splitCaptionForStream(seg.text, limits.chars).map((text, index) => ({
-          id: `${seg.id}:stream:${index}`,
-          text,
+      const finalItems = finalSegments.flatMap((seg) => {
+        const layoutWidth = current ? Math.round(current.clientWidth) : 0;
+        if (
+          seg.layoutChars !== limits.chars ||
+          seg.layoutWidth !== layoutWidth ||
+          !Array.isArray(seg.lines) ||
+          !seg.lines.length
+        ) {
+          seg.lines = splitCaptionForStream(seg.text, limits.chars).map((text, index) => ({
+            id: `${seg.id}:stream:${index}`,
+            text,
+          }));
+          seg.layoutChars = limits.chars;
+          seg.layoutWidth = layoutWidth;
+        }
+        return seg.lines.map(line => ({
+          id: line.id,
+          text: line.text,
           active: seg.id === latestFinalId,
-        }))
-      );
+        }));
+      });
+      if (currentDraftText && (currentDraftLayoutChars !== limits.chars || !currentDraftLines.length)) {
+        currentDraftLines = splitCaptionForStream(currentDraftText, limits.chars);
+        currentDraftLayoutChars = limits.chars;
+      }
       const draftItems = currentDraftText
-        ? splitCaptionForStream(currentDraftText, limits.chars).map((text, index) => ({
-            id: `draft:stream:${index}`,
+        ? currentDraftLines.map((text, index) => ({
+            id: `${currentDraftUnitId || 'draft'}:stream:${index}`,
             text,
             active: true,
           }))
         : [];
-      visible = [...finalItems, ...draftItems].slice(-limits.maxLines);
+      visible = [...finalItems, ...draftItems].slice(-limits.renderLines);
     }
 
     pendingCurrentText = visible;
@@ -577,6 +712,9 @@
     rafScheduled = true;
     requestAnimationFrame(() => {
       if (current && Array.isArray(pendingCurrentText)) {
+        const previousScrollTop = current.scrollTop;
+        const distanceFromBottom = current.scrollHeight - current.scrollTop - current.clientHeight;
+        const shouldFollowLive = distanceFromBottom <= 32;
         const previousRects = new Map();
         const previousTexts = new Map();
         current.querySelectorAll('.subtitle-line').forEach((el) => {
@@ -606,7 +744,16 @@
             frag.appendChild(p);
           });
           current.appendChild(frag);
-          animateSubtitleGlide(previousRects);
+          // The audience reader is a fixed ledger: vertical FLIP movement made
+          // live words appear to bounce. Presentation mode retains the glide;
+          // phone viewers get only the subtle newest-word fade.
+          if (isPresentationPage && !suppressSubtitleGlideOnce) animateSubtitleGlide(previousRects);
+        }
+        suppressSubtitleGlideOnce = false;
+        if (shouldFollowLive) {
+          current.scrollTop = current.scrollHeight;
+        } else {
+          current.scrollTop = Math.min(previousScrollTop, Math.max(0, current.scrollHeight - current.clientHeight));
         }
       }
       pendingCurrentText = null;
@@ -844,13 +991,39 @@
       : {text: segmentOrText, id};
     const text = cleanCaptionText(segment.text);
     if (!text || paused) return;
-    const key = normaliseId(text, segment.id);
-    if (seenIds.has(key)) return;
+    const key = normaliseId(text, segment.cue_id || segment.source_unit_id || segment.id);
+    const revision = Number(segment.cue_revision || segment.source_revision || 0);
+    const existingIndex = finalSegments.findIndex(item => item.id === key);
+    const existing = existingIndex >= 0 ? finalSegments[existingIndex] : null;
+    if (existing && revision && Number(existing.revision || 0) > revision) return;
+    if (existing && existing.text === text) return;
     seenIds.add(key);
 
     const limits = subtitleLimits();
-    const lines = splitSubtitleBlock(text, limits.chars).map((line, index) => ({id: `${key}:${index}`, text: line}));
-    finalSegments.push({id: key, text, lines, createdAt: segment.created_at || segment.createdAt || null});
+    let lineTexts;
+    if (currentDraftUnitId === key && currentDraftText && currentDraftLayoutChars === limits.chars) {
+      const finalStableWords = wordsForCompare(text).length;
+      lineTexts = text === currentDraftText
+        ? currentDraftLines.slice()
+        : reviseMutableDraftTail(currentDraftText, currentDraftLines, text, finalStableWords, limits.chars);
+    } else {
+      lineTexts = splitCaptionForStream(text, limits.chars);
+    }
+    const lines = lineTexts.map((line, index) => ({id: `${key}:stream:${index}`, text: line}));
+    const nextFinal = {
+      id: key,
+      text,
+      lines,
+      layoutChars: limits.chars,
+      layoutWidth: current ? Math.round(current.clientWidth) : 0,
+      createdAt: segment.created_at || segment.createdAt || existing?.createdAt || null,
+      revision,
+    };
+    if (existingIndex >= 0) {
+      finalSegments[existingIndex] = nextFinal;
+    } else {
+      finalSegments.push(nextFinal);
+    }
     finalSegments = finalSegments.slice(-MAX_LIVE_SEGMENTS);
     if (log) {
       const finalNorm = normaliseLogText(text);
@@ -861,11 +1034,25 @@
       });
       addLogEntry(text, key, {draft: false, createdAt: segment.created_at || segment.createdAt || null});
     }
-    currentDraftText = '';
+    if (!currentDraftUnitId || currentDraftUnitId === key) {
+      if (currentDraftUnitId === key && currentDraftText) suppressSubtitleGlideOnce = true;
+      currentDraftText = '';
+      currentDraftUnitId = null;
+      currentDraftRevision = 0;
+      currentDraftStableWordCount = 0;
+      currentDraftLines = [];
+      currentDraftLayoutChars = 0;
+    }
     systemMessageText = '';
     systemMessageKey = '';
     systemMessageFallback = '';
-    queueStableBlock({id: key, text, lines});
+    if (existingIndex >= 0) {
+      if (activeBlock?.id === key) activeBlock = {id: key, text, lines};
+      blockQueue = blockQueue.map(block => block.id === key ? {id: key, text, lines} : block);
+      renderSubtitleStack();
+    } else {
+      queueStableBlock({id: key, text, lines});
+    }
     renderHistoryRoll();
   }
 
@@ -882,6 +1069,23 @@
     }
     renderHistoryRoll();
     return true;
+  }
+
+  function applyLiveSourceUpdates(items) {
+    if (!Array.isArray(items) || !items.length) return false;
+    let applied = false;
+    for (const sourceUnit of items) {
+      const text = cleanCaptionText(sourceUnit?.text);
+      if (!text) continue;
+      const unit = {...sourceUnit, text};
+      if (unit.is_final) {
+        addHistory(unit, null, {log: false});
+      } else {
+        updateDraft(unit, {force: true, log: false});
+      }
+      applied = true;
+    }
+    return applied;
   }
 
   function renderHistoryFromState(items) {
@@ -931,6 +1135,11 @@
     activeBlock = next;
     activeBlockUntil = Date.now() + readingDurationMs(next.text);
     currentDraftText = '';
+    currentDraftUnitId = null;
+    currentDraftRevision = 0;
+    currentDraftStableWordCount = 0;
+    currentDraftLines = [];
+    currentDraftLayoutChars = 0;
     renderSubtitleStack();
     renderHistoryRoll();
     scheduleBlockAdvance();
@@ -946,15 +1155,24 @@
     }
   }
 
-  function updateDraft(segmentOrText, {force = false, log = true} = {}) {
+  function updateDraft(segmentOrText, {log = true} = {}) {
     const segment = typeof segmentOrText === 'object' && segmentOrText !== null
       ? segmentOrText
       : {text: segmentOrText};
     const text = cleanCaptionText(segment.text);
     if (paused) return;
+    const unitId = segment.cue_id || segment.source_unit_id || null;
+    const revision = Number(segment.cue_revision || segment.source_revision || 0);
+    const stableWordCount = Number(segment.cue_stable_word_count || 0);
+    if (unitId && unitId === currentDraftUnitId && revision && revision < currentDraftRevision) return;
     const displayText = stripCommittedPrefix(text);
     if (!displayText) {
       currentDraftText = '';
+      currentDraftUnitId = null;
+      currentDraftRevision = 0;
+      currentDraftStableWordCount = 0;
+      currentDraftLines = [];
+      currentDraftLayoutChars = 0;
       if (isPhonePage && log) renderHistoryRoll();
       renderSubtitleStack();
       return;
@@ -963,14 +1181,27 @@
     const currentWords = wordsForCompare(currentDraftText);
     const nextWords = wordsForCompare(displayText);
     const wordDelta = Math.abs(nextWords.length - currentWords.length);
-    const enoughTime = now - lastPartialShownAt >= MIN_PARTIAL_UPDATE_MS;
-    if (!force && currentDraftText && !enoughTime && wordDelta < 3) return;
+    const sameCue = Boolean(unitId && unitId === currentDraftUnitId);
+    const previousDraftText = currentDraftText;
+    const limits = subtitleLimits();
+    const forwardExtension = sameCue && (
+      displayText === previousDraftText || displayText.startsWith(`${previousDraftText} `)
+    );
+    currentDraftLines = forwardExtension
+      ? extendDraftLines(previousDraftText, currentDraftLines, displayText, limits.chars)
+      : (sameCue
+          ? reviseMutableDraftTail(previousDraftText, currentDraftLines, displayText, stableWordCount, limits.chars)
+          : splitCaptionForStream(displayText, limits.chars));
+    currentDraftLayoutChars = limits.chars;
+    if (sameCue && previousDraftText && !forwardExtension) suppressSubtitleGlideOnce = true;
     currentDraftText = displayText;
+    currentDraftUnitId = unitId;
+    currentDraftRevision = revision;
+    currentDraftStableWordCount = stableWordCount;
     if (log) addDraftToLog(displayText, segment.created_at || segment.createdAt || null);
     systemMessageText = '';
     systemMessageKey = '';
     systemMessageFallback = '';
-    lastPartialShownAt = now;
     if (activeBlock && (now >= activeBlockUntil || wordDelta >= 2)) activeBlock = null;
     renderSubtitleStack();
   }
@@ -981,10 +1212,20 @@
     if (Array.isArray(state.history)) renderHistoryFromState(state.history);
     if (state.sensitive_mode) {
       currentDraftText = '';
+      currentDraftUnitId = null;
+      currentDraftRevision = 0;
+      currentDraftStableWordCount = 0;
+      currentDraftLines = [];
+      currentDraftLayoutChars = 0;
       showSystemMessageFromKey('sensitive_paused_message', state.current?.text || '');
       return;
     }
     currentDraftText = state.current?.text ? stripCommittedPrefix(cleanCaptionText(state.current.text)) : '';
+    currentDraftUnitId = state.current?.cue_id || state.current?.source_unit_id || null;
+    currentDraftRevision = Number(state.current?.cue_revision || state.current?.source_revision || 0);
+    currentDraftStableWordCount = Number(state.current?.cue_stable_word_count || 0);
+    currentDraftLines = currentDraftText ? splitCaptionForStream(currentDraftText, subtitleLimits().chars) : [];
+    currentDraftLayoutChars = subtitleLimits().chars;
     if (currentDraftText || finalSegments.length) hideCaptionLoadNotice();
     renderSubtitleStack();
   }
@@ -1045,13 +1286,28 @@
         const text = cleanCaptionText(seg.text);
         if (!text) {
           currentDraftText = '';
+          currentDraftUnitId = null;
+          currentDraftRevision = 0;
+          currentDraftStableWordCount = 0;
+          currentDraftLines = [];
+          currentDraftLayoutChars = 0;
           renderSubtitleStack();
           return;
         }
         hideCaptionLoadNotice();
         seg.text = text;
         const hasTranscriptUpdates = applyTranscriptUpdates(payload.transcript_updates);
-        if (seg.is_final) {
+        if (payload.language === SOURCE_LANGUAGE) {
+          const hasLiveSourceUpdates = applyLiveSourceUpdates(payload.live_source_updates);
+          if (!seg.is_final && !hasLiveSourceUpdates && !currentDraftText && !finalSegments.length) {
+            // The raw Whisper draft is only an initial empty-screen fallback.
+            // Once a revision-aware unit exists, retaining that unit is safer
+            // than replaying Whisper's full rolling window after a correction.
+            updateDraft(seg, {log: !hasTranscriptUpdates && !hasLiveSourceUpdates});
+          } else if (seg.is_final && !hasLiveSourceUpdates && !finalSegments.length) {
+            addHistory(seg, null, {log: !hasTranscriptUpdates});
+          }
+        } else if (seg.is_final) {
           addHistory(seg, null, {log: !hasTranscriptUpdates});
         } else {
           updateDraft(seg, {log: !hasTranscriptUpdates});
@@ -1072,6 +1328,11 @@
         blockQueue = [];
         if (blockTimer) clearTimeout(blockTimer);
         currentDraftText = '';
+        currentDraftUnitId = null;
+        currentDraftRevision = 0;
+        currentDraftStableWordCount = 0;
+        currentDraftLines = [];
+        currentDraftLayoutChars = 0;
         systemMessageText = '';
         systemMessageKey = '';
         systemMessageFallback = '';
@@ -1114,6 +1375,11 @@
     blockQueue = [];
     if (blockTimer) clearTimeout(blockTimer);
     currentDraftText = '';
+    currentDraftUnitId = null;
+    currentDraftRevision = 0;
+    currentDraftStableWordCount = 0;
+    currentDraftLines = [];
+    currentDraftLayoutChars = 0;
     systemMessageText = '';
     seenIds.clear();
     seenLogIds.clear();
@@ -1263,6 +1529,10 @@
     document.addEventListener('pointerdown', requestScreenWakeLock, {once: true});
   }
 
+  document.querySelectorAll('[data-dismiss-viewer-notice]').forEach((button) => {
+    button.addEventListener('click', () => dismissViewerNotice(button));
+  });
+
   document.getElementById('largerText')?.addEventListener('click', () => {
     fontScale = Math.min(1.8, fontScale + 0.1);
     applyFontScale();
@@ -1309,6 +1579,11 @@
     blockQueue = [];
     if (blockTimer) clearTimeout(blockTimer);
     currentDraftText = '';
+    currentDraftUnitId = null;
+    currentDraftRevision = 0;
+    currentDraftStableWordCount = 0;
+    currentDraftLines = [];
+    currentDraftLayoutChars = 0;
     systemMessageText = '';
     renderSubtitleStack();
     seenIds.clear();
@@ -1329,7 +1604,7 @@
   applyViewerTheme();
   applyComfortMode();
   applyTranscriptVisibility();
-  if (viewerHint) viewerHint.textContent = t('line_by_line');
+  syncViewerNoticeLayout();
   renderSubtitleStack();
   connect();
 })();

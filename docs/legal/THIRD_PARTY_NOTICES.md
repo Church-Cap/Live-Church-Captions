@@ -1,8 +1,8 @@
 # Third-Party Notices
 
-Last reviewed: 2026-06-30
+Last reviewed: 2026-07-15
 
-Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for the v0.6.0 public preview.
+Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for v0.7.0.
 
 The repository does not vendor Python packages, Whisper model weights, Argos model packages, Homebrew packages, operating-system packages, font files, browser packages, certificates, or a prebuilt `.venv`. Installers download dependencies into the user's local environment or ask the operating system package manager to install them. If you distribute a packaged app, appliance image, wheelhouse, Docker image, or prebuilt virtual environment, generate notices from that exact artifact.
 
@@ -12,12 +12,12 @@ These are the direct dependencies pinned in `requirements.txt` and `requirements
 
 | Component | Version | Purpose | Licence / notice |
 |---|---:|---|---|
-| FastAPI | 0.115.6 | Web application/API framework | MIT |
+| FastAPI | 0.139.2 | Web application/API framework | MIT |
 | Uvicorn | 0.34.0 | ASGI web server | BSD |
-| Jinja2 | 3.1.5 | HTML templating | BSD-3-Clause |
+| Jinja2 | 3.1.6 | HTML templating | BSD-3-Clause |
 | qrcode | 8.0 | QR code generation | BSD |
 | Pillow | resolved by `qrcode[pil]` | Image handling for QR codes | HPND-style Pillow licence; exact installed version should be recorded if bundling wheels or a packaged environment |
-| python-multipart | 0.0.27 | Form parsing for FastAPI routes | Apache-2.0 |
+| python-multipart | 0.0.32 | Form parsing for FastAPI routes | Apache-2.0 |
 | pydantic-settings | 2.7.1 | Environment/settings loading | MIT |
 | NumPy | 2.2.1 | Numerical/audio processing support | BSD-3-Clause; binary wheels may include additional notices such as OpenBLAS/LAPACK/GCC runtime components |
 | sounddevice | 0.5.1 | Audio input capture | MIT; uses the system PortAudio library |
@@ -27,6 +27,7 @@ These are the direct dependencies pinned in `requirements.txt` and `requirements
 | standard-library `http.server`, `http.client`, `subprocess`, `json`, `hashlib`, `hmac`, `secrets` | Python bundled | Appliance shell/proxy, PIN hashing, and local system commands | Python Software Foundation License; no extra package installed |
 | cryptography | >=42.0.0 | Local transcript cache encryption | Apache-2.0 or BSD-3-Clause |
 | argostranslate | 1.9.6 | Optional local Base translation provider installed by setup or the operator language-resource installer | MIT or CC0, per Argos Translate project metadata |
+| OpenCC | 1.4.1 | Deterministic Simplified and Hong Kong Traditional Chinese script/phrase conversion after local translation | Apache-2.0 |
 | ctranslate2, transformers, sentencepiece, safetensors | installed only by optional Fast Core / Core translation setup | Optional SMaLL-100 conversion and translation runtime | MIT / Apache-2.0 / BSD-style / Apache-2.0, confirm exact resolved versions if distributing a packaged build |
 
 ## Important Transitive Dependencies
@@ -90,8 +91,10 @@ Church Cap does not commit or redistribute model weights in this repository.
 - The default model setting is `base.en`.
 - Confirm the licence for every speech-to-text model you ship, cache, mirror, or bundle.
 - Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS/Linux or `scripts/install-translation-models-argos.ps1` on Windows during setup, from the operator **Languages** page, or when the translation installer is rerun manually.
-- Confirm the licence for every Argos language package you redistribute or preinstall.
+- Confirm the licence for every Argos language package you use, redistribute, or preinstall. The Argos application code is MIT/CC0, but model packages are separate artifacts and some package metadata has historically omitted an explicit licence. Do not assume the library licence automatically covers every downloaded model.
+- Church Cap disables Argos's optional Stanza sentence-boundary pipeline before importing Argos. Church Cap translates short bounded cues, so this avoids loading packaged Stanza model files and avoids service-time Stanza resource checks. Argos 1.9.6 still pins older Stanza and SentencePiece packages; treat Argos model packages as trusted local resources, install them only through the documented operator/setup flow, and reassess the pin when Argos publishes a compatible fixed dependency set.
 - Optional Fast Core translation downloads and converts `alirezamsh/small100` when `scripts/install-small100-ct2-int8.sh` or `scripts/install-small100-ct2-int8.ps1` is run. Optional legacy Core translation downloads the same model when `scripts/install-small100-core.sh` or `scripts/install-small100-core.ps1` is run. The Hugging Face model card lists SMaLL-100 as MIT licensed and covering 101 languages. Confirm the licence again before redistributing model weights or converted CTranslate2 files.
+- OpenCC is installed by the translation installers and is used only for deterministic Chinese script and regional-phrase conversion. Its official project and PyPI metadata list Apache-2.0.
 
 Do not assume every model hosted online is safe to redistribute or use commercially. Model code, model weights, training data, and conversion scripts may have different licences.
 

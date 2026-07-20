@@ -3,7 +3,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 
 
 class Settings(BaseSettings):
@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     stream_silence_finalise_seconds: float = 1.45
     stream_min_rms: float = 0.006
     stream_stability_passes: int = 2
+    stream_word_timestamps_enabled: bool = True
+    stream_edge_guard_seconds: float = 0.32
+    stream_edge_confidence_threshold: float = 0.65
+    stream_committed_audio_overlap_seconds: float = 1.0
     whisper_initial_prompt: str = "Church service audio with prayer, Bible readings, worship, sermon, Scripture, Jesus Christ, Holy Spirit, Psalm, Psalms, Ephesians, Corinthians, Thessalonians."
 
     # Optional local translation scaffolding. Provider/language settings are prepared
@@ -41,6 +45,7 @@ class Settings(BaseSettings):
     translation_provider: str = "argos"  # argos, ct2small100, small100, both, demo; disabled is also accepted
     translation_allowed_languages: str = "en"
     translation_max_active_languages: int = 2
+    translation_queue_capacity_per_language: int = 8
 
     church_name: str = "Church Cap"
     dnd_reminder: bool = True

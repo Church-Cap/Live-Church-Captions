@@ -31,7 +31,7 @@
         <p class="muted">Diagnostics are available for macOS, Windows, and Linux. They can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted.</p>
         <div class="warning-panel slim-warning">
           <strong>Review before sharing.</strong>
-          <p class="muted">Diagnostics do not include transcripts, passwords, secrets, or <code>.env</code> contents, but system names, device names, error messages, and log details may be sensitive to your church or computer. Do not post the file publicly on GitHub unless you have reviewed it and are comfortable sharing it.</p>
+          <p class="muted">Diagnostics do not include audio, transcripts, captions, translated wording, passwords, secrets, or <code>.env</code> contents, but system names, device names, error messages, and log details may be sensitive to your church or computer. Do not post the file publicly on GitHub unless you have reviewed it and are comfortable sharing it.</p>
         </div>
         <div class="button-row">
           <button type="button" class="secondary-button" onclick="downloadDiagnosticsWithConsent()">Download diagnostics</button>
@@ -52,7 +52,7 @@
   <script>
     function downloadDiagnosticsWithConsent() {
       const ok = window.confirm(
-        'Download diagnostics for support?\n\nThis file can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted. It does not include transcripts, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.'
+        'Download diagnostics for support?\n\nThis file can include Church Cap version, OS version, CPU details, memory size, performance settings, privacy-safe numeric service measurements, and recent updater/CUDA logs with local paths redacted. It does not include audio, transcripts, captions, translated wording, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.'
       );
       if (ok) window.location.href = '/api/diagnostics/export?confirmed=1';
     }

@@ -19,12 +19,13 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
-from app.models import CaptionSegment
-from app.metrics import update_metrics, reset_metrics, get_metrics
+from app.models import CaptionSegment, RecognitionSpan
+from app.metrics import record_transcription, record_transcription_pass_interval, update_metrics
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
 from app.transcription.audio_input import input_default_sample_rate, resample_mono
 from app.hardware import detect_hardware_acceleration, resolve_whisper_runtime
+from app.transcription.streaming_words import IncompleteEdgeGuard, cadence_delay_seconds
 
 
 class FasterWhisperTranscriber(Transcriber):
@@ -43,6 +44,10 @@ class FasterWhisperTranscriber(Transcriber):
         stream_min_rms: float = 0.006,
         stream_stability_passes: int = 2,
         initial_prompt: str | None = None,
+        word_timestamps_enabled: bool = True,
+        edge_guard_seconds: float = 0.32,
+        edge_confidence_threshold: float = 0.65,
+        committed_audio_overlap_seconds: float = 1.0,
     ):
         self.model_name = model_name
         self.requested_device = device
@@ -60,6 +65,14 @@ class FasterWhisperTranscriber(Transcriber):
         self.min_rms = max(float(stream_min_rms), 0.0)
         self.stability_passes = max(int(stream_stability_passes), 1)
         self.initial_prompt = " ".join(str(initial_prompt or "").split()).strip() or None
+        self.word_timestamps_enabled = bool(word_timestamps_enabled)
+        self.edge_guard_seconds = max(0.0, float(edge_guard_seconds))
+        self.edge_confidence_threshold = min(1.0, max(0.0, float(edge_confidence_threshold)))
+        self.committed_audio_overlap_seconds = max(0.5, float(committed_audio_overlap_seconds))
+        self._edge_guard = IncompleteEdgeGuard(
+            margin_seconds=self.edge_guard_seconds,
+            confidence_threshold=self.edge_confidence_threshold,
+        )
 
         self._running = True
         self._executor = ThreadPoolExecutor(max_workers=1)
@@ -68,13 +81,14 @@ class FasterWhisperTranscriber(Transcriber):
         self._audio_buffer: deque[np.ndarray] = deque()
         self._max_buffer_samples = int(self.sample_rate * max(self.window_seconds + 2.0, 8.0))
         self._buffered_samples = 0
+        self._audio_end_monotonic = 0.0
+        self._trim_before_monotonic = 0.0
         self._last_voice_at = 0.0
         self._last_partial = ""
         self._last_final = ""
         self._stream: sd.InputStream | None = None
         self._stable_candidate = ""
         self._stable_count = 0
-        reset_metrics()
         update_metrics(model_name=self.model_name, model_device=self.device, model_compute_type=self.compute_type, audio_device=self.audio_device, sample_rate=self.sample_rate)
 
     def _load_model(self) -> WhisperModel:
@@ -111,6 +125,7 @@ class FasterWhisperTranscriber(Transcriber):
         with self._audio_lock:
             self._audio_buffer.append(audio)
             self._buffered_samples += audio.size
+            self._audio_end_monotonic = now
             while self._buffered_samples > self._max_buffer_samples and self._audio_buffer:
                 removed = self._audio_buffer.popleft()
                 self._buffered_samples -= removed.size
@@ -172,17 +187,36 @@ class FasterWhisperTranscriber(Transcriber):
                         f"then start captions again. Detail: {native_default_exc}"
                     ) from native_default_exc
 
-    def _latest_audio(self, seconds: float | None = None) -> np.ndarray:
+    def _latest_audio(self, seconds: float | None = None) -> tuple[np.ndarray, float]:
         seconds = seconds or self.window_seconds
         wanted = int(self.sample_rate * seconds)
         with self._audio_lock:
             if not self._audio_buffer:
-                return np.zeros(0, dtype=np.float32)
+                return np.zeros(0, dtype=np.float32), time.monotonic()
             parts = list(self._audio_buffer)
+            audio_end = self._audio_end_monotonic or time.monotonic()
+            trim_before = self._trim_before_monotonic
         audio = np.concatenate(parts) if len(parts) > 1 else parts[0]
+        full_start = audio_end - (audio.size / max(1, self.sample_rate))
+        capture_started = max(full_start, audio_end - seconds)
+        if trim_before > 0:
+            capture_started = max(
+                capture_started,
+                trim_before - self.committed_audio_overlap_seconds,
+            )
+        offset = max(0, min(audio.size, int(round((capture_started - full_start) * self.sample_rate))))
+        audio = audio[offset:]
         if audio.size > wanted:
             audio = audio[-wanted:]
-        return audio.astype(np.float32, copy=False)
+            capture_started = audio_end - (audio.size / max(1, self.sample_rate))
+        return audio.astype(np.float32, copy=False), capture_started
+
+    def acknowledge_audio_until(self, end_monotonic: float | None) -> None:
+        """Allow sealed audio to leave future rolling windows, keeping overlap."""
+        if end_monotonic is None:
+            return
+        with self._audio_lock:
+            self._trim_before_monotonic = max(self._trim_before_monotonic, float(end_monotonic))
 
     def _has_recent_voice(self) -> bool:
         return (time.monotonic() - self._last_voice_at) <= self.silence_finalise_seconds
@@ -191,19 +225,22 @@ class FasterWhisperTranscriber(Transcriber):
         with self._audio_lock:
             self._audio_buffer.clear()
             self._buffered_samples = 0
+            self._audio_end_monotonic = 0.0
+            self._trim_before_monotonic = 0.0
         self._last_voice_at = 0.0
         self._last_partial = ""
         self._stable_candidate = ""
         self._stable_count = 0
+        self._edge_guard.reset()
 
 
-    def _transcribe_text(self, audio: np.ndarray) -> str:
+    def _transcribe_text(self, audio: np.ndarray) -> tuple[str, list[RecognitionSpan]]:
         if audio.size < int(self.sample_rate * 0.4):
-            return ""
+            return "", []
         # Skip clear silence/noise. This keeps the model from inventing captions.
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         if rms < self.min_rms / 2:
-            return ""
+            return "", []
 
         model = self._load_model()
         started = time.monotonic()
@@ -221,11 +258,63 @@ class FasterWhisperTranscriber(Transcriber):
             initial_prompt=self.initial_prompt,
             condition_on_previous_text=False,
             without_timestamps=False,
+            word_timestamps=self.word_timestamps_enabled,
         )
-        text = " ".join(" ".join(seg.text.split()) for seg in segments).strip()
+        materialised = list(segments)
+        raw_words: list[str] = []
+        word_spans: list[RecognitionSpan] = []
+        if self.word_timestamps_enabled:
+            for segment in materialised:
+                for word in (getattr(segment, "words", None) or []):
+                    raw_word = str(word.word or "")
+                    clean_word = raw_word.strip()
+                    if not clean_word:
+                        continue
+                    raw_words.append(raw_word)
+                    word_spans.append(RecognitionSpan(
+                        text=clean_word,
+                        start_seconds=max(0.0, float(word.start)),
+                        end_seconds=max(float(word.start), float(word.end)),
+                        confidence=(
+                            None
+                            if getattr(word, "probability", None) is None
+                            else float(word.probability)
+                        ),
+                        word_aligned=True,
+                    ))
+
+        edge_result = self._edge_guard.filter(
+            word_spans,
+            audio_duration_seconds=audio.size / max(1, self.sample_rate),
+            protect_live_edge=self._has_recent_voice(),
+        ) if word_spans else None
+        if edge_result is not None:
+            spans = list(edge_result.spans)
+            text = "".join(raw_words[:len(spans)]).strip()
+            withheld_words = edge_result.withheld_words
+            confirmed_edge_words = edge_result.confirmed_edge_words
+        else:
+            spans = [
+                RecognitionSpan(
+                    text=" ".join(segment.text.split()),
+                    start_seconds=max(0.0, float(segment.start)),
+                    end_seconds=max(float(segment.start), float(segment.end)),
+                )
+                for segment in materialised
+                if " ".join(segment.text.split())
+            ]
+            text = " ".join(span.text for span in spans).strip()
+            withheld_words = 0
+            confirmed_edge_words = 0
         text = clean_caption_text(collapse_repeated_phrase(text))
-        update_metrics(last_transcription_seconds=time.monotonic() - started, transcriptions_completed=int(get_metrics().get("transcriptions_completed") or 0) + 1)
-        return text
+        record_transcription(
+            time.monotonic() - started,
+            word_timestamps_used=bool(word_spans),
+            aligned_words=len(word_spans),
+            edge_words_withheld=withheld_words,
+            edge_words_confirmed=confirmed_edge_words,
+        )
+        return text, spans
 
     @staticmethod
     def _dedupe_against_previous(text: str, previous: str) -> str:
@@ -276,13 +365,26 @@ class FasterWhisperTranscriber(Transcriber):
         await loop.run_in_executor(self._executor, self._load_model)
         self._start_audio_stream()
         pending_final_text = ""
+        pending_final_spans: list[RecognitionSpan] = []
+        pending_capture_started: float | None = None
         last_publish = 0.0
+        next_pass_due = time.monotonic() + self.update_interval
+        previous_pass_started: float | None = None
 
         while self._running:
-            await asyncio.sleep(self.update_interval)
+            await asyncio.sleep(cadence_delay_seconds(
+                pass_started=next_pass_due - self.update_interval,
+                now=time.monotonic(),
+                interval_seconds=self.update_interval,
+            ))
             now = time.monotonic()
-            audio = self._latest_audio(self.window_seconds)
-            text = await loop.run_in_executor(self._executor, self._transcribe_text, audio)
+            if previous_pass_started is not None:
+                record_transcription_pass_interval(now - previous_pass_started)
+            previous_pass_started = now
+            next_pass_due = now + self.update_interval
+            audio, capture_started = self._latest_audio(self.window_seconds)
+            text, spans = await loop.run_in_executor(self._executor, self._transcribe_text, audio)
+            source_ready = time.monotonic()
             text = " ".join(text.split()).strip()
             if not text:
                 # Finalise whatever was last visible after a short silence.
@@ -290,28 +392,57 @@ class FasterWhisperTranscriber(Transcriber):
                     final_text = self._dedupe_against_previous(self._stable_candidate or pending_final_text, self._last_final)
                     if final_text and len(final_text.split()) >= 2:
                         self._last_final = (self._last_final + " " + final_text).strip()[-1200:]
-                        yield CaptionSegment(text=final_text, raw_text=pending_final_text, is_final=True)
+                        yield CaptionSegment(
+                            text=final_text,
+                            raw_text=pending_final_text,
+                            is_final=True,
+                            capture_started_monotonic=pending_capture_started,
+                            source_ready_monotonic=time.monotonic(),
+                            recognition_spans=pending_final_spans,
+                        )
                     pending_final_text = ""
+                    pending_final_spans = []
+                    pending_capture_started = None
                     self._last_partial = ""
                     self._stable_candidate = ""
                     self._stable_count = 0
+                    self._edge_guard.reset()
                 continue
 
             pending_final_text = text
+            pending_final_spans = spans
+            pending_capture_started = capture_started
             if text != self._last_partial and (now - last_publish) >= self.update_interval:
                 self._last_partial = text
                 last_publish = now
-                yield CaptionSegment(text=text, raw_text=text, is_final=False)
+                yield CaptionSegment(
+                    text=text,
+                    raw_text=text,
+                    is_final=False,
+                    capture_started_monotonic=capture_started,
+                    source_ready_monotonic=source_ready,
+                    recognition_spans=spans,
+                )
 
             if pending_final_text and not self._has_recent_voice() and self._is_stable_enough(pending_final_text):
                 final_text = self._dedupe_against_previous(self._stable_candidate or pending_final_text, self._last_final)
                 if final_text and len(final_text.split()) >= 2:
                     self._last_final = (self._last_final + " " + final_text).strip()[-1200:]
-                    yield CaptionSegment(text=final_text, raw_text=pending_final_text, is_final=True)
+                    yield CaptionSegment(
+                        text=final_text,
+                        raw_text=pending_final_text,
+                        is_final=True,
+                        capture_started_monotonic=pending_capture_started,
+                        source_ready_monotonic=time.monotonic(),
+                        recognition_spans=pending_final_spans,
+                    )
                 pending_final_text = ""
+                pending_final_spans = []
+                pending_capture_started = None
                 self._last_partial = ""
                 self._stable_candidate = ""
                 self._stable_count = 0
+                self._edge_guard.reset()
 
     async def stop(self) -> None:
         self._running = False

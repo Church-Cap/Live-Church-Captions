@@ -19,11 +19,12 @@ from threading import Lock
 import numpy as np
 import sounddevice as sd
 
-from app.metrics import get_metrics, reset_metrics, update_metrics
-from app.models import CaptionSegment
+from app.metrics import record_transcription, record_transcription_pass_interval, update_metrics
+from app.models import CaptionSegment, RecognitionSpan
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
 from app.transcription.audio_input import input_default_sample_rate, resample_mono
+from app.transcription.streaming_words import cadence_delay_seconds
 
 
 class WhisperLiveTranscriber(Transcriber):
@@ -72,7 +73,6 @@ class WhisperLiveTranscriber(Transcriber):
         self._stream: sd.InputStream | None = None
         self._stable_candidate = ""
         self._stable_count = 0
-        reset_metrics()
         update_metrics(
             model_name=self.model_name,
             model_device=self.device,
@@ -229,12 +229,12 @@ class WhisperLiveTranscriber(Transcriber):
         self._stable_count = 0
 
 
-    def _transcribe_text(self, audio: np.ndarray) -> str:
+    def _transcribe_text(self, audio: np.ndarray) -> tuple[str, list[RecognitionSpan]]:
         if audio.size < int(self.sample_rate * 0.5):
-            return ""
+            return "", []
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         if rms < self.min_rms / 2:
-            return ""
+            return "", []
 
         model = self._load_model()
         started = time.monotonic()
@@ -257,11 +257,20 @@ class WhisperLiveTranscriber(Transcriber):
         text = clean_caption_text(collapse_repeated_phrase(text))
         if self._looks_unreliable_result(text, result):
             text = ""
-        update_metrics(
-            last_transcription_seconds=time.monotonic() - started,
-            transcriptions_completed=int(get_metrics().get("transcriptions_completed") or 0) + 1,
-        )
-        return text
+        spans = [
+            RecognitionSpan(
+                text=" ".join(str(segment.get("text") or "").split()),
+                start_seconds=max(0.0, float(segment.get("start") or 0.0)),
+                end_seconds=max(
+                    float(segment.get("start") or 0.0),
+                    float(segment.get("end") or segment.get("start") or 0.0),
+                ),
+            )
+            for segment in (result.get("segments") or [])
+            if " ".join(str(segment.get("text") or "").split())
+        ]
+        record_transcription(time.monotonic() - started)
+        return text, spans
 
     @staticmethod
     def _looks_unreliable_result(text: str, result: dict) -> bool:
@@ -331,38 +340,79 @@ class WhisperLiveTranscriber(Transcriber):
         await loop.run_in_executor(self._executor, self._load_model)
         self._start_audio_stream()
         pending_final_text = ""
+        pending_final_spans: list[RecognitionSpan] = []
+        pending_capture_started: float | None = None
         last_publish = 0.0
+        next_pass_due = time.monotonic() + self.update_interval
+        previous_pass_started: float | None = None
 
         while self._running:
-            await asyncio.sleep(self.update_interval)
+            await asyncio.sleep(cadence_delay_seconds(
+                pass_started=next_pass_due - self.update_interval,
+                now=time.monotonic(),
+                interval_seconds=self.update_interval,
+            ))
             now = time.monotonic()
+            if previous_pass_started is not None:
+                record_transcription_pass_interval(now - previous_pass_started)
+            previous_pass_started = now
+            next_pass_due = now + self.update_interval
             audio = self._latest_audio(self.window_seconds)
-            text = await loop.run_in_executor(self._executor, self._transcribe_text, audio)
+            capture_started = now - (audio.size / max(1, self.sample_rate))
+            text, spans = await loop.run_in_executor(self._executor, self._transcribe_text, audio)
+            source_ready = time.monotonic()
             text = " ".join(text.split()).strip()
             if not text:
                 if pending_final_text and not self._has_recent_voice() and self._is_stable_enough(pending_final_text):
                     final_text = self._dedupe_against_previous(self._stable_candidate or pending_final_text, self._last_final)
                     if final_text and len(final_text.split()) >= 2:
                         self._last_final = (self._last_final + " " + final_text).strip()[-1200:]
-                        yield CaptionSegment(text=final_text, raw_text=pending_final_text, is_final=True)
+                        yield CaptionSegment(
+                            text=final_text,
+                            raw_text=pending_final_text,
+                            is_final=True,
+                            capture_started_monotonic=pending_capture_started,
+                            source_ready_monotonic=time.monotonic(),
+                            recognition_spans=pending_final_spans,
+                        )
                     pending_final_text = ""
+                    pending_final_spans = []
+                    pending_capture_started = None
                     self._last_partial = ""
                     self._stable_candidate = ""
                     self._stable_count = 0
                 continue
 
             pending_final_text = text
+            pending_final_spans = spans
+            pending_capture_started = capture_started
             if text != self._last_partial and (now - last_publish) >= self.update_interval:
                 self._last_partial = text
                 last_publish = now
-                yield CaptionSegment(text=text, raw_text=text, is_final=False)
+                yield CaptionSegment(
+                    text=text,
+                    raw_text=text,
+                    is_final=False,
+                    capture_started_monotonic=capture_started,
+                    source_ready_monotonic=source_ready,
+                    recognition_spans=spans,
+                )
 
             if pending_final_text and not self._has_recent_voice() and self._is_stable_enough(pending_final_text):
                 final_text = self._dedupe_against_previous(self._stable_candidate or pending_final_text, self._last_final)
                 if final_text and len(final_text.split()) >= 2:
                     self._last_final = (self._last_final + " " + final_text).strip()[-1200:]
-                    yield CaptionSegment(text=final_text, raw_text=pending_final_text, is_final=True)
+                    yield CaptionSegment(
+                        text=final_text,
+                        raw_text=pending_final_text,
+                        is_final=True,
+                        capture_started_monotonic=pending_capture_started,
+                        source_ready_monotonic=time.monotonic(),
+                        recognition_spans=pending_final_spans,
+                    )
                 pending_final_text = ""
+                pending_final_spans = []
+                pending_capture_started = None
                 self._last_partial = ""
                 self._stable_candidate = ""
                 self._stable_count = 0

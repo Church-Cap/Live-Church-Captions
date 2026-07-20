@@ -20,7 +20,20 @@ def _locales() -> dict[str, dict[str, str]]:
 
 
 def _normalise_code(code: str | None) -> str:
-    return str(code or SOURCE_LANGUAGE).lower().split("-")[0].strip()
+    raw = str(code or SOURCE_LANGUAGE).lower().replace("_", "-").strip()
+    aliases = {
+        "zh": "zh-hans",
+        "zh-cn": "zh-hans",
+        "zh-sg": "zh-hans",
+        "zh-hk": "zh-hant",
+        "zh-mo": "zh-hant",
+        "zh-tw": "zh-hant",
+    }
+    candidate = aliases.get(raw, raw)
+    if candidate in _locales():
+        return candidate
+    base = raw.split("-", 1)[0]
+    return aliases.get(base, base)
 
 
 def _required_keys() -> list[str]:

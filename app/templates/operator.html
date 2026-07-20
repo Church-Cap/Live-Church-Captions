@@ -259,6 +259,7 @@
                     <option value="{{ model }}" {% if performance.effective.whisper_model == model %}selected{% endif %}>{{ model }}</option>
                     {% endfor %}
                   </select>
+                  <p id="whisperModelStorageHint" class="muted small-result">Approximate model download: 150 MB. Installed cache use may be slightly larger.</p>
                   <p id="mediumModelWarning" class="model-warning" hidden>Medium can improve accuracy, but it may add noticeable delay. Use it on a powerful system, then run the benchmark or live monitor during real speech.</p>
                 </label>
                 <label class="easy-setting">
@@ -428,6 +429,7 @@
             <div class="translation-resource-panel">
               <strong>Language resources</strong>
               <p id="translationResourceSummary" class="muted">Checking installed translation resources…</p>
+              <p class="muted small-result"><strong>Storage guide:</strong> Recommended may temporarily use about 2 GB while converting its roughly 1.2 GB source download. Compatibility keeps that source download. Base package size varies with installed languages. Review retained downloads later in Diagnostics → Storage use.</p>
               <div id="translationPerformancePrompt" class="translation-performance-card">
                 <div>
                   <strong id="translationPerformanceTitle">Improve translation performance</strong>
@@ -461,10 +463,11 @@
               </select>
               <label for="translationTimingMode">Translation timing</label>
               <select id="translationTimingMode">
-                <option value="live" {% if runtime.translation_timing_mode != 'stable' %}selected{% endif %}>Live — translate partial captions quickly</option>
+                <option value="responsive" {% if runtime.translation_timing_mode == 'responsive' %}selected{% endif %}>Responsive context — refine growing stable English (recommended)</option>
+                <option value="live" {% if runtime.translation_timing_mode == 'live' %}selected{% endif %}>Live — translate partial captions quickly</option>
                 <option value="stable" {% if runtime.translation_timing_mode == 'stable' %}selected{% endif %}>More stable — wait for corrected English</option>
               </select>
-              <p class="muted small-result">Live is fastest. More stable reduces brief mistranslated partial captions, but translated text appears a little later.</p>
+              <p class="muted small-result">Responsive context retranslates the stable portion of the current English caption as it grows, then refines the same translated cue when English is final. It avoids waiting for several completed thoughts. Live is the lowest-delay control; More stable updates less often. All modes work with the selected local translation provider.</p>
               <label class="toggle-row premium-toggle-row language-request-toggle-row" for="translationLanguageRequestsEnabled">
                 <input id="translationLanguageRequestsEnabled" type="checkbox" {% if runtime.translation_language_requests_enabled|default(true) %}checked{% endif %}>
                 <span class="toggle-slider" aria-hidden="true"></span>
@@ -741,14 +744,35 @@
               </div>
               <span class="status-pill">Mac / Windows / Linux</span>
             </div>
-            <p class="muted">Download a diagnostics JSON file for troubleshooting or support. It can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and updater/CUDA logs with local paths redacted.</p>
+            <p class="muted">Download an anonymised service report for recorded-sermon comparisons, or the broader diagnostics file when troubleshooting. Up to five completed service summaries survive an app restart.</p>
+            <p class="muted" id="diagnosticsServiceSummary">No retained caption service measurements yet.</p>
             <div class="warning-panel slim-warning glass-card diagnostics-warning">
               <strong>Review before sharing.</strong>
-              <p class="muted">Diagnostics do not include transcripts, captions, passwords, secrets, or .env contents, but system names, device names, error messages, and log details may still identify your church or computer. Do not post the file publicly on GitHub unless you have reviewed it and are comfortable sharing it.</p>
+              <p class="muted">Diagnostics do not include audio, transcripts, captions, translations, passwords, secrets, or .env contents, but system names, device names, error messages, and log details may still identify your church or computer. Do not post the file publicly on GitHub unless you have reviewed it and are comfortable sharing it.</p>
             </div>
             <div class="button-row spacious-actions">
+              <button type="button" onclick="downloadServiceReport()">Download anonymised service report</button>
               <button type="button" onclick="downloadDiagnosticsWithConsent()"><span id="diagnosticsDownloadButtonText">Download diagnostics</span></button>
+              <button type="button" class="secondary-button" onclick="resetServiceMeasurements()">Reset test measurements</button>
               <a class="button-link secondary" href="/feedback">Open feedback page</a>
+            </div>
+          </article>
+          <article class="operator-panel glass-card wide-card storage-use-panel">
+            <div class="panel-heading-row">
+              <div>
+                <p class="eyebrow">Local storage</p>
+                <h2>Storage use</h2>
+              </div>
+              <span class="status-pill" id="storageUseTotal">Checking…</span>
+            </div>
+            <p class="muted">See how much space Church Cap and its local AI downloads use. Logs are automatically limited to 5 MB each with two archived copies.</p>
+            <div id="storageCategoryList" class="storage-category-list" aria-live="polite">
+              <p class="muted small-result">Open Diagnostics to calculate storage use.</p>
+            </div>
+            <p id="storageUseStatus" class="muted small-result" role="status" aria-live="polite">Storage has not been checked yet.</p>
+            <div class="button-row spacious-actions">
+              <button type="button" class="secondary-button" onclick="refreshStorageUse(true)">Refresh storage</button>
+              <button type="button" id="storageCleanupButton" class="secondary-button" onclick="openStorageCleanupDialog()" disabled>Review unused downloads</button>
             </div>
           </article>
         </div>
@@ -847,6 +871,43 @@
     </div>
   </dialog>
 
+  <dialog
+    id="storageCleanupDialog"
+    class="service-leader-dialog service-leader-confirm-dialog glass-card storage-cleanup-dialog"
+    aria-labelledby="storageCleanupTitle"
+    aria-describedby="storageCleanupMessage"
+  >
+    <form method="dialog"><button class="dialog-close" aria-label="Close storage cleanup dialog">×</button></form>
+    <p class="eyebrow">Diagnostics · Storage use</p>
+    <h2 id="storageCleanupTitle">Review unused downloads</h2>
+    <p id="storageCleanupMessage" class="muted">Select only the items you want Church Cap to remove. Active models, settings, transcripts, and current logs are protected.</p>
+    <div id="storageCleanupList" class="storage-cleanup-list"></div>
+    <p id="storageCleanupSummary" class="service-leader-warning-note">Nothing selected.</p>
+    <p id="storageCleanupError" class="muted service-leader-warning-note" role="status" aria-live="polite" hidden></p>
+    <div class="button-row spacious-actions">
+      <button id="storageCleanupConfirm" type="button" class="service-leader-danger-button" disabled>Clear selected items</button>
+      <button type="button" class="secondary-button" onclick="document.getElementById('storageCleanupDialog').close()">Keep everything</button>
+    </div>
+  </dialog>
+
+  <dialog
+    id="resetServiceMeasurementsDialog"
+    class="service-leader-dialog service-leader-confirm-dialog glass-card"
+    aria-labelledby="resetServiceMeasurementsTitle"
+    aria-describedby="resetServiceMeasurementsMessage"
+  >
+    <form method="dialog"><button class="dialog-close" aria-label="Close reset test measurements dialog">×</button></form>
+    <p class="eyebrow">Test measurements</p>
+    <h2 id="resetServiceMeasurementsTitle">Reset retained measurements?</h2>
+    <p id="resetServiceMeasurementsMessage" class="muted">This removes up to five completed service summaries and any interrupted-run marker. It does not change caption, translation, or performance settings.</p>
+    <p class="service-leader-warning-note"><strong>This cannot be undone.</strong> Download any reports you want to keep before resetting.</p>
+    <p id="resetServiceMeasurementsError" class="muted service-leader-warning-note" role="status" aria-live="polite" hidden></p>
+    <div class="button-row spacious-actions">
+      <button id="resetServiceMeasurementsConfirm" type="button" class="service-leader-danger-button">Reset measurements</button>
+      <button type="button" class="secondary-button" onclick="document.getElementById('resetServiceMeasurementsDialog').close()">Keep measurements</button>
+    </div>
+  </dialog>
+
   <dialog id="applianceOutputDialog" class="service-leader-dialog service-leader-confirm-dialog glass-card appliance-output-dialog">
     <form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form>
     <p class="eyebrow">Appliance safeguard</p>
@@ -915,6 +976,7 @@
       if (eyebrow) eyebrow.textContent = copy.title;
       if (description) description.textContent = copy.description;
       localStorage.setItem('operatorSection', sectionName);
+      if (sectionName === 'diagnostics') refreshStorageUse();
     }
 
     function isApplianceOperator() {
@@ -1053,6 +1115,8 @@
     let benchmarkDurationSeconds = 15;
     let benchmarkStartedAt = 0;
     let benchmarkSamples = [];
+    const MAX_BENCHMARK_SAMPLES = 900;
+    let storageCleanupCandidates = [];
     let captionSettingsLocked = false;
     let captionStartPending = false;
     let captionStartNoticeTimer = null;
@@ -1386,8 +1450,11 @@
 
     function updateModelWarning() {
       const warning = document.getElementById('mediumModelWarning');
+      const storageHint = document.getElementById('whisperModelStorageHint');
       const model = document.getElementById('whisperModel')?.value;
       if (warning) warning.hidden = model !== 'medium.en';
+      const approximateSizes = {'tiny.en': '75 MB', 'base.en': '150 MB', 'small.en': '500 MB', 'medium.en': '1.5 GB'};
+      if (storageHint) storageHint.textContent = `Approximate model download: ${approximateSizes[model] || 'varies'}. Installed cache use may be slightly larger; inactive downloads are retained until you clear them from Diagnostics.`;
     }
 
     function handleWhisperModelChanged() {
@@ -1681,6 +1748,9 @@
     function updateBenchmarkFromStatus(data) {
       if (!benchmarkRunning) return;
       benchmarkSamples.push(benchmarkSampleFromStatus(data));
+      if (benchmarkSamples.length > MAX_BENCHMARK_SAMPLES) {
+        benchmarkSamples.splice(0, benchmarkSamples.length - MAX_BENCHMARK_SAMPLES);
+      }
       renderBenchmark();
       if (benchmarkDurationSeconds && (Date.now() - benchmarkStartedAt) >= benchmarkDurationSeconds * 1000) {
         stopBenchmark(false);
@@ -1926,7 +1996,7 @@
         max: translation.max_active_languages || 1,
         policy: translation.language_policy || 'automatic',
         priority: translation.priority_mode || 'most_viewers',
-        timing: translation.timing_mode || 'live',
+        timing: translation.timing_mode || 'responsive',
         requests: translation.language_requests_enabled !== false
       });
       if (signature === operatorTranslationSignature || operatorTranslationEditing) return;
@@ -1938,7 +2008,7 @@
       const priority = document.getElementById('translationPriorityMode');
       if (priority) priority.value = translation.priority_mode || 'most_viewers';
       const timing = document.getElementById('translationTimingMode');
-      if (timing) timing.value = translation.timing_mode || 'live';
+      if (timing) timing.value = translation.timing_mode || 'responsive';
       const requestToggle = document.getElementById('translationLanguageRequestsEnabled');
       if (requestToggle) requestToggle.checked = translation.language_requests_enabled !== false;
       operatorSelectedLanguages.clear();
@@ -1973,8 +2043,8 @@
       const result = document.getElementById('translationInstallResult');
       if (result) {
         result.textContent = kind === 'ct2small100'
-          ? 'Starting faster local translation install. This needs internet once and can take several minutes…'
-          : (kind === 'small100' ? 'Starting Compatibility package / PyTorch SMaLL-100 install…' : 'Starting Base package / Argos Translate install…');
+          ? 'Starting faster local translation install. Allow about 2 GB of temporary free space while the model is downloaded and converted…'
+          : (kind === 'small100' ? 'Starting Compatibility package / PyTorch SMaLL-100 install (about 1.2 GB)…' : 'Starting Base package / Argos Translate install; size varies by language packs…');
       }
       const res = await fetch('/api/translation/install', {
         method: 'POST',
@@ -2139,7 +2209,7 @@
           translation_provider: provider,
           translation_language_policy: document.getElementById('translationLanguagePolicy')?.value || 'automatic',
           translation_priority_mode: document.getElementById('translationPriorityMode')?.value || 'most_viewers',
-          translation_timing_mode: document.getElementById('translationTimingMode')?.value || 'live',
+          translation_timing_mode: document.getElementById('translationTimingMode')?.value || 'responsive',
           translation_language_requests_enabled: document.getElementById('translationLanguageRequestsEnabled')?.checked !== false,
           translation_allowed_languages: selected,
           translation_max_active_languages: Number(document.getElementById('translationMax').value)
@@ -2471,9 +2541,17 @@
           help: 'Scan this with a trusted phone to download the IP fallback QR image.',
         };
       }
+      if (target === 'service_report') {
+        return {
+          title: 'Share anonymised service report to a phone?',
+          message: 'This allow-listed file contains only numeric service measurements, non-identifying settings, run IDs, and schema/version fields. It contains no speech, captions, translations, audio metadata, glossary contents, paths, network identifiers, operator data, or logs.',
+          confirm: 'Create phone QR',
+          help: 'Scan this with a trusted phone to download the anonymised service report.',
+        };
+      }
       return {
         title: 'Share diagnostics to a phone?',
-        message: 'This file can include Church Cap version, OS version, CPU details, memory size, project drive capacity/free space, Python version, performance settings, CUDA/Apple runtime status, recent runtime metrics, and recent updater/CUDA logs with local paths redacted. It does not include transcripts, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.',
+        message: 'This file can include Church Cap version, OS version, CPU details, memory size, performance settings, privacy-safe numeric service measurements, and recent updater/CUDA logs with local paths redacted. It does not include audio, transcripts, captions, translated wording, passwords, secrets, or .env contents. Review it before sharing, and do not post it publicly on GitHub unless you are comfortable with the contents.',
         confirm: 'Create phone QR',
         help: 'Scan this with a trusted phone to download diagnostics.',
       };
@@ -2536,6 +2614,13 @@
       const targetUrl = link?.href;
       if (!targetUrl) return true;
       event.preventDefault();
+      let applianceTargetUrl = targetUrl;
+      try {
+        const parsedTarget = new URL(targetUrl, window.location.href);
+        applianceTargetUrl = `${window.location.origin}${parsedTarget.pathname}${parsedTarget.search}${parsedTarget.hash}`;
+      } catch (error) {
+        applianceTargetUrl = targetUrl;
+      }
       const copy = outputLinkCopy(type);
       const dialog = document.getElementById('applianceOutputDialog');
       const title = document.getElementById('applianceOutputTitle');
@@ -2544,7 +2629,7 @@
       if (!dialog || !title || !message || !confirm || !dialog.showModal) {
         if (window.confirm(`${copy.title}
 
-${copy.message}`)) window.location.href = targetUrl;
+${copy.message}`)) window.location.href = applianceTargetUrl;
         return false;
       }
       title.textContent = copy.title;
@@ -2552,7 +2637,7 @@ ${copy.message}`)) window.location.href = targetUrl;
       confirm.textContent = type === 'display' || type === 'display-ip' ? 'Open display' : 'Open overlay';
       confirm.onclick = () => {
         dialog.close();
-        window.location.href = targetUrl;
+        window.location.href = applianceTargetUrl;
       };
       dialog.showModal();
       return false;
@@ -2599,6 +2684,14 @@ ${copy.message}`)) window.location.href = targetUrl;
       if (dialog?.showModal) dialog.showModal();
       else if (isAppliance) window.location.href = directUrl;
       else window.location.href = directUrl;
+    }
+
+    function downloadServiceReport() {
+      if (document.body.dataset.appliance === 'true') {
+        shareOperatorDownload('service_report');
+        return;
+      }
+      window.location.href = '/api/diagnostics/service-report';
     }
 
     function setUpdateControlsDisabled(disabled) {
@@ -2813,6 +2906,18 @@ ${copy.message}`)) window.location.href = targetUrl;
         const res = await fetch('/api/status');
         if (res.status === 401) { location.href = '/login'; return; }
         const data = await res.json();
+        const measured = data.last_service_metrics || {};
+        const measuredSummary = document.getElementById('diagnosticsServiceSummary');
+        if (measuredSummary) {
+          const duration = measured.duration_seconds == null ? '—' : `${Math.round(measured.duration_seconds)}s`;
+          const transcriptionSamples = measured.transcription_latency?.samples || 0;
+          const languages = Object.entries(measured.translation_languages || {})
+            .map(([code, item]) => `${code.toUpperCase()}: ${item.completed || 0} translations, p95 ${item.latency?.p95_seconds == null ? '—' : Number(item.latency.p95_seconds).toFixed(2) + 's'}`)
+            .join(' · ');
+          measuredSummary.textContent = measured.status === 'not_started'
+            ? measured.message
+            : `Last test: ${measured.status} · ${duration} · ${transcriptionSamples} transcription samples${languages ? ` · ${languages}` : ''}`;
+        }
         const viewerCount = data.viewers ?? 0;
         document.getElementById('viewerCount').textContent = viewerCount;
         const languageViewerCount = document.getElementById('languageViewerCount');
@@ -2935,6 +3040,190 @@ ${copy.message}`)) window.location.href = targetUrl;
       }
     }
 
+    function resetServiceMeasurements() {
+      const dialog = document.getElementById('resetServiceMeasurementsDialog');
+      const confirm = document.getElementById('resetServiceMeasurementsConfirm');
+      const error = document.getElementById('resetServiceMeasurementsError');
+      if (!dialog || !confirm || !error || !dialog.showModal) {
+        const summary = document.getElementById('diagnosticsServiceSummary');
+        if (summary) summary.textContent = 'The reset menu could not be opened. Refresh the operator page and try again.';
+        return;
+      }
+      error.hidden = true;
+      error.textContent = '';
+      confirm.disabled = false;
+      confirm.textContent = 'Reset measurements';
+      dialog.showModal();
+    }
+
+    function formatStorageBytes(value) {
+      const bytes = Math.max(0, Number(value) || 0);
+      if (bytes < 1024) return `${Math.round(bytes)} B`;
+      const units = ['KB', 'MB', 'GB', 'TB'];
+      let amount = bytes / 1024;
+      let unit = units[0];
+      for (let index = 1; index < units.length && amount >= 1024; index += 1) {
+        amount /= 1024;
+        unit = units[index];
+      }
+      return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
+    }
+
+    function renderStorageSnapshot(storage) {
+      const total = document.getElementById('storageUseTotal');
+      const list = document.getElementById('storageCategoryList');
+      const status = document.getElementById('storageUseStatus');
+      const cleanup = document.getElementById('storageCleanupButton');
+      if (total) total.textContent = formatStorageBytes(storage?.total_bytes);
+      storageCleanupCandidates = Array.isArray(storage?.cleanup_candidates) ? storage.cleanup_candidates : [];
+      if (list) {
+        list.replaceChildren();
+        const maximum = Math.max(1, ...(storage?.categories || []).map((item) => Number(item.bytes) || 0));
+        for (const item of storage?.categories || []) {
+          const row = document.createElement('div');
+          row.className = 'storage-category-row';
+          const heading = document.createElement('div');
+          heading.className = 'storage-category-heading';
+          const label = document.createElement('strong');
+          label.textContent = item.label;
+          const size = document.createElement('span');
+          size.textContent = formatStorageBytes(item.bytes);
+          heading.append(label, size);
+          const meter = document.createElement('div');
+          meter.className = 'storage-meter';
+          const fill = document.createElement('span');
+          fill.style.width = `${Math.max(1, Math.round(((Number(item.bytes) || 0) / maximum) * 100))}%`;
+          meter.appendChild(fill);
+          const description = document.createElement('small');
+          description.textContent = item.description;
+          row.append(heading, meter, description);
+          list.appendChild(row);
+        }
+      }
+      const reclaimable = storageCleanupCandidates.reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
+      if (status) status.textContent = storageCleanupCandidates.length
+        ? `${formatStorageBytes(reclaimable)} can be reviewed. Nothing is removed automatically.`
+        : 'No unused downloads or archived logs are currently available to clear.';
+      if (cleanup) cleanup.disabled = !storageCleanupCandidates.length;
+    }
+
+    async function refreshStorageUse(force = false) {
+      const status = document.getElementById('storageUseStatus');
+      if (!force && storageCleanupCandidates.length) return;
+      if (status) status.textContent = 'Calculating storage use…';
+      try {
+        const response = await fetch('/api/diagnostics/storage', {cache: 'no-store'});
+        if (response.status === 401) { location.href = '/login'; return; }
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not calculate storage use.');
+        renderStorageSnapshot(data.storage);
+      } catch (error) {
+        if (status) status.textContent = error.message || 'Could not calculate storage use.';
+      }
+    }
+
+    function updateStorageCleanupSummary() {
+      const selected = Array.from(document.querySelectorAll('#storageCleanupList input[type="checkbox"]:checked'));
+      const selectedIds = new Set(selected.map((input) => input.value));
+      const bytes = storageCleanupCandidates
+        .filter((item) => selectedIds.has(item.id))
+        .reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
+      const summary = document.getElementById('storageCleanupSummary');
+      const confirm = document.getElementById('storageCleanupConfirm');
+      if (summary) summary.textContent = selected.length
+        ? `${selected.length} item${selected.length === 1 ? '' : 's'} selected · about ${formatStorageBytes(bytes)} will be reclaimed. Removed models must download again if selected later.`
+        : 'Nothing selected.';
+      if (confirm) confirm.disabled = !selected.length;
+    }
+
+    function openStorageCleanupDialog() {
+      const dialog = document.getElementById('storageCleanupDialog');
+      const list = document.getElementById('storageCleanupList');
+      const error = document.getElementById('storageCleanupError');
+      const confirm = document.getElementById('storageCleanupConfirm');
+      if (!dialog?.showModal || !list) return;
+      list.replaceChildren();
+      for (const item of storageCleanupCandidates) {
+        const label = document.createElement('label');
+        label.className = 'storage-cleanup-option';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = item.id;
+        checkbox.checked = item.recommended === true;
+        checkbox.addEventListener('change', updateStorageCleanupSummary);
+        const copy = document.createElement('span');
+        const title = document.createElement('strong');
+        title.textContent = `${item.label} · ${formatStorageBytes(item.bytes)}`;
+        const description = document.createElement('small');
+        description.textContent = item.description;
+        copy.append(title, description);
+        label.append(checkbox, copy);
+        list.appendChild(label);
+      }
+      if (error) { error.hidden = true; error.textContent = ''; }
+      if (confirm) confirm.textContent = 'Clear selected items';
+      updateStorageCleanupSummary();
+      dialog.showModal();
+    }
+
+    async function confirmStorageCleanup() {
+      const dialog = document.getElementById('storageCleanupDialog');
+      const confirm = document.getElementById('storageCleanupConfirm');
+      const error = document.getElementById('storageCleanupError');
+      const candidateIds = Array.from(document.querySelectorAll('#storageCleanupList input[type="checkbox"]:checked')).map((input) => input.value);
+      if (!candidateIds.length || !confirm || !error) return;
+      confirm.disabled = true;
+      confirm.textContent = 'Clearing…';
+      error.hidden = true;
+      try {
+        const response = await fetch('/api/diagnostics/storage/cleanup', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({confirmed: true, candidate_ids: candidateIds})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not clear the selected items.');
+        dialog?.close();
+        renderStorageSnapshot(data.storage);
+        const status = document.getElementById('storageUseStatus');
+        if (status) status.textContent = `Cleared ${data.cleared?.length || 0} item(s) and reclaimed about ${formatStorageBytes(data.reclaimed_bytes)}.`;
+      } catch (caught) {
+        error.textContent = caught.message || 'Could not clear the selected items.';
+        error.hidden = false;
+        confirm.disabled = false;
+        confirm.textContent = 'Try again';
+      }
+    }
+
+    async function confirmResetServiceMeasurements() {
+      const summary = document.getElementById('diagnosticsServiceSummary');
+      const dialog = document.getElementById('resetServiceMeasurementsDialog');
+      const confirm = document.getElementById('resetServiceMeasurementsConfirm');
+      const error = document.getElementById('resetServiceMeasurementsError');
+      if (!dialog || !confirm || !error) return;
+      confirm.disabled = true;
+      confirm.textContent = 'Resetting…';
+      error.hidden = true;
+      error.textContent = '';
+      try {
+        const response = await fetch('/api/diagnostics/reset-service-metrics', {method: 'POST'});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not reset test measurements.');
+        dialog.close();
+        if (summary) summary.textContent = 'Test measurements reset. Start captions to begin a new measured run.';
+        await refreshStatus();
+      } catch (error) {
+        const message = error.message || 'Could not reset test measurements.';
+        const dialogError = document.getElementById('resetServiceMeasurementsError');
+        if (dialogError) {
+          dialogError.textContent = message;
+          dialogError.hidden = false;
+        }
+        confirm.disabled = false;
+        confirm.textContent = 'Try again';
+      }
+    }
+
     function renderUpdateCapability(update) {
       if (!update) return;
       const os = document.getElementById('updateOs');
@@ -2949,6 +3238,8 @@ ${copy.message}`)) window.location.href = targetUrl;
 
     document.getElementById('cpuTranslationProceedButton')?.addEventListener('click', () => resolveCpuTranslationPrompt(true));
     document.getElementById('cpuTranslationCancelButton')?.addEventListener('click', () => resolveCpuTranslationPrompt(false));
+    document.getElementById('resetServiceMeasurementsConfirm')?.addEventListener('click', confirmResetServiceMeasurements);
+    document.getElementById('storageCleanupConfirm')?.addEventListener('click', confirmStorageCleanup);
 
     document.querySelectorAll('.nav-button[data-section]').forEach((button) => {
       button.addEventListener('click', () => showOperatorSection(button.dataset.section));

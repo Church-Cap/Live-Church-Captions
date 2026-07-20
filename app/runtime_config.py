@@ -38,7 +38,7 @@ DEFAULTS: dict[str, Any] = {
     "translation_language_policy": "automatic",
     "translation_priority_mode": "most_viewers",
     "translation_language_requests_enabled": True,
-    "translation_timing_mode": "live",
+    "translation_timing_mode": "responsive",
     "profanity_filter_enabled": True,
     "security_mode": "secure_operator",
     "lock_operator_to_localhost": True,
@@ -56,6 +56,8 @@ def load_runtime_config() -> dict[str, Any]:
             return dict(DEFAULTS)
         cfg = dict(DEFAULTS)
         cfg.update({k: v for k, v in loaded.items() if k in DEFAULTS})
+        if cfg.get("translation_timing_mode") in {"contextual", "extended"}:
+            cfg["translation_timing_mode"] = "responsive"
         return cfg
 
 
@@ -81,8 +83,10 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         if cfg.get("translation_priority_mode") not in {"most_viewers", "pinned_first"}:
             cfg["translation_priority_mode"] = "most_viewers"
         cfg["translation_language_requests_enabled"] = bool(cfg.get("translation_language_requests_enabled", True))
-        if cfg.get("translation_timing_mode") not in {"live", "stable"}:
-            cfg["translation_timing_mode"] = "live"
+        if cfg.get("translation_timing_mode") in {"contextual", "extended"}:
+            cfg["translation_timing_mode"] = "responsive"
+        if cfg.get("translation_timing_mode") not in {"live", "stable", "responsive"}:
+            cfg["translation_timing_mode"] = "responsive"
         cfg["profanity_filter_enabled"] = bool(cfg["profanity_filter_enabled"])
         cfg["lock_operator_to_localhost"] = bool(cfg.get("lock_operator_to_localhost", True))
         if not isinstance(cfg.get("performance_preset"), str) or cfg.get("performance_preset") not in {"fastest", "fast", "balanced", "accurate", "most_accurate", "custom"}:

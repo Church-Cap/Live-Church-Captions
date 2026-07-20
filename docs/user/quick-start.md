@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v0.6.0 public preview
+Version: v0.7.0
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -32,7 +32,7 @@ Use **Benchmark** before selecting heavier models such as `small.en` or `medium.
 2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.6.0"
+cd "$HOME/Documents/Live-Church-Captions-0.7.0"
 ```
 
 3. Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -53,7 +53,7 @@ If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes 
 2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\Live-Church-Captions-0.6.0"
+cd "$HOME\Documents\Live-Church-Captions-0.7.0"
 ```
 
 3. Run setup.
@@ -79,7 +79,7 @@ If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came fro
 Open a terminal, then go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.6.0"
+cd "$HOME/Documents/Live-Church-Captions-0.7.0"
 bash setup-linux.sh
 ```
 
@@ -170,7 +170,7 @@ In the operator page, use **Performance** on the dashboard.
 - Move the slider toward **Most accurate** if the computer has enough headroom and better wording matters more than delay. The far-right setting uses `medium.en`, which may increase latency.
 - Open **More settings** only when you need finer control. Easy mode shows platform, Whisper backend, model size, and CPU/GPU choice. Advanced mode adds caption refresh speed, listening window, and final-caption stability. The platform view normally auto-detects macOS, Windows, or Linux, but can be changed manually if needed. The top operator bar shows **English Delay** and **Translation Delay** so source-caption and translated-caption latency are visible without opening the benchmark panel.
 
-Adjustments save automatically while captions are stopped. Stop captions before changing performance settings because Church Cap loads the AI model when captions start, and the Performance panel is locked during a live caption session to protect the audience feed. Use **Run 15s benchmark** during normal speech to estimate live-caption delay and system load, or **Live monitor** to keep measuring while captions run. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
+Adjustments save automatically while captions are stopped. Stop captions before changing performance settings because Church Cap loads the AI model when captions start, and the Performance panel is locked during a live caption session to protect the audience feed. **Run 15s benchmark** and **Live monitor** begin only when the operator presses their buttons; they do not run automatically. Live-monitor samples are capped in memory. **Apply recommended** uses only local hardware/runtime information and does not need internet. It chooses a conservative live-service preset; select the medium model manually only after a successful benchmark. On Windows, choose Windows in the platform selector to reveal CUDA troubleshooting buttons for checking or force reinstalling the local CUDA runtime. Church Cap also trims obvious repeated word or phrase loops before they are shown to viewers or kept in the session transcript.
 
 ## Share Captions With Visitors
 
@@ -182,7 +182,9 @@ The **Outputs** area is separate from audience phones. **Room display** is for a
 
 ## Visitor Caption View
 
-The phone caption page shows live captions as a bottom-to-top reading stream. Captions start at the left edge in English, wrap naturally, and move upward as new captions arrive. A server-backed session transcript below the controls shows timestamped captions from the current app session with the newest entry at the top when history is enabled, and visitors can scroll back through earlier captions. Visitors can use **Hide transcript** or **Show transcript** to choose whether that scrollback panel appears on their own device.
+The phone caption page stays within the visible device screen instead of growing into a long page. Live captions use their own accumulated bottom-to-top scroll area in English and every translated language; visitors can scroll inside it to revisit recent live lines without moving the controls. The first English cue appears at the normal caption refresh speed, and corrected wording replaces that cue until it is sealed into the reader. Translated revisions use the same cue identity. The server-backed session transcript has a separate scroll area with timestamped captions and the newest entry at the top. It starts closed whenever the page is opened so Live receives the available space; select **Show transcript** to open it and **Hide transcript** to close it again.
+
+While reminder or accuracy/translation notices are visible, a subtle hint beside **Live** explains that closing them creates more caption space. Closing a notice keeps the overall page the same height and automatically expands the Live and transcript panels into the released space. On short phones, spacing becomes denser and the product footer yields space while the full safety notice wording remains available.
 
 When captions are already visible and a visitor changes language, the phone page may briefly show a small loading notice inside the live caption card while the new language stream catches up. The notice overlays the card so the controls and transcript do not jump. If translated captions are disabled for the service, the language menu explains that translated captions are unavailable and keeps the source-caption option visible. The visitor page requests the browser's native screen wake lock where supported so the phone is less likely to sleep during a service; it releases when the page is hidden or the browser revokes it. This keeps the implementation light, although any always-on screen will still use normal display battery power.
 
@@ -299,7 +301,11 @@ AI-generated captions can contain mistakes. Use the sensitive blank/pause mode f
 
 ## Feedback
 
-The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For technical issues, use **Diagnostics > Download diagnostics** from the operator menu, or **Share diagnostics** on an appliance to create a temporary phone-download QR. You can also use the diagnostics link on the Feedback page. Attach that JSON file only if you are comfortable sharing system specs, OS version, performance settings, hardware status, recent metrics, and redacted updater/CUDA logs. Church Cap asks for confirmation first; review the file because system names, device names, error messages, and log details may still be sensitive. Do not post diagnostics publicly on GitHub unless you have reviewed the file and are comfortable sharing it.
+The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For recorded-sermon comparisons, use **Diagnostics > Download anonymised service report**; this allow-listed file contains no speech, captions, translations, audio metadata, recognition timestamps, glossary content, paths, network identifiers, operator data, or logs. v0.7.0 retains the latest five completed summaries across restarts and reports timestamped cue-engine processing latency plus cue/queue health. Select **Reset test measurements** before a new comparison set.
+
+Open **Diagnostics → Storage use** to see the application, Church Cap data, Hugging Face model downloads, OpenAI Whisper downloads, and current log use. Storage is calculated only when this page is opened or refreshed. **Review unused downloads** opens a Church Cap-themed confirmation menu; nothing is removed automatically. The active model, settings, transcripts, measurements, and current logs are protected. An inactive model offered for cleanup must download again if you select it later. Church Cap limits each of its diagnostic logs to 5 MB plus two archived copies.
+
+For technical troubleshooting, use the broader **Download diagnostics** file, or **Share diagnostics** on an appliance. Attach diagnostics only if you are comfortable sharing system specs, OS version, performance settings, hardware status, measurements, storage category sizes, and redacted updater/CUDA logs. Do not post diagnostics publicly unless you have reviewed the file.
 
 ## Updating Church Cap
 

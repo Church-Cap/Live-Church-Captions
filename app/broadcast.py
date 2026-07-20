@@ -8,7 +8,21 @@ from app.models import CaptionSegment, CaptionState
 from app.i18n import LocalTranslator, MAX_TRANSLATION_LANGUAGES, SOURCE_LANGUAGE, normalise_language
 from app.transcript_store import TranscriptStore
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
-from app.metrics import get_metrics, update_metrics
+from app.source_units import SourceUnitBuilder
+from app.translation_scheduler import BoundedFairTranslationScheduler, TranslationJob
+from app.metrics import (
+    record_caption,
+    record_english_publish,
+    record_translation,
+    record_translation_batch,
+    record_translation_skip,
+    record_translation_started,
+    record_translation_queue_event,
+    record_translation_shutdown,
+    record_source_unit,
+    record_cue_processing,
+    record_viewer_counts,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -21,6 +35,7 @@ class CaptionHub:
         retention_minutes: int = 120,
         transcript_saving_enabled: bool = True,
         transcript_store: TranscriptStore | None = None,
+        translation_queue_capacity_per_language: int = 8,
     ):
         self._clients: dict[WebSocket, str] = {}
         self._viewer_clients: set[WebSocket] = set()
@@ -41,17 +56,22 @@ class CaptionHub:
         self.translation_max_active_languages = 2
         self.translation_language_policy = "automatic"
         self.translation_priority_mode = "most_viewers"
-        self.translation_timing_mode = "live"
+        self.translation_timing_mode = "responsive"
         self.translator = LocalTranslator(self.source_language)
         self._translation_sequence = 0
-        self._latest_translation_sequence: dict[str, int] = {}
         self._last_partial_translation_at: dict[str, datetime] = {}
         self._last_partial_translation_text: dict[str, str] = {}
+        self._last_partial_translation_stable_words: dict[str, int] = {}
+        self._translation_cue_first_seen_monotonic: dict[str, float] = {}
+        self._translation_published_cues: set[tuple[str, str]] = set()
         self._translation_latency_seconds: dict[str, float] = {}
         self._translation_latency_at: dict[str, str] = {}
-        self._pending_translation_job: dict | None = None
+        self._source_unit_builder = SourceUnitBuilder()
+        self._translation_scheduler = BoundedFairTranslationScheduler(translation_queue_capacity_per_language)
         self._translation_worker_event: asyncio.Event | None = None
         self._translation_worker_task: asyncio.Task | None = None
+        self._translation_idle_event: asyncio.Event | None = None
+        self._translation_in_flight: TranslationJob | None = None
         self._transcript_store = transcript_store or TranscriptStore()
         self._session_cache_written = False
         self._start_new_session()
@@ -64,6 +84,10 @@ class CaptionHub:
     def sensitive_mode(self) -> bool:
         return self._sensitive_mode
 
+    @property
+    def translation_queue_capacity_per_language(self) -> int:
+        return self._translation_scheduler.capacity_per_language
+
     async def connect(self, websocket: WebSocket, language: str = "en", count_viewer: bool = True) -> None:
         await websocket.accept()
         language = normalise_language(language)
@@ -74,12 +98,14 @@ class CaptionHub:
             else:
                 self._viewer_clients.discard(websocket)
         await websocket.send_json({"type": "state", "data": self._state_for_language(language).model_dump(mode="json"), "language": language})
+        record_viewer_counts(self.language_counts())
         await self._broadcast_viewer_meta()
 
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._clients.pop(websocket, None)
             self._viewer_clients.discard(websocket)
+        record_viewer_counts(self.language_counts())
         await self._broadcast_viewer_meta()
 
     def set_status(self, status: str) -> None:
@@ -94,7 +120,7 @@ class CaptionHub:
         max_active_languages: int,
         language_policy: str = "automatic",
         priority_mode: str = "most_viewers",
-        timing_mode: str = "live",
+        timing_mode: str = "responsive",
     ) -> None:
         self.translation_enabled = bool(enabled)
         self.translation_provider = provider or "disabled"
@@ -103,7 +129,13 @@ class CaptionHub:
         self.translation_max_active_languages = max(1, min(MAX_TRANSLATION_LANGUAGES, int(max_active_languages)))
         self.translation_language_policy = language_policy if language_policy in {"automatic", "restricted"} else "automatic"
         self.translation_priority_mode = priority_mode if priority_mode in {"most_viewers", "pinned_first"} else "most_viewers"
-        self.translation_timing_mode = timing_mode if timing_mode in {"live", "stable"} else "live"
+        previous_timing_mode = self.translation_timing_mode
+        if timing_mode in {"contextual", "extended"}:
+            timing_mode = "responsive"
+        self.translation_timing_mode = timing_mode if timing_mode in {"live", "stable", "responsive"} else "responsive"
+        if previous_timing_mode != self.translation_timing_mode:
+            self._reset_translation_timing_state()
+            self._translation_scheduler.clear()
         if not self.translation_enabled or self.translation_provider not in {"small100", "both"}:
             self.translator.unload_models()
 
@@ -160,6 +192,7 @@ class CaptionHub:
             "active_translated_languages": self.active_translated_languages(),
             "translation_latency_seconds": dict(self._translation_latency_seconds),
             "translation_latency_at": dict(self._translation_latency_at),
+            "scheduler": self._translation_scheduler.snapshot(),
             "resources": resources,
             "available_languages": available_languages,
             "requestable_languages": requestable_languages,
@@ -284,6 +317,9 @@ class CaptionHub:
         self._purge_old_history()
         return list(self._display_history())
 
+    def sealed_audio_end_monotonic(self) -> float | None:
+        return self._source_unit_builder.sealed_audio_end_monotonic
+
     async def publish(self, segment: CaptionSegment) -> None:
         if self._sensitive_mode or self._inside_sensitive_drain_window():
             return
@@ -292,11 +328,38 @@ class CaptionHub:
             return
         if text != segment.text:
             segment = segment.model_copy(update={"text": text, "raw_text": segment.raw_text or segment.text})
-        self._current = segment
-        transcript_updates = self._record_transcript_segment(segment)
-        if segment.is_final and self._looks_duplicate_final(segment.text) and not transcript_updates:
+        source_ready_monotonic = segment.source_ready_monotonic or time.monotonic()
+        if segment.source_ready_monotonic is None:
+            segment = segment.model_copy(update={"source_ready_monotonic": source_ready_monotonic})
+        cue_processing_started = time.monotonic()
+        source_units = self._source_unit_builder.ingest(segment, now=source_ready_monotonic)
+        record_cue_processing(time.monotonic() - cue_processing_started)
+        self._current = source_units[-1] if source_units else (self._source_unit_builder.current_draft or segment)
+        transcript_updates = self._record_cue_transcript(source_units)
+        record_caption(is_final=segment.is_final, transcript_commits=len(transcript_updates))
+        if segment.is_final and not source_units and self._looks_duplicate_final(segment.text) and not transcript_updates:
             return
-        await self._broadcast_caption(segment, transcript_updates)
+        for source_unit in source_units:
+            cue_lifetime = None
+            if source_unit.is_final and source_unit.source_started_at and source_unit.source_ended_at:
+                cue_lifetime = max(
+                    0.0,
+                    (source_unit.source_ended_at - source_unit.source_started_at).total_seconds(),
+                )
+            record_source_unit(
+                is_final=source_unit.is_final,
+                revision=int(source_unit.source_revision or 1),
+                boundary_reason=source_unit.source_boundary_reason,
+                cue_lifetime_seconds=cue_lifetime,
+                stable_word_count=int(source_unit.cue_stable_word_count or 0),
+                mutable_word_count=int(source_unit.cue_mutable_word_count or 0),
+            )
+        await self._broadcast_caption(
+            segment,
+            transcript_updates,
+            source_units=source_units,
+            source_ready_monotonic=source_ready_monotonic,
+        )
         if transcript_updates:
             await asyncio.to_thread(self._persist_history)
 
@@ -311,12 +374,22 @@ class CaptionHub:
     def _discard_sensitive_transcript_draft(self) -> None:
         self._history_draft = None
 
+    def _reset_translation_timing_state(self) -> None:
+        self._last_partial_translation_at.clear()
+        self._last_partial_translation_text.clear()
+        self._last_partial_translation_stable_words.clear()
+        self._translation_cue_first_seen_monotonic.clear()
+        self._translation_published_cues.clear()
+
     async def set_sensitive_mode(self, enabled: bool) -> None:
         enabled = bool(enabled)
         if enabled:
             self._sensitive_mode = True
             self._sensitive_resume_ignore_until = None
             self._discard_sensitive_transcript_draft()
+            self._source_unit_builder.reset()
+            self._reset_translation_timing_state()
+            self._translation_scheduler.clear()
             self._current = CaptionSegment(
                 text="Captions are paused for a private or sensitive moment.",
                 raw_text="sensitive mode",
@@ -331,6 +404,9 @@ class CaptionHub:
         else:
             self._sensitive_mode = False
             self._discard_sensitive_transcript_draft()
+            self._source_unit_builder.reset()
+            self._reset_translation_timing_state()
+            self._translation_scheduler.clear()
             self._sensitive_resume_ignore_until = datetime.now(timezone.utc) + timedelta(seconds=3)
             self._current = CaptionSegment(text="Captions have resumed.", raw_text="resumed", is_final=False)
             await self._broadcast({
@@ -344,6 +420,9 @@ class CaptionHub:
         self._current = None
         self._history.clear()
         self._history_draft = None
+        self._source_unit_builder.reset()
+        self._reset_translation_timing_state()
+        self._translation_scheduler.clear()
         self._transcript_store.clear()
         await self._broadcast({"type": "clear"})
 
@@ -510,6 +589,39 @@ class CaptionHub:
             self._purge_old_history(persist=False)
         return updates
 
+    def _record_cue_transcript(self, cue_updates: list[CaptionSegment]) -> list[CaptionSegment]:
+        """Mirror authoritative cue revisions into the optional transcript."""
+        if not self._transcript_saving_enabled or self._retention_minutes <= 0:
+            return []
+        updates: list[CaptionSegment] = []
+        for cue in cue_updates:
+            cue_id = cue.cue_id or cue.source_unit_id or cue.id
+            if cue.is_final or cue.cue_status == "sealed":
+                committed = cue.model_copy(update={"id": cue_id, "is_final": True})
+                existing_index = next(
+                    (
+                        index
+                        for index, item in enumerate(self._history)
+                        if (item.cue_id or item.source_unit_id or item.id) == cue_id
+                    ),
+                    None,
+                )
+                if existing_index is None:
+                    self._history.append(committed)
+                else:
+                    self._history[existing_index] = committed
+                if self._history_draft is not None:
+                    draft_id = self._history_draft.cue_id or self._history_draft.source_unit_id or self._history_draft.id
+                    if draft_id == cue_id:
+                        self._history_draft = None
+                updates.append(committed)
+            else:
+                self._history_draft = cue.model_copy(update={"id": cue_id, "is_final": False})
+                updates.append(self._history_draft)
+        if updates:
+            self._purge_old_history(persist=False)
+        return updates
+
     def _source_language_segment(self, segment: CaptionSegment, *, as_draft: bool = False) -> CaptionSegment:
         update = {"text": segment.text, "raw_text": segment.raw_text or segment.text}
         if as_draft and segment.is_final:
@@ -518,53 +630,154 @@ class CaptionHub:
 
     @staticmethod
     def _translated_segment(segment: CaptionSegment, text: str) -> CaptionSegment:
-        return segment.model_copy(update={"text": text, "raw_text": segment.text})
+        translated_words = str(text or "").split()
+        if segment.is_final:
+            stable_words = len(translated_words)
+        else:
+            # The source prefix is stable, but translation word order can still
+            # change as that prefix grows. Keep a small target tail explicitly
+            # mutable so the client only preserves wording that survived a
+            # previous retranslation.
+            stable_words = max(0, len(translated_words) - 2)
+        return segment.model_copy(update={
+            "text": text,
+            "raw_text": segment.text,
+            "cue_stable_word_count": stable_words,
+            "cue_mutable_word_count": max(0, len(translated_words) - stable_words),
+        })
 
     def _should_translate_partial(self, language: str, segment: CaptionSegment) -> bool:
         text = segment.text.strip()
         if segment.is_final:
             self._last_partial_translation_text.pop(language, None)
             self._last_partial_translation_at.pop(language, None)
+            self._last_partial_translation_stable_words.pop(language, None)
             return bool(text)
-        if self._word_count(text) < 3:
+        word_count = self._word_count(text)
+        if word_count < 3:
             return False
 
         now = datetime.now(timezone.utc)
         previous = self._last_partial_translation_at.get(language)
-        minimum_gap = 2.8 if self.translation_timing_mode == "stable" else 2.0
-        minimum_words = 5 if self.translation_timing_mode == "stable" else 3
-        if self._word_count(text) < minimum_words:
+        if self.translation_timing_mode == "responsive":
+            minimum_gap = 1.5
+            minimum_words = 3
+        elif self.translation_timing_mode == "stable":
+            minimum_gap = 2.8
+            minimum_words = 5
+        else:
+            minimum_gap = 2.0
+            minimum_words = 3
+        if word_count < minimum_words:
             return False
-        if self._last_partial_translation_text.get(language) == text:
+        previous_text = self._last_partial_translation_text.get(language)
+        if previous_text == text:
             return False
         if previous and (now - previous).total_seconds() < minimum_gap:
             return False
+        if self.translation_timing_mode == "responsive":
+            previous_words = self._last_partial_translation_stable_words.get(language, 0)
+            # Do not spend CPU translating every recognition pass. Three new
+            # stable English words trigger a revision; a corrected prefix may
+            # trigger one sooner because it no longer extends the old wording.
+            if previous_text and text.startswith(f"{previous_text} ") and word_count - previous_words < 3:
+                return False
+            self._last_partial_translation_stable_words[language] = word_count
         self._last_partial_translation_at[language] = now
         self._last_partial_translation_text[language] = text
         return True
 
+    def _translation_units_for_timing(
+        self,
+        source_units: list[CaptionSegment],
+        *,
+        force_context_flush: bool = False,
+    ) -> list[CaptionSegment]:
+        del force_context_flush  # Retained for Stop-call compatibility.
+        now = time.monotonic()
+        for unit in source_units:
+            cue_id = unit.cue_id or unit.source_unit_id or unit.id
+            self._translation_cue_first_seen_monotonic.setdefault(
+                cue_id,
+                unit.source_ready_monotonic or now,
+            )
+        if self.translation_timing_mode != "responsive":
+            return source_units
+
+        ready: list[CaptionSegment] = []
+        for unit in source_units:
+            if unit.is_final:
+                ready.append(unit)
+                continue
+            words = unit.text.split()
+            stable_words = min(len(words), max(0, int(unit.cue_stable_word_count or 0)))
+            if stable_words < 3:
+                continue
+            stable_text = " ".join(words[:stable_words]).strip()
+            ready.append(unit.model_copy(update={
+                "text": stable_text,
+                "raw_text": stable_text,
+                "cue_stable_word_count": stable_words,
+                "cue_mutable_word_count": 0,
+                "source_boundary_reason": "responsive_stable_prefix",
+            }))
+        return ready
+
     def _ensure_translation_worker(self) -> None:
         if self._translation_worker_event is None:
             self._translation_worker_event = asyncio.Event()
+        if self._translation_idle_event is None:
+            self._translation_idle_event = asyncio.Event()
+            if not self._translation_scheduler.has_jobs() and self._translation_in_flight is None:
+                self._translation_idle_event.set()
         if self._translation_worker_task is None or self._translation_worker_task.done():
             self._translation_worker_task = asyncio.create_task(self._translation_worker_loop())
 
-    def _queue_translation_batch(self, segment: CaptionSegment, languages: list[str]) -> None:
+    def _queue_translation_batch(
+        self,
+        segment: CaptionSegment,
+        languages: list[str],
+        *,
+        source_ready_monotonic: float | None = None,
+    ) -> None:
         languages = list(dict.fromkeys(normalise_language(language) for language in languages if normalise_language(language) != "en"))
         if not languages:
             return
+        record_translation_batch(
+            languages=languages,
+            is_final=segment.is_final,
+            replaced_pending=False,
+            replaced_final_pending=False,
+            replaced_languages=[],
+        )
         self._translation_sequence += 1
         sequence = self._translation_sequence
+        cue_id = segment.cue_id or segment.source_unit_id or segment.id
+        cue_first_seen = self._translation_cue_first_seen_monotonic.setdefault(
+            cue_id,
+            segment.source_ready_monotonic or source_ready_monotonic or time.monotonic(),
+        )
         for language in languages:
-            self._latest_translation_sequence[language] = sequence
-        self._pending_translation_job = {
-            "sequence": sequence,
-            "segment": segment,
-            "languages": languages,
-        }
+            job = TranslationJob(
+                language=language,
+                segment=segment,
+                sequence=sequence,
+                enqueued_monotonic=time.monotonic(),
+                source_ready_monotonic=source_ready_monotonic or time.monotonic(),
+                generation=self._translation_scheduler.generation,
+                cue_first_seen_monotonic=cue_first_seen,
+            )
+            result = self._translation_scheduler.enqueue(job)
+            record_translation_queue_event("queue_depth", language=language, depth=result.depth)
+            for event in result.events:
+                record_translation_queue_event(event, language=language, depth=result.depth)
         self._ensure_translation_worker()
+        if self._translation_idle_event is not None:
+            self._translation_idle_event.clear()
         if self._translation_worker_event is not None:
             self._translation_worker_event.set()
+        if segment.is_final:
+            self._translation_cue_first_seen_monotonic.pop(cue_id, None)
 
     async def _translation_worker_loop(self) -> None:
         while True:
@@ -572,17 +785,81 @@ class CaptionHub:
                 return
             await self._translation_worker_event.wait()
             self._translation_worker_event.clear()
-            while self._pending_translation_job is not None:
-                job = self._pending_translation_job
-                self._pending_translation_job = None
-                sequence = int(job["sequence"])
-                segment = job["segment"]
-                for language in job["languages"]:
-                    if self._pending_translation_job is not None:
-                        break
-                    if self._latest_translation_sequence.get(language) != sequence:
-                        continue
-                    await self._broadcast_translated_caption(segment, language, sequence)
+            while self._translation_scheduler.has_jobs():
+                job = self._translation_scheduler.pop_next()
+                for language in self._translation_scheduler.take_recovery_events():
+                    record_translation_queue_event("recovered", language=language)
+                if job is None:
+                    break
+                if not self._translation_scheduler.is_current(job):
+                    record_translation_skip("stale", language=job.language, is_final=job.is_final)
+                    continue
+                self._translation_in_flight = job
+                try:
+                    await self._broadcast_translated_caption(job)
+                finally:
+                    self._translation_in_flight = None
+            if not self._translation_scheduler.has_jobs() and self._translation_in_flight is None:
+                if self._translation_idle_event is not None:
+                    self._translation_idle_event.set()
+
+    async def drain_translation_work(self, timeout_seconds: float = 2.0) -> dict:
+        """Bound Stop latency while making every outstanding job explicit in metrics."""
+        timeout_seconds = max(0.0, float(timeout_seconds))
+        self._translation_units_for_timing([], force_context_flush=True)
+        pending_at_stop = self._translation_scheduler.pending_counts()
+        in_flight_at_stop = (
+            {self._translation_in_flight.language: 1}
+            if self._translation_in_flight is not None
+            else {}
+        )
+        initial_outstanding = sum(pending_at_stop.values()) + sum(in_flight_at_stop.values())
+        timed_out = False
+
+        if initial_outstanding:
+            self._ensure_translation_worker()
+            if self._translation_worker_event is not None and self._translation_scheduler.has_jobs():
+                self._translation_worker_event.set()
+            if self._translation_idle_event is not None:
+                self._translation_idle_event.clear()
+                try:
+                    await asyncio.wait_for(self._translation_idle_event.wait(), timeout=timeout_seconds)
+                except asyncio.TimeoutError:
+                    timed_out = True
+
+        remaining = self._translation_scheduler.pending_counts()
+        if self._translation_in_flight is not None:
+            remaining[self._translation_in_flight.language] = remaining.get(self._translation_in_flight.language, 0) + 1
+        if remaining:
+            timed_out = True
+
+        if timed_out:
+            task = self._translation_worker_task
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            self._translation_scheduler.clear()
+            self._translation_worker_task = None
+            self._translation_worker_event = None
+            self._translation_idle_event = None
+            self._translation_in_flight = None
+
+        record_translation_shutdown(
+            drain_timeout_seconds=timeout_seconds,
+            pending_at_stop=pending_at_stop,
+            in_flight_at_stop=in_flight_at_stop,
+            cancelled_at_stop=remaining,
+            timed_out=timed_out,
+        )
+        return {
+            "pending_at_stop": pending_at_stop,
+            "in_flight_at_stop": in_flight_at_stop,
+            "cancelled_at_stop": remaining,
+            "timed_out": timed_out,
+        }
 
     def _caption_payload(
         self,
@@ -591,6 +868,7 @@ class CaptionHub:
         language: str,
         source_text: str,
         transcript_updates: list[CaptionSegment] | None = None,
+        live_source_updates: list[CaptionSegment] | None = None,
         translation_applied: bool = False,
         translation_warning: str | None = None,
     ) -> dict:
@@ -600,6 +878,10 @@ class CaptionHub:
             "transcript_updates": [
                 update.model_dump(mode="json")
                 for update in (transcript_updates or [])
+            ],
+            "live_source_updates": [
+                update.model_dump(mode="json")
+                for update in (live_source_updates or [])
             ],
             "source_text": source_text,
             "language": language,
@@ -635,12 +917,23 @@ class CaptionHub:
                 self._clients.pop(ws, None)
         await self._broadcast_viewer_meta()
 
-    async def _broadcast_translated_caption(self, segment: CaptionSegment, language: str, sequence: int) -> None:
+    async def _broadcast_translated_caption(
+        self,
+        job: TranslationJob,
+    ) -> None:
+        segment = job.segment
+        language = job.language
         async with self._lock:
             clients = [ws for ws, lang in self._clients.items() if lang == language]
-        if not clients or self._latest_translation_sequence.get(language) != sequence:
+        if not clients or not self._translation_scheduler.is_current(job):
+            record_translation_skip(
+                "no_viewers" if not clients else "stale",
+                language=language,
+                is_final=segment.is_final,
+            )
             return
         started_at = time.monotonic()
+        record_translation_started(language, max(0.0, started_at - job.enqueued_monotonic))
         try:
             result = await self.translator.translate_async(
                 segment.text,
@@ -651,16 +944,10 @@ class CaptionHub:
             elapsed = max(0.0, time.monotonic() - started_at)
             self._translation_latency_seconds[language] = elapsed
             self._translation_latency_at[language] = datetime.now(timezone.utc).isoformat()
-            update_metrics(
-                last_translation_seconds=elapsed,
-                last_translation_at=time.monotonic(),
-                translations_completed=int(get_metrics().get("translations_completed", 0)) + 1,
-            )
         except Exception as exc:
             elapsed = max(0.0, time.monotonic() - started_at)
             self._translation_latency_seconds[language] = elapsed
             self._translation_latency_at[language] = datetime.now(timezone.utc).isoformat()
-            update_metrics(last_translation_seconds=elapsed, last_translation_at=time.monotonic())
             result = None
             warning = f"Translation failed for {language}: {exc}"
         if result is None:
@@ -670,18 +957,62 @@ class CaptionHub:
             warning = result.warning
             applied = result.applied
             display_segment = self._translated_segment(segment, result.text) if applied else self._source_language_segment(segment)
+        metric_outcome = "failed" if result is None else ("applied" if applied else result.outcome)
         if not applied and not warning:
             warning = "Translation is experimental or unavailable. Showing source captions."
-        if self._latest_translation_sequence.get(language) != sequence:
+        if not self._translation_scheduler.is_current(job):
+            record_translation(
+                language,
+                elapsed,
+                applied=applied,
+                failed=result is None or getattr(result, "outcome", None) == "failed",
+                fallback=not applied,
+                outcome=metric_outcome,
+                requested_provider=self.translation_provider if result is None else result.requested_provider,
+                actual_provider=None if result is None else result.actual_provider,
+                fallback_chain=() if result is None else result.fallback_chain,
+                retry_count=0 if result is None else result.retry_count,
+                published=False,
+                not_published_reason="stale_after_compute",
+            )
             return
 
         async with self._lock:
             clients = [ws for ws, lang in self._clients.items() if lang == language]
         if not clients:
+            record_translation(
+                language,
+                elapsed,
+                applied=applied,
+                failed=result is None or getattr(result, "outcome", None) == "failed",
+                fallback=not applied,
+                outcome=metric_outcome,
+                requested_provider=self.translation_provider if result is None else result.requested_provider,
+                actual_provider=None if result is None else result.actual_provider,
+                fallback_chain=() if result is None else result.fallback_chain,
+                retry_count=0 if result is None else result.retry_count,
+                published=False,
+                not_published_reason="no_language_viewers_after_compute",
+            )
             return
         if not applied and not segment.is_final:
             payload = self._translation_status_payload(language=language, warning=warning)
             await self._remove_dead_clients(await self._send_caption_payload(clients, payload))
+            record_translation(
+                language,
+                elapsed,
+                applied=False,
+                failed=result is None or getattr(result, "outcome", None) == "failed",
+                fallback=True,
+                outcome=metric_outcome,
+                requested_provider=self.translation_provider if result is None else result.requested_provider,
+                actual_provider=None if result is None else result.actual_provider,
+                fallback_chain=() if result is None else result.fallback_chain,
+                retry_count=0 if result is None else result.retry_count,
+                source_to_publish_seconds=max(0.0, time.monotonic() - job.source_ready_monotonic),
+                published=False,
+                not_published_reason="unspecified",
+            )
             return
         payload = self._caption_payload(
             display_segment,
@@ -691,8 +1022,38 @@ class CaptionHub:
             translation_warning=warning,
         )
         await self._remove_dead_clients(await self._send_caption_payload(clients, payload))
+        cue_id = segment.cue_id or segment.source_unit_id or segment.id
+        published_key = (language, cue_id)
+        first_cue_publish_seconds = None
+        if published_key not in self._translation_published_cues:
+            self._translation_published_cues.add(published_key)
+            first_cue_publish_seconds = max(0.0, time.monotonic() - job.cue_first_seen_monotonic)
+        record_translation(
+            language,
+            elapsed,
+            applied=applied,
+            failed=result is None or getattr(result, "outcome", None) == "failed",
+            fallback=not applied,
+            outcome=metric_outcome,
+            requested_provider=self.translation_provider if result is None else result.requested_provider,
+            actual_provider=None if result is None else result.actual_provider,
+            fallback_chain=() if result is None else result.fallback_chain,
+            retry_count=0 if result is None else result.retry_count,
+            source_to_publish_seconds=max(0.0, time.monotonic() - job.source_ready_monotonic),
+            cue_first_publish_seconds=first_cue_publish_seconds,
+            is_final=segment.is_final,
+        )
+        if segment.is_final:
+            self._translation_published_cues.discard(published_key)
 
-    async def _broadcast_caption(self, segment: CaptionSegment, transcript_updates: list[CaptionSegment] | None = None) -> None:
+    async def _broadcast_caption(
+        self,
+        segment: CaptionSegment,
+        transcript_updates: list[CaptionSegment] | None = None,
+        *,
+        source_units: list[CaptionSegment] | None = None,
+        source_ready_monotonic: float,
+    ) -> None:
         async with self._lock:
             clients = list(self._clients.items())
         if not clients:
@@ -713,8 +1074,17 @@ class CaptionHub:
                     language=lang,
                     source_text=segment.text,
                     transcript_updates=transcript_updates,
+                    live_source_updates=source_units,
                 )
                 dead.extend(await self._send_caption_payload(sockets, payload))
+                sent_at = time.monotonic()
+                capture_delay = None
+                if segment.capture_started_monotonic is not None:
+                    capture_delay = max(0.0, sent_at - segment.capture_started_monotonic)
+                record_english_publish(
+                    max(0.0, sent_at - source_ready_monotonic),
+                    estimated_capture_to_publish_seconds=capture_delay,
+                )
                 continue
 
             warning = None
@@ -725,7 +1095,9 @@ class CaptionHub:
                 warning = "Translation capacity is full right now, so captions are shown in the source language. Please speak to the welcome team if you need help."
             else:
                 should_translate = True
-                if self.translation_timing_mode == "stable" and not segment.is_final:
+                if self.translation_timing_mode == "responsive" and not segment.is_final:
+                    warning = "Translating the growing stable English caption for responsive context. The newest wording may refine in place."
+                elif self.translation_timing_mode == "stable" and not segment.is_final:
                     warning = "Preparing a steadier translation from corrected English. New translated text updates during speech after the wording settles."
                 else:
                     warning = "Translating captions locally. New translated text will appear as soon as it is ready."
@@ -743,12 +1115,25 @@ class CaptionHub:
                 )
                 dead.extend(await self._send_caption_payload(sockets, payload))
 
-            if should_translate and self._should_translate_partial(lang, segment):
+            if should_translate:
                 languages_to_translate.append(lang)
 
         await self._remove_dead_clients(dead)
-        if languages_to_translate:
-            self._queue_translation_batch(segment, languages_to_translate)
+        if not languages_to_translate:
+            return
+        translation_units = self._translation_units_for_timing(source_units or [])
+        for source_unit in translation_units:
+            unit_languages = [
+                language
+                for language in languages_to_translate
+                if self._should_translate_partial(language, source_unit)
+            ]
+            if unit_languages:
+                self._queue_translation_batch(
+                    source_unit,
+                    unit_languages,
+                    source_ready_monotonic=source_ready_monotonic,
+                )
 
     async def _broadcast_viewer_meta(self) -> None:
         await self._broadcast({"type": "viewer_meta", "data": self.translation_state(), "viewers": self.viewer_count})

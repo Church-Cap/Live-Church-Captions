@@ -115,6 +115,13 @@ The visitor language picker is a custom searchable list. It shows the languages 
 - **Compatibility** — SMaLL-100 supported languages when the legacy PyTorch model is installed.
 - **Auto** — the union of installed Recommended, Base, and Compatibility package languages.
 
+Chinese is presented as two separate audience choices:
+
+- **Chinese (Simplified) — `zh-Hans`**: providers use their Chinese model target, then OpenCC `t2s` enforces Simplified output.
+- **Chinese (Traditional, Hong Kong) — `zh-Hant`**: providers use their Chinese model target, then OpenCC `s2hk` enforces Hong Kong Traditional characters and regional variants.
+
+SMaLL-100 itself has one generic `zh` target, so this is deterministic post-processing rather than a prompt. Argos can use either its `zh` or `zt` installed package before the same final conversion. Existing `zh` runtime settings migrate to `zh-Hans`; `zh-HK`, `zh-MO`, and `zh-TW` browser locales select `zh-Hant`. Rerun the selected translation-resource installer after upgrading so OpenCC is installed. OpenCC converts script and regional variants; it is not a Mandarin-to-Cantonese translator.
+
 By default, visitor language availability is **Automatic**. Visitors can request any language shown by the current mode, and Church Cap translates the most-requested languages up to the active limit. Advanced operators can switch to **Restricted** and select a smaller list, or prioritise selected languages first. In Restricted mode, the audience language picker and paired Service Leader language list show selected languages plus English as available, and can also show installed-but-disabled languages as requestable. Open audience phones refresh this language list from `/api/languages` when the picker opens, so operator changes appear without a full page reload. If translated captions are turned off, or an appliance System menu profile disables CPU languages, the picker limits caption choices to the source language and tells visitors that translated captions are unavailable for the service. In Restricted mode, installed but not enabled languages are shown as requestable on visitor and Service Leader pages; accepting a request adds the language to the restricted list while the active-language limit still controls how many languages are translated at once. The operator and Service Leader lists search language codes, English names, native names, and accented names. The operator list includes **Select all** and **Clear all** controls for quicker setup.
 
 ## Resource safeguard
@@ -148,13 +155,13 @@ The appliance profile comes from `/etc/churchcap-appliance/identity.json` or exp
 
 CPU-only translation is viable, but it is not the same workload as English captions. Whisper, text cleanup, WebSocket delivery, and every active translated language all compete for the same CPU. On CPU-only or mid-range mobile systems, start with **1-2 active translated languages** for live services and raise the limit only after testing with normal speech.
 
-Church Cap protects the live source caption feed by scheduling translated-caption work through a latest-wins queue. If speech produces a newer caption while an older caption is still being translated, stale translation work can be skipped so translated captions do not arrive as a delayed backlog. This keeps translation useful without letting it starve live English captions.
+Church Cap protects the live source caption feed by keeping English publication outside the translation worker. Translated captions use bounded queues per language. New revisions of the same draft coalesce, and overload removes replaceable drafts before completed units. Final source units remain queued even when that temporarily exceeds the normal queue capacity. Languages rotate fairly instead of one language consuming every available turn.
 
 For 3 or more simultaneous neural translations, use a stronger desktop CPU, NVIDIA CUDA acceleration, or a separate translation-capable machine.
 
 ## v0.6.x translation-performance direction
 
-v0.6.0 starts the translation-performance track. The immediate goal is to keep the user-facing translation workflow stable while preparing the heavier translation path for CTranslate2/INT8 where practical.
+v0.6.1 starts the translation-performance track. The immediate goal is to keep the user-facing translation workflow stable while preparing the heavier translation path for CTranslate2/INT8 where practical.
 
 Current runtime reality:
 
@@ -166,9 +173,37 @@ Current runtime reality:
 
 The Recommended package is intentionally behind provider/status checks. Keep Base and Compatibility fallbacks available, benchmark every active-language count, and only increase appliance limits when the operator can see measured English Delay and Translation Delay staying healthy.
 
+## v0.7.0 Word Timing, Source Units, Context, And Scheduling
+
+The v0.7.0 Faster-Whisper path requests per-word timestamps and confidence. Safe words and forward extensions remain immediate. Only a weak final word within the 0.32-second captured-audio edge is hidden until a second decode agrees or the word moves away from the edge. The cue ledger still revises one stable `cue_id`; confirmed text seals at punctuation, 14 words, five seconds, audio-window advancement, or a real final. The sealed word-time boundary trims immutable audio from later rolling windows while retaining one second of overlap. Draft revisions replace one live line and unrelated sealed cues remain durable. Standard OpenAI Whisper keeps segment alignment but uses the same corrected start-to-start cadence.
+
+The normal per-language queue capacity is eight. Church Cap coalesces every older queued revision for the same cue, including a stale final revision, then drops the oldest remaining draft if space is needed. If a queue contains only unrelated sealed cues, another sealed cue is accepted over capacity; a new draft is rejected until the queue drains. In-flight output is published only when its cue revision is still current. Round-robin selection prevents a busy language from starving another language. Sensitive mode and Clear erase cue and scheduler state.
+
+Service-metrics schema 9 reports this behaviour with numeric counts only. It records word-timestamp passes, aligned-word totals, guarded edge words withheld/confirmed, actual recognition-pass intervals, cue processing, stable/mutable counts, cue lifetime, queue and Stop outcomes, translated draft/final publication counts, and first translated publication time measured from the first English cue update. Recognition words, times, confidence values, captions, and translations remain excluded.
+
+Faster-Whisper derives word alignment from cross-attention and dynamic time warping; this improves boundary evidence but does not make Whisper a native streaming recogniser. Church Cap therefore combines alignment with local agreement and the edge guard. This follows the published Whisper-Streaming pattern of word timestamps, repeated-prefix agreement, and timestamp-driven buffer trimming without adding another model or network service. See the [Faster-Whisper word-timestamp documentation](https://github.com/SYSTRAN/faster-whisper#word-level-timestamps) and [Whisper-Streaming design](https://github.com/ufal/whisper_streaming).
+
+The operator timing menu now offers three modes:
+
+- **Responsive Context** is recommended. It translates the stable English prefix once at least three words are stable, waits at least 1.5 seconds and normally three additional stable words before another revision, and refines the same translated cue when English becomes final.
+- **Live** translates eligible drafts and completed units for the lowest delay.
+- **More Stable** updates less frequently from corrected English.
+
+Responsive Context works with Argos, CTranslate2 SMaLL-100, and PyTorch SMaLL-100 because it changes translation scheduling rather than sending an instruction prompt. These models do not offer a reliable instruction channel. The responsive path uses accumulating context inside the current English cue, never waits for earlier completed thoughts, and never stores context in diagnostics. Legacy saved `contextual` or `extended` choices migrate to `responsive`. Sensitive mode, Clear, and timing-mode changes erase its in-memory timing and cue state.
+
+This first responsive implementation deliberately does not prepend previous sentences. SMaLL-100 and typical Argos packages are sentence-level systems; concatenating earlier cues can translate or reorder the complete block without a dependable boundary for the newest target wording. Previous-sentence context remains a measured follow-up experiment rather than a source of hidden latency or repeated text.
+
+See [TRANSLATION_MODEL_RESEARCH.md](project/TRANSLATION_MODEL_RESEARCH.md) for the current licence and model audit. In short, SMaLL-100 is listed as MIT and OpenCC as Apache-2.0; Argos application code is MIT/CC0 but every separately downloaded Argos model package still needs package-level licence verification. NLLB-200 and SeamlessM4T published weights are not candidates for commercially usable Church Cap distributions because their model cards use CC-BY-NC-4.0.
+
 ## GPU note
 
-The operator page **Performance** controls can switch between standard local OpenAI Whisper and the lower-latency `faster-whisper` backend without editing `.env`. The platform view auto-detects macOS, Windows, or Linux and can be changed manually if needed. Windows and Linux can use NVIDIA CUDA for Faster Whisper when CTranslate2 sees a working runtime; Windows includes an optional local runtime installer, while Linux leaves drivers and CUDA under the system administrator's package policy. On macOS, CUDA choices are hidden and OpenAI Whisper can attempt Apple Metal/MPS when PyTorch supports it. Argos Translate may still run on CPU even when Whisper uses GPU acceleration. Recommended package / CTranslate2 INT8 translation is optional in v0.6.0 and should be validated with real speech before live use.
+The operator page **Performance** controls can switch between standard local OpenAI Whisper and the lower-latency `faster-whisper` backend without editing `.env`. The platform view auto-detects macOS, Windows, or Linux and can be changed manually if needed. Windows and Linux can use NVIDIA CUDA for Faster Whisper when CTranslate2 sees a working runtime; Windows includes an optional local runtime installer, while Linux leaves drivers and CUDA under the system administrator's package policy. On macOS, CUDA choices are hidden and OpenAI Whisper can attempt Apple Metal/MPS when PyTorch supports it. Argos Translate may still run on CPU even when Whisper uses GPU acceleration. Recommended package / CTranslate2 INT8 translation remains optional and should be validated with real speech before live use.
+
+## Measuring Translation In v0.7.0
+
+Church Cap records privacy-safe numeric measurements for every translated language requested by a connected viewer. The current service and latest five completed summaries distinguish queue wait, provider compute, source-to-publish timing, outcomes, source-unit boundaries, draft coalescing/backpressure, durable finals, maximum queue depth, recovery, viewer-seconds, and resource pressure. Viewer counts are seeded when captions start so phones that joined beforehand are included. The implementation is not limited to Farsi or Chinese; those are the first languages being assessed with native readers.
+
+The separate anonymised service report contains only allow-listed numeric measurements and non-identifying run/configuration fields. It excludes source speech, captions, translated wording, audio and device metadata, glossary content, paths, network identifiers, operator data, and logs. The broader diagnostics file also excludes caption content but remains support-sensitive because it includes computer information and redacted logs. Follow [recorded-sermon-testing.md](recorded-sermon-testing.md) to compare repeated runs with the same recording and audience-language viewers.
 
 ## Accuracy warning
 
@@ -177,7 +212,6 @@ AI translation is experimental and not verified. It can mistranslate Scripture, 
 Do not treat AI translation as a replacement for a qualified human interpreter where accuracy matters.
 
 ## Operator controls
-Translation timing has two modes. **Live** is the default and translates partial captions quickly for the lowest delay. **More stable** uses corrected English partials at a slower, steadier pace during continuous speech and also translates final captions. This can reduce brief mistranslated partial captions without waiting for the speaker to stop, although translated captions still appear a little later than Live mode.
+Translation timing has three modes. **Responsive Context** is the recommended default for new configurations and retranslates the growing stable English cue without waiting for completed paragraphs. **Live** translates eligible partial captions quickly as the lowest-delay control. **More Stable** uses corrected English partials at a slower, steadier pace and also translates final captions. Context and naturalness must still be validated by native readers rather than assumed from model output.
 
 Language requests are enabled by default. In Restricted mode, visitors and service leaders can ask for an installed language that is not currently enabled; the operator must accept it before it appears for the audience. If requests become distracting or disruptive, turn off **Visitor language requests** in **Languages → Advanced language controls**. Existing requests are cleared when the switch is saved off, and new requests are rejected until it is turned on again.
-
