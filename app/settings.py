@@ -3,7 +3,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.1"
 
 
 class Settings(BaseSettings):

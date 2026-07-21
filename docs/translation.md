@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-translation-models-ar
 
 ### Recommended package: CTranslate2 INT8 SMaLL-100
 
-Recommended package uses a converted `alirezamsh/small100` model through CTranslate2 with INT8 quantisation. It is the preferred v0.6.x neural translation path for broad language coverage, lower memory use, and better multi-language throughput while keeping translation local and open-source.
+Recommended package uses a converted `alirezamsh/small100` model through CTranslate2 with INT8 quantisation. It is the preferred efficient neural translation path for broad language coverage, lower memory use, and better multi-language throughput while keeping translation local and open-source.
 
 The Recommended package is not installed by default. Non-technical operators can use **Improve translation performance** on the operator **Languages** page. The button runs the local installer in the background, shows progress, and then offers **Use faster translation** when the model is ready. Setup scripts can also install the Recommended package, and technical users can run it manually:
 
@@ -159,7 +159,7 @@ Church Cap protects the live source caption feed by keeping English publication 
 
 For 3 or more simultaneous neural translations, use a stronger desktop CPU, NVIDIA CUDA acceleration, or a separate translation-capable machine.
 
-## v0.6.x translation-performance direction
+## Efficient translation-performance direction
 
 v0.6.1 starts the translation-performance track. The immediate goal is to keep the user-facing translation workflow stable while preparing the heavier translation path for CTranslate2/INT8 where practical.
 
@@ -167,15 +167,15 @@ Current runtime reality:
 
 - **Recommended / CTranslate2 INT8 SMaLL-100** is the preferred broad-language package. It can use CPU/int8 or CUDA-backed CTranslate2 compute types where supported.
 - **Base / Argos** stays available as a local fallback for installed language packs and generally runs on CPU.
-- **Compatibility / PyTorch SMaLL-100** remains available for comparison and fallback. It may use CUDA when PyTorch sees CUDA, but it is not the preferred v0.6.x performance path.
+- **Compatibility / PyTorch SMaLL-100** remains available for comparison and fallback. It may use CUDA when PyTorch sees CUDA, but it is not the preferred performance path.
 - **Faster Whisper** already uses CTranslate2 and can use CPU/int8 or NVIDIA CUDA for speech-to-text. That acceleration does not automatically accelerate Argos translation.
 - **AMD ROCm** is a future experimental Linux research path. Church Cap should not advertise ROCm as supported until setup, detection, fallback, and model/runtime tests are repeatable on real AMD hardware.
 
 The Recommended package is intentionally behind provider/status checks. Keep Base and Compatibility fallbacks available, benchmark every active-language count, and only increase appliance limits when the operator can see measured English Delay and Translation Delay staying healthy.
 
-## v0.7.0 Word Timing, Source Units, Context, And Scheduling
+## v0.7.0 Word Timing, Source Units, Context, And Scheduling, Retained In v0.7.1
 
-The v0.7.0 Faster-Whisper path requests per-word timestamps and confidence. Safe words and forward extensions remain immediate. Only a weak final word within the 0.32-second captured-audio edge is hidden until a second decode agrees or the word moves away from the edge. The cue ledger still revises one stable `cue_id`; confirmed text seals at punctuation, 14 words, five seconds, audio-window advancement, or a real final. The sealed word-time boundary trims immutable audio from later rolling windows while retaining one second of overlap. Draft revisions replace one live line and unrelated sealed cues remain durable. Standard OpenAI Whisper keeps segment alignment but uses the same corrected start-to-start cadence.
+The v0.7.0 Faster-Whisper path requests per-word timestamps and confidence; v0.7.1 retains this behavior unchanged. Safe words and forward extensions remain immediate. Only a weak final word within the 0.32-second captured-audio edge is hidden until a second decode agrees or the word moves away from the edge. The cue ledger still revises one stable `cue_id`; confirmed text seals at punctuation, 14 words, five seconds, audio-window advancement, or a real final. The sealed word-time boundary trims immutable audio from later rolling windows while retaining one second of overlap. Draft revisions replace one live line and unrelated sealed cues remain durable. Standard OpenAI Whisper keeps segment alignment but uses the same corrected start-to-start cadence.
 
 The normal per-language queue capacity is eight. Church Cap coalesces every older queued revision for the same cue, including a stale final revision, then drops the oldest remaining draft if space is needed. If a queue contains only unrelated sealed cues, another sealed cue is accepted over capacity; a new draft is rejected until the queue drains. In-flight output is published only when its cue revision is still current. Round-robin selection prevents a busy language from starving another language. Sensitive mode and Clear erase cue and scheduler state.
 
@@ -199,7 +199,7 @@ See [TRANSLATION_MODEL_RESEARCH.md](project/TRANSLATION_MODEL_RESEARCH.md) for t
 
 The operator page **Performance** controls can switch between standard local OpenAI Whisper and the lower-latency `faster-whisper` backend without editing `.env`. The platform view auto-detects macOS, Windows, or Linux and can be changed manually if needed. Windows and Linux can use NVIDIA CUDA for Faster Whisper when CTranslate2 sees a working runtime; Windows includes an optional local runtime installer, while Linux leaves drivers and CUDA under the system administrator's package policy. On macOS, CUDA choices are hidden and OpenAI Whisper can attempt Apple Metal/MPS when PyTorch supports it. Argos Translate may still run on CPU even when Whisper uses GPU acceleration. Recommended package / CTranslate2 INT8 translation remains optional and should be validated with real speech before live use.
 
-## Measuring Translation In v0.7.0
+## Measuring Translation In v0.7.1
 
 Church Cap records privacy-safe numeric measurements for every translated language requested by a connected viewer. The current service and latest five completed summaries distinguish queue wait, provider compute, source-to-publish timing, outcomes, source-unit boundaries, draft coalescing/backpressure, durable finals, maximum queue depth, recovery, viewer-seconds, and resource pressure. Viewer counts are seeded when captions start so phones that joined beforehand are included. The implementation is not limited to Farsi or Chinese; those are the first languages being assessed with native readers.
 

@@ -28,7 +28,7 @@ function Normalize-Version {
 
 function Get-AppVersionFromText {
     param([string]$Text)
-    $match = [regex]::Match($Text, 'app_version\s*:\s*str\s*=\s*"([^"]+)"')
+    $match = [regex]::Match($Text, '(?:APP_VERSION\s*=|app_version\s*:\s*str\s*=)\s*"([^"]+)"')
     if ($match.Success) {
         return Normalize-Version $match.Groups[1].Value
     }
@@ -198,7 +198,7 @@ try {
     $RepoZipUrl = "$RepoTagZipBaseUrl/$RemoteTag.zip"
 
     Write-Host "Church Cap updater"
-    Write-Host "Current version: v.$CurrentVersion"
+    Write-Host "Current version: v$CurrentVersion"
     Write-Host "Latest GitHub release: $RemoteTag"
     Write-Host "  $AppDir"
     Write-Host ""
@@ -209,12 +209,12 @@ try {
     }
 
     if ($Check) {
-        Write-Host "Update available: v.$RemoteVersion"
+        Write-Host "Update available: v$RemoteVersion"
         exit 0
     }
 
     if (-not $Yes) {
-        $answer = Read-Host "Replace this Church Cap folder with v.$RemoteVersion now? [y/N]"
+        $answer = Read-Host "Replace this Church Cap folder with v$RemoteVersion now? [y/N]"
         if ($answer -notmatch "^(y|yes)$") {
             Write-Host "Update cancelled."
             exit 0
@@ -251,7 +251,7 @@ try {
     Assert-ReleaseTree -ReleaseDir $ExtractedDir.FullName
     $ExtractedVersion = Get-AppVersionFromText -Text (Get-Content (Join-Path $ExtractedDir.FullName "app\settings.py") -Raw)
     if ($ExtractedVersion -ne $RemoteVersion) {
-        throw "Downloaded release version v.$ExtractedVersion did not match GitHub release $RemoteTag."
+        throw "Downloaded release version v$ExtractedVersion did not match GitHub release $RemoteTag."
     }
 
     Copy-PreservedFile ".env"
@@ -310,7 +310,7 @@ try {
     Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
 
     Write-Host ""
-    Write-Host "Church Cap updated in place to v.$RemoteVersion."
+    Write-Host "Church Cap updated in place to v$RemoteVersion."
     Write-Host "Rollback backup kept at:"
     Write-Host "  $BackupDir"
     Write-Host ""

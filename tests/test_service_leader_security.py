@@ -103,13 +103,40 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         self.assertIn(".service-leader-page.light-mode .secondary-button", self.styles)
 
     def test_operator_language_save_button_is_before_restricted_list(self):
-        save_index = self.operator.index('class="button-row language-save-row"')
+        primary_save_index = self.operator.index('id="translationPrimarySave"')
+        advanced_save_index = self.operator.index('id="translationAdvancedSave"')
+        maximum_index = self.operator.index('Maximum active translated languages')
+        advanced_index = self.operator.index('<summary>Advanced language controls</summary>')
         list_index = self.operator.index('Restricted-language list')
         bottom_copy_index = self.operator.index('Recommended package uses CTranslate2 INT8')
-        self.assertLess(save_index, list_index)
+        self.assertLess(maximum_index, primary_save_index)
+        self.assertLess(primary_save_index, advanced_index)
+        self.assertLess(advanced_index, advanced_save_index)
+        self.assertLess(advanced_save_index, list_index)
         self.assertLess(list_index, bottom_copy_index)
+        self.assertEqual(self.operator.count('onclick="saveTranslationSettings()">Save language settings</button>'), 2)
         self.assertIn('text-align: center;', self.styles)
         self.assertIn('.language-save-row', self.styles)
+
+    def test_translation_mode_copy_uses_the_current_app_version(self):
+        self.assertIn('window.CC_APP_VERSION_LABEL = {{ app_version_label | tojson }};', self.operator)
+        self.assertIn("preferred ${window.CC_APP_VERSION_LABEL || 'current release'} path", self.operator)
+        self.assertNotIn('preferred v0.6.x path', self.operator)
+
+    def test_service_leader_operator_page_explains_the_role(self):
+        self.assertIn('What is Service Leader?', self.operator)
+        self.assertIn('Simple controls for the person running the service', self.operator)
+        self.assertIn('not the full operator settings', self.operator)
+        self.assertIn('.service-leader-explainer', self.styles)
+        explainer_styles = self.styles.split('.service-leader-explainer {', 1)[1].split('}', 1)[0]
+        self.assertIn('border-radius: 26px;', explainer_styles)
+
+    def test_diagnostics_and_updates_icons_use_clear_inspect_and_download_shapes(self):
+        diagnostics = self.styles.split('.nav-icon-diagnostics::before', 1)[1].split('.nav-icon-updates::before', 1)[0]
+        updates = self.styles.split('.nav-icon-updates::before', 1)[1].split('.nav-label', 1)[0]
+        self.assertIn('transform: rotate(45deg);', diagnostics)
+        self.assertIn('clip-path: polygon(', updates)
+        self.assertIn('border-top: 0;', updates)
 
     def test_operator_audience_outputs_are_clear_and_appliance_guarded(self):
         self.assertIn("Room display and livestream", self.operator)

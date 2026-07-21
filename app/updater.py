@@ -24,7 +24,7 @@ def normalise_version(version: str | None) -> str:
 
 def version_label(version: str | None) -> str:
     clean = normalise_version(version)
-    return f"v.{clean}" if clean else "unknown"
+    return f"v{clean}" if clean else "unknown"
 
 
 def version_tuple(version: str | None) -> tuple[int, ...]:
@@ -38,7 +38,7 @@ def is_remote_newer(remote_version: str | None, current_version: str | None) -> 
 
 
 def parse_version_from_settings(text: str) -> str | None:
-    match = re.search(r'app_version\s*:\s*str\s*=\s*"([^"]+)"', text)
+    match = re.search(r'(?:APP_VERSION\s*=|app_version\s*:\s*str\s*=)\s*"([^"]+)"', text)
     return match.group(1) if match else None
 
 

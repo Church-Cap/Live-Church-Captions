@@ -1517,33 +1517,36 @@ select {
   transform: skew(-18deg);
 }
 .nav-icon-diagnostics::before {
-  width: 0.84rem;
-  height: 0.84rem;
+  width: 0.64rem;
+  height: 0.64rem;
   border: 2px solid currentColor;
   border-radius: 999px;
+  left: 0.28rem;
+  top: 0.27rem;
 }
 .nav-icon-diagnostics::after {
-  width: 2px;
-  height: 0.38rem;
+  width: 0.42rem;
+  height: 2px;
+  right: 0.19rem;
+  bottom: 0.27rem;
   background: currentColor;
   border-radius: 999px;
-  box-shadow: 0 -0.29rem 0 -0.02rem currentColor;
+  transform: rotate(45deg);
 }
 .nav-icon-updates::before {
-  width: 0.86rem;
-  height: 0.86rem;
-  border: 2px solid currentColor;
-  border-left-color: transparent;
-  border-radius: 999px;
+  width: 0.84rem;
+  height: 0.88rem;
+  top: 0.18rem;
+  background: currentColor;
+  clip-path: polygon(42% 0, 58% 0, 58% 47%, 78% 47%, 50% 76%, 22% 47%, 42% 47%);
 }
 .nav-icon-updates::after {
-  width: 0.28rem;
+  width: 0.82rem;
   height: 0.28rem;
-  right: 0.25rem;
-  top: 0.31rem;
-  border-top: 2px solid currentColor;
-  border-right: 2px solid currentColor;
-  transform: rotate(20deg);
+  bottom: 0.18rem;
+  border: 2px solid currentColor;
+  border-top: 0;
+  border-radius: 0 0 0.2rem 0.2rem;
 }
 .nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .operator-sidebar-collapsed .brand-copy,
@@ -3792,6 +3795,29 @@ select {
   margin-top: 1rem;
 }
 
+.service-leader-explainer {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.75fr) minmax(18rem, 1.5fr);
+  gap: 1.25rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border-radius: 26px;
+  border-color: rgba(56, 189, 248, 0.26);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(255, 255, 255, 0.035));
+}
+.service-leader-explainer h2,
+.service-leader-explainer p {
+  margin: 0;
+}
+.service-leader-explainer .eyebrow {
+  margin-bottom: 0.3rem;
+}
+.service-leader-explainer > p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .service-leader-operator-status {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3963,6 +3989,9 @@ select {
 .language-save-row {
   margin: 0.85rem 0 1rem !important;
 }
+.language-primary-save-row {
+  margin-top: 0.65rem !important;
+}
 .language-save-row .primary-button,
 .language-save-row button {
   width: 100%;
@@ -4019,6 +4048,11 @@ select {
 
   .service-leader-operator-status {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .service-leader-explainer {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.7rem;
   }
 }
 

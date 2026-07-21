@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v0.7.0
+Version: v0.7.1
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -32,7 +32,7 @@ Use **Benchmark** before selecting heavier models such as `small.en` or `medium.
 2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.7.0"
+cd "$HOME/Documents/Live-Church-Captions-0.7.1"
 ```
 
 3. Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -53,7 +53,7 @@ If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes 
 2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\Live-Church-Captions-0.7.0"
+cd "$HOME\Documents\Live-Church-Captions-0.7.1"
 ```
 
 3. Run setup.
@@ -64,7 +64,7 @@ cd "$HOME\Documents\Live-Church-Captions-0.7.0"
 
 4. Wait for setup to finish, then continue to **Start Church Cap** below.
 
-The setup script installs the local Python environment and app dependencies, checks CUDA/GPU support, and offers translation-resource choices for common Base package / Argos packs, all Base package / Argos packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skipping translation resources until later. v0.6.x starts the translation-performance track with the Recommended package / CTranslate2 INT8 for heavier translation paths, while Base package / Argos remains available as fallback. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
+The setup script installs the local Python environment and app dependencies, checks CUDA/GPU support, and offers translation-resource choices for common Base package / Argos packs, all Base package / Argos packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skipping translation resources until later. Recommended package / CTranslate2 INT8 is the preferred efficient path for heavier translation work, while Base package / Argos remains available as fallback. If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12 first. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
 
 You can also run the optional GPU runtime installer later:
 
@@ -79,7 +79,7 @@ If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came fro
 Open a terminal, then go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.7.0"
+cd "$HOME/Documents/Live-Church-Captions-0.7.1"
 bash setup-linux.sh
 ```
 
@@ -301,7 +301,7 @@ AI-generated captions can contain mistakes. Use the sensitive blank/pause mode f
 
 ## Feedback
 
-The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For recorded-sermon comparisons, use **Diagnostics > Download anonymised service report**; this allow-listed file contains no speech, captions, translations, audio metadata, recognition timestamps, glossary content, paths, network identifiers, operator data, or logs. v0.7.0 retains the latest five completed summaries across restarts and reports timestamped cue-engine processing latency plus cue/queue health. Select **Reset test measurements** before a new comparison set.
+The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For recorded-sermon comparisons, use **Diagnostics > Download anonymised service report**; this allow-listed file contains no speech, captions, translations, audio metadata, recognition timestamps, glossary content, paths, network identifiers, operator data, or logs. v0.7.1 retains the latest five completed summaries across restarts and reports timestamped cue-engine processing latency plus cue/queue health. Select **Reset test measurements** before a new comparison set.
 
 Open **Diagnostics → Storage use** to see the application, Church Cap data, Hugging Face model downloads, OpenAI Whisper downloads, and current log use. Storage is calculated only when this page is opened or refreshed. **Review unused downloads** opens a Church Cap-themed confirmation menu; nothing is removed automatically. The active model, settings, transcripts, measurements, and current logs are protected. An inactive model offered for cleanup must download again if you select it later. Church Cap limits each of its diagnostic logs to 5 MB plus two archived copies.
 

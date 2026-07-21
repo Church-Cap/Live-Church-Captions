@@ -1,8 +1,8 @@
 # Third-Party Notices
 
-Last reviewed: 2026-07-15
+Last reviewed: 2026-07-21
 
-Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for v0.7.0.
+Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for v0.7.1.
 
 The repository does not vendor Python packages, Whisper model weights, Argos model packages, Homebrew packages, operating-system packages, font files, browser packages, certificates, or a prebuilt `.venv`. Installers download dependencies into the user's local environment or ask the operating system package manager to install them. If you distribute a packaged app, appliance image, wheelhouse, Docker image, or prebuilt virtual environment, generate notices from that exact artifact.
 
@@ -93,6 +93,7 @@ Church Cap does not commit or redistribute model weights in this repository.
 - Argos Translate language packages are downloaded by `scripts/install-translation-models-argos.sh` on macOS/Linux or `scripts/install-translation-models-argos.ps1` on Windows during setup, from the operator **Languages** page, or when the translation installer is rerun manually.
 - Confirm the licence for every Argos language package you use, redistribute, or preinstall. The Argos application code is MIT/CC0, but model packages are separate artifacts and some package metadata has historically omitted an explicit licence. Do not assume the library licence automatically covers every downloaded model.
 - Church Cap disables Argos's optional Stanza sentence-boundary pipeline before importing Argos. Church Cap translates short bounded cues, so this avoids loading packaged Stanza model files and avoids service-time Stanza resource checks. Argos 1.9.6 still pins older Stanza and SentencePiece packages; treat Argos model packages as trusted local resources, install them only through the documented operator/setup flow, and reassess the pin when Argos publishes a compatible fixed dependency set.
+- The 21 July 2026 release audit found no known vulnerabilities in the default `requirements.txt` set. The optional Argos set still resolves SentencePiece 0.2.0 (`PYSEC-2026-1909`, fixed in 0.2.1) and Stanza 1.1.1 (`PYSEC-2026-3075`, fixed in 1.12.2) because Argos 1.9.6 pins those versions. Disabling Stanza's model pipeline removes that unused model-loading path from Church Cap, but it does not make the installed packages generally vulnerability-free. Do not load untrusted Argos, SentencePiece, or Stanza model files; prefer the Recommended CTranslate2/SMaLL-100 path where it meets the language and quality requirement; and repeat the audit when Argos publishes compatible dependency pins.
 - Optional Fast Core translation downloads and converts `alirezamsh/small100` when `scripts/install-small100-ct2-int8.sh` or `scripts/install-small100-ct2-int8.ps1` is run. Optional legacy Core translation downloads the same model when `scripts/install-small100-core.sh` or `scripts/install-small100-core.ps1` is run. The Hugging Face model card lists SMaLL-100 as MIT licensed and covering 101 languages. Confirm the licence again before redistributing model weights or converted CTranslate2 files.
 - OpenCC is installed by the translation installers and is used only for deterministic Chinese script and regional-phrase conversion. Its official project and PyPI metadata list Apache-2.0.
 

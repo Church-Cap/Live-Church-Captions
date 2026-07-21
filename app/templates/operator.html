@@ -413,6 +413,9 @@
               <input id="translationMax" type="number" min="1" max="{{ translation_max_limit }}" step="1" inputmode="numeric" value="{{ translation_current_max }}">
             </div>
             <p class="muted small-result">Church Cap automatically translates the most-requested visitor languages up to this limit.</p>
+            <div class="button-row language-save-row language-primary-save-row">
+              <button id="translationPrimarySave" type="button" class="primary-button" onclick="saveTranslationSettings()">Save language settings</button>
+            </div>
             <div id="translationCapacityWarning" class="warning-panel slim-warning glass-card" hidden>
               <strong>CPU translation limit:</strong> this appliance is using CPU translation or has no ready CUDA acceleration. Keep active translated languages low for live services unless a benchmark proves more is safe.
             </div>
@@ -477,7 +480,7 @@
                 </span>
               </label>
               <div class="button-row language-save-row">
-                <button type="button" class="primary-button" onclick="saveTranslationSettings()">Save language settings</button>
+                <button id="translationAdvancedSave" type="button" class="primary-button" onclick="saveTranslationSettings()">Save language settings</button>
               </div>
               <fieldset class="language-fieldset premium-language-fieldset">
                 <legend>Restricted-language list</legend>
@@ -590,6 +593,13 @@
 
       <section class="operator-section" id="operator-section-service-leader" data-title="Service Leader" data-description="Pair and manage restricted service-control devices.">
         <div class="operator-grid two-card-grid">
+          <div class="service-leader-explainer glass-card">
+            <div>
+              <p class="eyebrow">What is Service Leader?</p>
+              <h2>Simple controls for the person running the service</h2>
+            </div>
+            <p>A Service Leader can use a trusted church phone or tablet to start and stop captions, pause for private moments, select the audio input while stopped, and manage available languages. They receive only these day-to-day controls—not the full operator settings, password, diagnostics, updates, or model installation.</p>
+          </div>
           <article class="operator-panel glass-card service-leader-operator-card">
             <div class="panel-heading-row">
               <div>
@@ -932,6 +942,7 @@
   <script>
     window.CC_LANGUAGES = {{ languages | tojson }};
     window.CC_DEPLOYMENT = {{ deployment | tojson }};
+    window.CC_APP_VERSION_LABEL = {{ app_version_label | tojson }};
     let pendingUpdate = null;
     let updatePollTimer = null;
     let serviceLeaderPairingTimer = null;
@@ -1859,7 +1870,7 @@
       const descriptions = {
         disabled: 'Visitors can still choose the phone UI language, but captions stay in the source language.',
         argos: 'Base package uses installed Argos Translate packs. It can be useful as a fallback, but it is often more literal.',
-        ct2small100: 'Recommended package uses CTranslate2 INT8 with SMaLL-100. It is the preferred v0.6.x path for broad language coverage and lower CPU load.',
+        ct2small100: `Recommended package uses CTranslate2 INT8 with SMaLL-100. It is the preferred ${window.CC_APP_VERSION_LABEL || 'current release'} path for broad language coverage and lower CPU load.`,
         small100: 'Compatibility package uses SMaLL-100 through PyTorch. Keep it as a safety net for comparison or fallback, but it may add more latency.',
         both: 'Auto mode shows languages from installed packages. Church Cap tries Recommended first, then Base, then Compatibility for languages earlier packages cannot translate.'
       };

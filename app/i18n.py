@@ -314,7 +314,7 @@ class LocalTranslator:
                 return {
                     "provider": CT2_SMALL100_PROVIDER,
                     "ready": True,
-                    "message": "Recommended package / CTranslate2 INT8 model is installed. It is the preferred v0.6.x neural translation runtime.",
+                    "message": "Recommended package / CTranslate2 INT8 model is installed. It is the preferred efficient neural translation runtime.",
                     "model_dir": str(CT2_SMALL100_MODEL_DIR),
                 }
             return {

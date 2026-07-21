@@ -7,7 +7,7 @@ Church Cap is a local live-caption app for churches. It runs on the caption comp
 Open Terminal, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.7.0"
+cd "$HOME/Documents/Live-Church-Captions-0.7.1"
 ```
 
 Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -23,7 +23,7 @@ Setup may take a while. It installs the local Python environment and audio depen
 Open PowerShell, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\Live-Church-Captions-0.7.0"
+cd "$HOME\Documents\Live-Church-Captions-0.7.1"
 ```
 
 Run setup:
@@ -47,7 +47,7 @@ If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came fro
 Open a terminal, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.7.0"
+cd "$HOME/Documents/Live-Church-Captions-0.7.1"
 bash setup-linux.sh
 ```
 

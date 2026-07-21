@@ -6,13 +6,13 @@ This document describes the current alpha architecture.
 
 ## Current Release
 
-Version: `v0.7.0`
+Version: `v0.7.1`
 
 Status: controlled local church testing. Church Cap is open-source software, not a compliance-certified service, and churches remain responsible for their own privacy, safeguarding, accessibility, copyright, and operational policies.
 
 ## Deployment Model
 
-Church Cap v0.7.0 keeps explicit deployment profiles and begins the translation-readability implementation. Hardware detection reports capability only; it never decides that a computer is an appliance. Appliance mode is activated by an installer-owned identity file at `/etc/churchcap-appliance/identity.json` or by explicit environment variables.
+Church Cap v0.7.1 retains the v0.7.0 caption and translation-readability implementation and adds focused operator-interface clarity. Hardware detection reports capability only; it never decides that a computer is an appliance. Appliance mode is activated by an installer-owned identity file at `/etc/churchcap-appliance/identity.json` or by explicit environment variables.
 
 Profiles:
 
@@ -24,7 +24,9 @@ This keeps one codebase while allowing the appliance shell, kiosk setup, and upd
 
 Roadmap detail: [ROADMAP_TO_V1.md](ROADMAP_TO_V1.md).
 
-v0.7.0 action-plan status: [V0.7.0_IMPLEMENTATION.md](V0.7.0_IMPLEMENTATION.md).
+v0.7.1 action-plan status: [V0.7.1_IMPLEMENTATION.md](V0.7.1_IMPLEMENTATION.md).
+
+v0.7.1 adds a prominent language-settings save action, version-aware translation-mode guidance, a Service Leader role explanation, and clearer Diagnostics and Updates icons. These are presentation and discoverability changes; the v0.7.0 cue engine, translation scheduler, audience renderer, privacy controls, and diagnostics schema remain unchanged.
 
 ## Project Goals
 
@@ -60,7 +62,7 @@ Church microphones
 - `/docs/church-notice` — operator-only suggested church notice wording.
 - `/docs/disclaimer` — operator-only disclaimer notes.
 - Operator **Diagnostics** section — operator-only local support export with confirmation, system specs, runtime status, metrics, and redacted updater/CUDA logs.
-- v0.7.0 diagnostics expose the v0.6.1 measurements plus word-timestamp, actual decode-cadence, cue-engine, bounded-queue, responsive translation revision, and first translated cue outcomes through service-metrics schema 9. Reports contain numeric counts and distributions only; they never retain audio, recognition spans, word times or confidence, device metadata, captions, translations, transcripts, glossary contents, paths, network identifiers, or operator data.
+- v0.7.1 diagnostics expose the v0.6.1 measurements plus word-timestamp, actual decode-cadence, cue-engine, bounded-queue, responsive translation revision, and first translated cue outcomes through service-metrics schema 9. Reports contain numeric counts and distributions only; they never retain audio, recognition spans, word times or confidence, device metadata, captions, translations, transcripts, glossary contents, paths, network identifiers, or operator data.
 - Operator **Updates** section — operator-only GitHub release-tag check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
 - `/service-leader` — restricted service-leader controls reached through a one-use QR pairing flow on the operator port.
 - `/api/diagnostics/export` — local diagnostics JSON export, operator login and local computer required.
@@ -335,7 +337,7 @@ bash fix-permissions.sh
 
 v0.6.1 is the measurement release before contextual translation changes. Starting captions creates a random non-identifying run ID and an atomic active marker, then seeds language demand from audience viewers who joined before Start. Stopping captions finalises an allow-listed summary; the latest five summaries persist in the normal per-user data folder across app restarts. An abandoned marker is reported as incomplete without invented measurements. Diagnostics expose current and latest completed services, and a separate anonymised service report excludes host details and logs. Service-metrics schema 2 separates the oldest-frame rolling-window upper bound from the operational English response estimate and records why completed translation work was not published. Metrics are language-agnostic: Farsi and Chinese are pilot validation targets, not hard-coded special cases. Reservoirs are bounded, while aggregate counts, averages and peaks cover the full run. The recorded-sermon helper accepts a local PCM WAV file and sends it in real time to an operator-selected output/loopback device; Church Cap's live audio path remains unchanged and the external-routing limitation is recorded in its privacy-safe manifest.
 
-The v0.6.x branch should improve multilingual performance without splitting the project into separate apps. Recommended / CTranslate2 INT8 SMaLL-100 is the preferred broad-language path. Base / Argos remains available as a local fallback for installed packs. Compatibility / PyTorch SMaLL-100 remains optional for comparison and fallback while conversion quality and latency are benchmarked. AMD ROCm is a research item for Linux appliance experiments, not a supported runtime until detection, setup, diagnostics, fallback, and benchmark results are reliable.
+The efficient translation path improves multilingual performance without splitting the project into separate apps. Recommended / CTranslate2 INT8 SMaLL-100 is the preferred broad-language path. Base / Argos remains available as a local fallback for installed packs. Compatibility / PyTorch SMaLL-100 remains optional for comparison and fallback while conversion quality and latency are benchmarked. AMD ROCm is a research item for Linux appliance experiments, not a supported runtime until detection, setup, diagnostics, fallback, and benchmark results are reliable.
 
 Implementation guardrails:
 
@@ -345,9 +347,9 @@ Implementation guardrails:
 - do not raise CPU appliance language limits without benchmark evidence
 - do not advertise ROCm support until it is tested on real AMD hardware
 
-## v0.7.0 Streaming Word Timing And Translation Readability
+## v0.7.0 Streaming Word Timing And Translation Readability, Retained In v0.7.1
 
-The v0.7.0 Faster-Whisper path adds real word alignment and confidence to the server-owned cue lifecycle. Safe words publish immediately; only a weak final word at the captured-audio edge waits for a second matching decode. Words shared by consecutive passes form a stable prefix and only the guarded newest tail remains mutable. Confirmed text seals at punctuation, 14 words, five seconds, audio-window advancement, or a real final. Sealed word boundaries let later rolling windows omit immutable audio while retaining one second of overlap. Both Whisper backends schedule recognition start-to-start so model compute no longer receives an additional full configured sleep.
+v0.7.0 added real Faster-Whisper word alignment and confidence to the server-owned cue lifecycle; v0.7.1 retains that path unchanged. Safe words publish immediately; only a weak final word at the captured-audio edge waits for a second matching decode. Words shared by consecutive passes form a stable prefix and only the guarded newest tail remains mutable. Confirmed text seals at punctuation, 14 words, five seconds, audio-window advancement, or a real final. Sealed word boundaries let later rolling windows omit immutable audio while retaining one second of overlap. Both Whisper backends schedule recognition start-to-start so model compute no longer receives an additional full configured sleep.
 
 Each translated language has a bounded queue. New revisions coalesce every older job for the same cue, including an obsolete final revision; unrelated sealed cues remain durable. Under pressure, the scheduler removes the oldest draft before a sealed cue, permits sealed-only overflow rather than losing completed speech, and rotates languages round-robin. Queue state is cleared by Sensitive mode and Clear. At Stop, Church Cap waits up to two seconds for outstanding work, then explicitly records and cancels anything remaining. Service-metrics schema 9 records word-alignment use, guarded-edge outcomes, actual pass intervals, cue processing, stable/mutable counts, cue lifetime, translated draft/final publications, and time from the first English cue update to its first translated publication without retaining caption text, recognition timestamps, confidence values, or translated wording.
 

@@ -54,7 +54,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 read_local_version() {
-  sed -n 's/.*app_version: str = "\([^"]*\)".*/\1/p' "$APP_DIR/app/settings.py" | head -n 1 | sed 's/^v\.//;s/^v//'
+  sed -n \
+    -e 's/^[[:space:]]*APP_VERSION[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    -e 's/.*app_version[[:space:]]*:[[:space:]]*str[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$APP_DIR/app/settings.py" | head -n 1 | sed 's/^v\.//;s/^v//'
 }
 
 normalise_version() {
@@ -83,7 +86,10 @@ PY
 
 version_from_settings_file() {
   local settings_file="$1"
-  sed -n 's/.*app_version: str = "\([^"]*\)".*/\1/p' "$settings_file" | head -n 1 | sed 's/^v\.//;s/^v//'
+  sed -n \
+    -e 's/^[[:space:]]*APP_VERSION[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    -e 's/.*app_version[[:space:]]*:[[:space:]]*str[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$settings_file" | head -n 1 | sed 's/^v\.//;s/^v//'
 }
 
 sync_env_key() {
@@ -229,7 +235,7 @@ fi
 REPO_ZIP_URL="$REPO_TAG_ZIP_BASE_URL/$REMOTE_TAG.zip"
 
 echo "Church Cap updater"
-echo "Current version: v.${CURRENT_VERSION:-unknown}"
+echo "Current version: v${CURRENT_VERSION:-unknown}"
 echo "Latest GitHub release: $REMOTE_TAG"
 echo "  $APP_DIR"
 echo ""
@@ -240,12 +246,12 @@ if ! version_newer "$REMOTE_VERSION" "$CURRENT_VERSION"; then
 fi
 
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
-  echo "Update available: v.$REMOTE_VERSION"
+  echo "Update available: v$REMOTE_VERSION"
   exit 0
 fi
 
 if [[ "$YES" -ne 1 ]]; then
-  read -r -p "Replace this Church Cap folder with v.$REMOTE_VERSION now? [y/N] " answer
+  read -r -p "Replace this Church Cap folder with v$REMOTE_VERSION now? [y/N] " answer
   case "${answer:-}" in
     y|Y|yes|YES) ;;
     *) echo "Update cancelled."; exit 0 ;;
@@ -269,7 +275,7 @@ fi
 validate_release_tree "$EXTRACTED_DIR"
 EXTRACTED_VERSION="$(version_from_settings_file "$EXTRACTED_DIR/app/settings.py")"
 if [[ "$EXTRACTED_VERSION" != "$REMOTE_VERSION" ]]; then
-  echo "Downloaded release version v.$EXTRACTED_VERSION did not match GitHub release $REMOTE_TAG." >&2
+  echo "Downloaded release version v$EXTRACTED_VERSION did not match GitHub release $REMOTE_TAG." >&2
   exit 1
 fi
 
@@ -330,7 +336,7 @@ verify_manifest_in_app
 UPDATE_COMPLETE=1
 
 echo ""
-echo "Church Cap updated in place to v.$REMOTE_VERSION."
+echo "Church Cap updated in place to v$REMOTE_VERSION."
 echo "Rollback backup kept at:"
 echo "  $BACKUP_DIR"
 echo ""
