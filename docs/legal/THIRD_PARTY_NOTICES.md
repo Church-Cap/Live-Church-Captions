@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-07-21
 
-Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for v0.7.1.
+Church Cap is released under the MIT License. This file records the direct third-party packages, optional model/tooling notes, appliance-shell system package notes, and release hygiene reminders for v0.7.2.
 
 The repository does not vendor Python packages, Whisper model weights, Argos model packages, Homebrew packages, operating-system packages, font files, browser packages, certificates, or a prebuilt `.venv`. Installers download dependencies into the user's local environment or ask the operating system package manager to install them. If you distribute a packaged app, appliance image, wheelhouse, Docker image, or prebuilt virtual environment, generate notices from that exact artifact.
 

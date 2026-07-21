@@ -226,8 +226,14 @@ restore_backup() {
 }
 
 CURRENT_VERSION="$(read_local_version)"
-REMOTE_TAG="$(fetch_remote_tag)"
-REMOTE_VERSION="$(normalise_version "$REMOTE_TAG")"
+REQUESTED_VERSION="$(normalise_version "${CHURCH_CAP_UPDATE_TARGET_VERSION:-}")"
+if [[ -n "$REQUESTED_VERSION" ]]; then
+  REMOTE_VERSION="$REQUESTED_VERSION"
+  REMOTE_TAG="v$REMOTE_VERSION"
+else
+  REMOTE_TAG="$(fetch_remote_tag)"
+  REMOTE_VERSION="$(normalise_version "$REMOTE_TAG")"
+fi
 if [[ -z "$REMOTE_TAG" || -z "$REMOTE_VERSION" ]]; then
   echo "Could not read the latest Church Cap release tag from GitHub." >&2
   exit 1
@@ -236,7 +242,7 @@ REPO_ZIP_URL="$REPO_TAG_ZIP_BASE_URL/$REMOTE_TAG.zip"
 
 echo "Church Cap updater"
 echo "Current version: v${CURRENT_VERSION:-unknown}"
-echo "Latest GitHub release: $REMOTE_TAG"
+echo "Selected GitHub release: $REMOTE_TAG"
 echo "  $APP_DIR"
 echo ""
 

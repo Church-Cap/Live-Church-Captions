@@ -2214,6 +2214,19 @@ select {
   margin-top: 0.25rem;
 }
 
+.update-failure-actions {
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.update-overlay.is-error .update-spinner {
+  display: none;
+}
+
+.update-overlay.is-error .update-overlay-panel {
+  border-color: rgba(255, 184, 112, 0.46);
+}
+
 .update-spinner {
   width: 2.3rem;
   height: 2.3rem;

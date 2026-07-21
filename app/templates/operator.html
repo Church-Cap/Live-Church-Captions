@@ -933,9 +933,13 @@
   <div id="updateOverlay" class="update-overlay" hidden>
     <div class="update-overlay-panel glass-card">
       <div class="update-spinner" aria-hidden="true"></div>
-      <p class="eyebrow">Updating</p>
-      <h2>Church Cap is updating and restarting</h2>
+      <p id="updateOverlayEyebrow" class="eyebrow">Updating</p>
+      <h2 id="updateOverlayTitle">Church Cap is updating and restarting</h2>
       <p id="updateOverlayText" class="muted">This page will reconnect automatically when the operator page is ready.</p>
+      <div id="updateFailureActions" class="button-row update-failure-actions" hidden>
+        <button type="button" class="primary-button" onclick="downloadUpdateFailureDiagnostics()">Download diagnostics</button>
+        <button type="button" class="secondary-button" onclick="returnToUpdates()">Return to Updates</button>
+      </div>
     </div>
   </div>
 
@@ -2755,9 +2759,49 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
 
     function showUpdateOverlay(targetLabel) {
       const overlay = document.getElementById('updateOverlay');
+      const eyebrow = document.getElementById('updateOverlayEyebrow');
+      const title = document.getElementById('updateOverlayTitle');
       const text = document.getElementById('updateOverlayText');
+      const actions = document.getElementById('updateFailureActions');
+      if (overlay) overlay.classList.remove('is-error');
+      if (eyebrow) eyebrow.textContent = 'Updating';
+      if (title) title.textContent = 'Church Cap is updating and restarting';
       if (text) text.textContent = `Updating to ${targetLabel || 'the latest version'}. This page will reconnect automatically when Church Cap is ready.`;
+      if (actions) actions.hidden = true;
       if (overlay) overlay.hidden = false;
+    }
+
+    function showUpdateFailure(message, options = {}) {
+      if (updatePollTimer) clearInterval(updatePollTimer);
+      updatePollTimer = null;
+      const overlay = document.getElementById('updateOverlay');
+      const eyebrow = document.getElementById('updateOverlayEyebrow');
+      const title = document.getElementById('updateOverlayTitle');
+      const text = document.getElementById('updateOverlayText');
+      const actions = document.getElementById('updateFailureActions');
+      if (overlay) {
+        overlay.hidden = false;
+        overlay.classList.add('is-error');
+      }
+      if (eyebrow) eyebrow.textContent = options.eyebrow || 'Update stopped';
+      if (title) title.textContent = options.title || 'Church Cap was not updated';
+      if (text) text.textContent = message || 'The updater stopped before Church Cap restarted. Your existing installation is still available.';
+      if (actions) actions.hidden = false;
+      setUpdateControlsDisabled(false);
+    }
+
+    function returnToUpdates() {
+      const overlay = document.getElementById('updateOverlay');
+      if (overlay) overlay.hidden = true;
+      showOperatorSection('updates');
+      updateResult('The update stopped. Download diagnostics if you need the detailed update log, then try again after correcting the reported problem.');
+    }
+
+    function downloadUpdateFailureDiagnostics() {
+      const overlay = document.getElementById('updateOverlay');
+      if (overlay) overlay.hidden = true;
+      showOperatorSection('diagnostics');
+      downloadDiagnosticsWithConsent();
     }
 
     function pollForUpdatedApp(targetLabel) {
@@ -2766,18 +2810,40 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
       updatePollTimer = setInterval(async () => {
         try {
           const res = await fetch(`/health?update=${Date.now()}`, {cache: 'no-store'});
-          if (!res.ok) return;
-          const data = await res.json();
-          const readyVersion = data.app_version_label || data.app_version;
-          if (!targetLabel || readyVersion === targetLabel) {
-            clearInterval(updatePollTimer);
-            window.location.href = '/operator';
+          if (res.ok) {
+            const data = await res.json();
+            const readyVersion = data.app_version_label || data.app_version;
+            if (!targetLabel || readyVersion === targetLabel) {
+              clearInterval(updatePollTimer);
+              window.location.href = '/operator';
+              return;
+            }
+          }
+        } catch (_) {
+        }
+        try {
+          const statusRes = await fetch(`/api/update/status?update=${Date.now()}`, {cache: 'no-store'});
+          if (statusRes.status === 401) { location.href = '/login'; return; }
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            const state = statusData.state || {};
+            if (state.status === 'error') {
+              showUpdateFailure(state.error);
+              return;
+            }
+            if (state.status === 'complete') {
+              showUpdateFailure(
+                state.message || 'The updater finished, but the new Church Cap version did not restart automatically.',
+                {eyebrow: 'Restart needed', title: 'Church Cap did not restart'}
+              );
+              return;
+            }
           }
         } catch (_) {
         }
         if (Date.now() - startedAt > 10 * 60 * 1000) {
           const text = document.getElementById('updateOverlayText');
-          if (text) text.textContent = 'The update is taking longer than expected. Check the Church Cap window or logs/update.log on this computer.';
+          if (text) text.textContent = 'The update is taking longer than expected. Church Cap is still checking for a restart. You can wait, or refresh the page and open Diagnostics if the update stops.';
         }
       }, 3000);
     }

@@ -190,8 +190,14 @@ function Restore-Backup {
 
 try {
     $CurrentVersion = Get-LocalVersion
-    $RemoteTag = Get-RemoteReleaseTag
-    $RemoteVersion = Normalize-Version $RemoteTag
+    $RequestedVersion = Normalize-Version $env:CHURCH_CAP_UPDATE_TARGET_VERSION
+    if ([string]::IsNullOrWhiteSpace($RequestedVersion)) {
+        $RemoteTag = Get-RemoteReleaseTag
+        $RemoteVersion = Normalize-Version $RemoteTag
+    } else {
+        $RemoteVersion = $RequestedVersion
+        $RemoteTag = "v$RemoteVersion"
+    }
     if ([string]::IsNullOrWhiteSpace($RemoteTag) -or [string]::IsNullOrWhiteSpace($RemoteVersion)) {
         throw "Could not read the latest Church Cap release tag from GitHub."
     }
@@ -199,7 +205,7 @@ try {
 
     Write-Host "Church Cap updater"
     Write-Host "Current version: v$CurrentVersion"
-    Write-Host "Latest GitHub release: $RemoteTag"
+    Write-Host "Selected GitHub release: $RemoteTag"
     Write-Host "  $AppDir"
     Write-Host ""
 

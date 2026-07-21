@@ -82,6 +82,32 @@ def update_script_for_system(project_root: Path, system_name: str | None = None)
     return None
 
 
+def poll_update_process_state(state: dict, process, log_label: str = "logs/update.log") -> dict:
+    """Return a public update state after observing a tracked child process."""
+    public_state = {**state, "log": log_label}
+    if state.get("status") not in {"starting", "updating"} or process is None:
+        return public_state
+    return_code = process.poll()
+    if return_code is None:
+        return public_state
+    if return_code == 0:
+        return {
+            **public_state,
+            "status": "complete",
+            "message": "The updater finished. Refresh this page if Church Cap did not restart automatically.",
+            "return_code": return_code,
+        }
+    return {
+        **public_state,
+        "status": "error",
+        "error": (
+            f"The update stopped before Church Cap restarted (exit code {return_code}). "
+            f"Download diagnostics to review {log_label}."
+        ),
+        "return_code": return_code,
+    }
+
+
 def launch_update_process(project_root: Path, target_version: str | None = None) -> dict:
     system = platform.system()
     script = update_script_for_system(project_root, system)
@@ -122,14 +148,19 @@ def launch_update_process(project_root: Path, target_version: str | None = None)
             creationflags |= subprocess.DETACHED_PROCESS
         creation_kwargs = {"creationflags": creationflags} if creationflags else {}
 
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(project_root),
-        stdin=subprocess.DEVNULL,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        close_fds=(system != "Windows"),
-        env=env,
-        **creation_kwargs,
-    )
-    return {"pid": process.pid, "log_path": str(log_path)}
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(project_root),
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            close_fds=(system != "Windows"),
+            env=env,
+            **creation_kwargs,
+        )
+    finally:
+        # The child keeps its own inherited handle. Closing the parent's copy
+        # prevents repeated update attempts from leaking file descriptors.
+        log_file.close()
+    return {"pid": process.pid, "log_path": str(log_path), "_process": process}

@@ -50,7 +50,7 @@ from app.service_leader_auth import SERVICE_LEADER_COOKIE_NAME, ServiceLeaderAcc
 from app.platforms import performance_platform_key
 from app.storage import clear_storage_candidates, rotate_log_file, rotate_runtime_logs, storage_snapshot, tail_log_lines
 from app.transcript_store import TranscriptStore
-from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, update_script_for_system, version_label
+from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, poll_update_process_state, update_script_for_system, version_label
 
 try:
     import sounddevice as sd
@@ -281,6 +281,7 @@ DOC_FILES = {
 _transcription_task: asyncio.Task | None = None
 _transcriber = None
 _update_state = {"status": "idle"}
+_update_process: subprocess.Popen | None = None
 _client_ui_runtime_translation_cache: dict[tuple[str, str], dict[str, str]] = {}
 _cuda_runtime_install_state = {"status": "idle"}
 _cuda_runtime_install_process: subprocess.Popen | None = None
@@ -289,6 +290,7 @@ _translation_install_process: subprocess.Popen | None = None
 _language_requests: dict[str, dict[str, object]] = {}
 CUDA_RUNTIME_LOG_LABEL = "logs/cuda-runtime-install.log"
 TRANSLATION_INSTALL_LOG_LABEL = "logs/translation-install.log"
+UPDATE_LOG_LABEL = "logs/update.log"
 service_leader_access = ServiceLeaderAccessManager()
 
 DOWNLOAD_HANDOFF_TTL_SECONDS = 10 * 60
@@ -710,14 +712,18 @@ def security_state(request: Request | None = None) -> dict:
 
 
 def update_capability_state() -> dict:
+    global _update_state
     system = platform.system()
     script = update_script_for_system(PROJECT_ROOT, system)
+    state = poll_update_process_state(_update_state, _update_process, UPDATE_LOG_LABEL)
+    _update_state = {key: value for key, value in state.items() if key != "log"}
     return {
         "system": system,
         "supported": bool(script and script.exists()),
         "script": script.name if script else None,
         "current_version": settings.app_version,
         "current_version_label": settings.app_version_label,
+        "state": state,
     }
 
 
@@ -2247,7 +2253,7 @@ async def api_status(_: None = Depends(require_operator)):
         "security": security_state(),
         "service_leader_access": service_leader_access.access_state(),
         "performance_locked": captions_are_running(),
-        "update": {**update_capability_state(), "state": _update_state},
+        "update": update_capability_state(),
         "cuda_runtime": cuda_runtime_capability_state(),
         "translation_install": translation_install_state(),
         "operator_strip": {
@@ -2462,6 +2468,16 @@ async def check_for_update(request: Request, _: None = Depends(require_operator)
     }
 
 
+@app.get("/api/update/status")
+async def get_update_status(request: Request, _: None = Depends(require_operator)):
+    if not is_local_client(request):
+        return JSONResponse(
+            {"status": "error", "error": "Check update progress from the Church Cap computer."},
+            status_code=403,
+        )
+    return update_capability_state()
+
+
 @app.post("/api/update/start")
 async def start_update(request: Request, _: None = Depends(require_operator)):
     if not is_local_client(request):
@@ -2473,6 +2489,11 @@ async def start_update(request: Request, _: None = Depends(require_operator)):
     if not bool(body.get("confirm")):
         return JSONResponse({"status": "error", "error": "Update was not confirmed."}, status_code=400)
     capability = update_capability_state()
+    if capability.get("state", {}).get("status") in {"starting", "updating"}:
+        return JSONResponse(
+            {**capability, "status": "error", "error": "A Church Cap update is already running."},
+            status_code=409,
+        )
     if not capability["supported"]:
         return JSONResponse(
             {"status": "error", "error": f"Updates are not configured for {capability['system']}.", **capability},
@@ -2493,7 +2514,7 @@ async def start_update(request: Request, _: None = Depends(require_operator)):
             "remote_version": remote_version,
             "remote_version_label": version_label(remote_version),
         }
-    global _update_state
+    global _update_state, _update_process
     _update_state = {
         "status": "starting",
         "remote_version": remote_version,
@@ -2504,14 +2525,16 @@ async def start_update(request: Request, _: None = Depends(require_operator)):
     except Exception as exc:
         _update_state = {"status": "error", "error": str(exc)}
         return JSONResponse({"status": "error", "error": str(exc), **capability}, status_code=500)
-    _update_state = {**_update_state, "status": "updating", **process}
+    _update_process = process.pop("_process")
+    public_process = {"pid": process["pid"], "log": UPDATE_LOG_LABEL}
+    _update_state = {**_update_state, "status": "updating", **public_process}
     return {
         **capability,
         "status": "updating",
         "update_available": True,
         "remote_version": remote_version,
         "remote_version_label": version_label(remote_version),
-        **process,
+        **public_process,
     }
 
 
