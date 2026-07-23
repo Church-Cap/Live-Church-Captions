@@ -2,7 +2,7 @@
 
 Reviewed: 2026-07-20
 
-This review covers local translation for Church Cap v0.7.2. The requirements are offline inference during a service, source-available/open-source components, commercial-use-compatible terms, broad language coverage, predictable Chinese script output, and acceptable latency on the Linux reference computer. This is an engineering review, not legal advice; licences must be checked again for every model artifact included in a distributed image.
+This review covers local translation for Church Cap v0.7.3. The requirements are offline inference during a service, source-available/open-source components, commercial-use-compatible terms, broad language coverage, predictable Chinese script output, and acceptable latency on the Linux reference computer. This is an engineering review, not legal advice; licences must be checked again for every model artifact included in a distributed image.
 
 ## Implemented Decision
 

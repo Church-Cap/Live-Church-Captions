@@ -20,12 +20,24 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 
 from app.models import CaptionSegment, RecognitionSpan
-from app.metrics import record_transcription, record_transcription_pass_interval, update_metrics
+from app.metrics import (
+    record_transcription,
+    record_transcription_guard_event,
+    record_transcription_input_trim,
+    record_transcription_pass_interval,
+    update_metrics,
+)
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
 from app.transcription.audio_input import input_default_sample_rate, resample_mono
 from app.hardware import detect_hardware_acceleration, resolve_whisper_runtime
-from app.transcription.streaming_words import IncompleteEdgeGuard, cadence_delay_seconds
+from app.transcription.streaming_words import (
+    IncompleteEdgeGuard,
+    cadence_delay_seconds,
+    looks_unreliable_hypothesis,
+    speech_bounded_audio_range,
+    should_suppress_silence_hypothesis,
+)
 
 
 class FasterWhisperTranscriber(Transcriber):
@@ -69,6 +81,9 @@ class FasterWhisperTranscriber(Transcriber):
         self.edge_guard_seconds = max(0.0, float(edge_guard_seconds))
         self.edge_confidence_threshold = min(1.0, max(0.0, float(edge_confidence_threshold)))
         self.committed_audio_overlap_seconds = max(0.5, float(committed_audio_overlap_seconds))
+        # Keep enough post-speech audio for Silero to close its endpoint, then
+        # let its short speech padding—not a long raw-silence tail—reach Whisper.
+        self.speech_tail_padding_seconds = 0.35
         self._edge_guard = IncompleteEdgeGuard(
             margin_seconds=self.edge_guard_seconds,
             confidence_threshold=self.edge_confidence_threshold,
@@ -196,19 +211,26 @@ class FasterWhisperTranscriber(Transcriber):
             parts = list(self._audio_buffer)
             audio_end = self._audio_end_monotonic or time.monotonic()
             trim_before = self._trim_before_monotonic
+            last_voice_at = self._last_voice_at
         audio = np.concatenate(parts) if len(parts) > 1 else parts[0]
-        full_start = audio_end - (audio.size / max(1, self.sample_rate))
-        capture_started = max(full_start, audio_end - seconds)
-        if trim_before > 0:
-            capture_started = max(
-                capture_started,
-                trim_before - self.committed_audio_overlap_seconds,
-            )
-        offset = max(0, min(audio.size, int(round((capture_started - full_start) * self.sample_rate))))
-        audio = audio[offset:]
-        if audio.size > wanted:
+        selected = speech_bounded_audio_range(
+            total_samples=audio.size,
+            sample_rate=self.sample_rate,
+            audio_end_monotonic=audio_end,
+            last_voice_at=last_voice_at,
+            window_seconds=seconds,
+            tail_padding_seconds=self.speech_tail_padding_seconds,
+            trim_before_monotonic=trim_before,
+            committed_overlap_seconds=self.committed_audio_overlap_seconds,
+        )
+        record_transcription_input_trim(selected.trailing_silence_trimmed_seconds)
+        audio = audio[selected.start_sample:selected.end_sample]
+        capture_started = selected.capture_started_monotonic
+        if audio.size > wanted:  # Defensive rounding bound.
             audio = audio[-wanted:]
-            capture_started = audio_end - (audio.size / max(1, self.sample_rate))
+            capture_started = (audio_end - selected.trailing_silence_trimmed_seconds) - (
+                audio.size / max(1, self.sample_rate)
+            )
         return audio.astype(np.float32, copy=False), capture_started
 
     def acknowledge_audio_until(self, end_monotonic: float | None) -> None:
@@ -234,7 +256,12 @@ class FasterWhisperTranscriber(Transcriber):
         self._edge_guard.reset()
 
 
-    def _transcribe_text(self, audio: np.ndarray) -> tuple[str, list[RecognitionSpan]]:
+    def _transcribe_text(
+        self,
+        audio: np.ndarray,
+        had_recent_voice_at_capture: bool = True,
+        speech_progress_seconds: float | None = None,
+    ) -> tuple[str, list[RecognitionSpan]]:
         if audio.size < int(self.sample_rate * 0.4):
             return "", []
         # Skip clear silence/noise. This keeps the model from inventing captions.
@@ -250,7 +277,13 @@ class FasterWhisperTranscriber(Transcriber):
             beam_size=1,
             best_of=1,
             vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 500},
+            vad_parameters={
+                "threshold": 0.5,
+                "neg_threshold": 0.35,
+                "min_speech_duration_ms": 100,
+                "min_silence_duration_ms": 160,
+                "speech_pad_ms": 100,
+            },
             temperature=0.0,
             compression_ratio_threshold=2.4,
             log_prob_threshold=-1.0,
@@ -259,6 +292,7 @@ class FasterWhisperTranscriber(Transcriber):
             condition_on_previous_text=False,
             without_timestamps=False,
             word_timestamps=self.word_timestamps_enabled,
+            hallucination_silence_threshold=(0.5 if self.word_timestamps_enabled else None),
         )
         materialised = list(segments)
         raw_words: list[str] = []
@@ -283,10 +317,43 @@ class FasterWhisperTranscriber(Transcriber):
                         word_aligned=True,
                     ))
 
+        full_text = (
+            "".join(raw_words).strip()
+            if raw_words
+            else " ".join(" ".join(str(segment.text or "").split()) for segment in materialised).strip()
+        )
+        full_text = clean_caption_text(collapse_repeated_phrase(full_text))
+        unreliable = looks_unreliable_hypothesis(
+            full_text,
+            no_speech_probabilities=tuple(
+                float(segment.no_speech_prob)
+                for segment in materialised
+                if getattr(segment, "no_speech_prob", None) is not None
+            ),
+            average_log_probabilities=tuple(
+                float(segment.avg_logprob)
+                for segment in materialised
+                if getattr(segment, "avg_logprob", None) is not None
+            ),
+        )
+        if unreliable:
+            self._edge_guard.reset()
+            record_transcription(
+                time.monotonic() - started,
+                word_timestamps_used=bool(word_spans),
+                aligned_words=len(word_spans),
+            )
+            record_transcription_guard_event(
+                "unreliable_metadata",
+                suppressed_words=len(full_text.split()),
+            )
+            return "", []
+
         edge_result = self._edge_guard.filter(
             word_spans,
             audio_duration_seconds=audio.size / max(1, self.sample_rate),
-            protect_live_edge=self._has_recent_voice(),
+            protect_live_edge=had_recent_voice_at_capture,
+            speech_progress_seconds=speech_progress_seconds,
         ) if word_spans else None
         if edge_result is not None:
             spans = list(edge_result.spans)
@@ -383,9 +450,29 @@ class FasterWhisperTranscriber(Transcriber):
             previous_pass_started = now
             next_pass_due = now + self.update_interval
             audio, capture_started = self._latest_audio(self.window_seconds)
-            text, spans = await loop.run_in_executor(self._executor, self._transcribe_text, audio)
+            had_recent_voice_at_capture = self._has_recent_voice()
+            with self._audio_lock:
+                last_voice_at_capture = self._last_voice_at
+            speech_progress_seconds = max(0.0, last_voice_at_capture - capture_started)
+            text, spans = await loop.run_in_executor(
+                self._executor,
+                self._transcribe_text,
+                audio,
+                had_recent_voice_at_capture,
+                speech_progress_seconds,
+            )
             source_ready = time.monotonic()
             text = " ".join(text.split()).strip()
+            if should_suppress_silence_hypothesis(
+                text,
+                had_recent_voice_at_capture=had_recent_voice_at_capture,
+            ):
+                record_transcription_guard_event(
+                    "silence_after_voice_grace",
+                    suppressed_words=len(text.split()),
+                )
+                text = ""
+                spans = []
             if not text:
                 # Finalise whatever was last visible after a short silence.
                 if pending_final_text and not self._has_recent_voice() and self._is_stable_enough(pending_final_text):

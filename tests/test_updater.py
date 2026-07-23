@@ -18,7 +18,7 @@ class UpdaterVersionTests(unittest.TestCase):
         self.assertEqual(version_label("v0.4.0"), "v0.4.0")
 
     def test_settings_version_parser_reads_code_owned_constant(self):
-        self.assertEqual(parse_version_from_settings('APP_VERSION = "0.7.2"'), "0.7.2")
+        self.assertEqual(parse_version_from_settings('APP_VERSION = "0.7.3"'), "0.7.3")
 
     def test_settings_version_parser_keeps_legacy_release_compatibility(self):
         self.assertEqual(parse_version_from_settings('app_version: str = "0.6.0"'), "0.6.0")
@@ -60,7 +60,7 @@ class UpdaterVersionTests(unittest.TestCase):
             with patch("app.updater.platform.system", return_value="Linux"), patch(
                 "app.updater.subprocess.Popen", return_value=fake_process
             ) as popen:
-                result = launch_update_process(root, "0.7.2")
+                result = launch_update_process(root, "0.7.3")
         self.assertEqual(result["pid"], 4321)
         self.assertIs(result["_process"], fake_process)
         self.assertTrue(popen.call_args.kwargs["stdout"].closed)
@@ -82,7 +82,7 @@ class UpdaterVersionTests(unittest.TestCase):
                 return 23
 
         state = poll_update_process_state(
-            {"status": "updating", "remote_version": "0.7.2"},
+            {"status": "updating", "remote_version": "0.7.3"},
             FailedProcess(),
         )
         self.assertEqual(state["status"], "error")

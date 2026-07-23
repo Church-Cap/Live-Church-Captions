@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v0.7.2**
+Version: **v0.7.3**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -23,9 +23,9 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - `config/` — editable glossary and profanity-filter additions.
 - `docs/` — user guides, legal notes, architecture, networking, and translation docs.
 - `docs/project/ROADMAP_TO_V1.md` — staged route from the v0.6 preview architecture to v1.0.0.
-- `docs/project/V0.7.2_IMPLEMENTATION.md` — v0.7.2 action-plan mapping, scope, and Linux acceptance gates.
-- `docs/project/V0.7.2_RELEASE_NOTES.md` — commit summary and GitHub release wording for v0.7.2.
-- `docs/project/Church_Cap_v0.7.2_Action_Plan.docx` — current pilot action plan and validation status.
+- `docs/project/V0.7.3_IMPLEMENTATION.md` — v0.7.3 action-plan mapping, scope, and Linux acceptance gates.
+- `docs/project/V0.7.3_RELEASE_NOTES.md` — commit summary and GitHub release wording for v0.7.3.
+- `docs/project/Church_Cap_v0.7.3_Action_Plan.docx` — current pilot action plan and validation status.
 - `docs/project/TRANSLATION_MODEL_RESEARCH.md` — commercial/open-source model and licence audit for contextual and Chinese translation.
 - `.github/` — GitHub-standard contribution, security, code of conduct, issue, pull request, and CI files.
 - `docker/` — optional Docker development files.
@@ -52,7 +52,7 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 - OBS browser-source overlay and setup guide. The `/display` and `/obs` caption surfaces use the same subtle line glide and trailing-word entry animation as the phone viewer, with a stable two-line layout to reduce jumpy text on room screens and livestream overlays.
 - On Church Cap appliances, local Display and OBS previews stay on the appliance shell origin so the persistent Home/System controls remain available and failed preview routes can return to the local recovery environment.
 - Local multilingual support: phone UI labels use the lightweight catalogue in `app/locales/client_ui.json`, with Argos runtime fallback where needed. Experimental translated captions use package-style choices: **Recommended package** CTranslate2 INT8 / SMaLL-100, **Base package** Argos Translate, **Compatibility package** PyTorch SMaLL-100, or **Auto** mode across installed packages.
-- v0.7.0 introduced real Faster-Whisper word timestamps and confidence, guarded weak words at the captured-audio edge, timestamp-driven removal of sealed audio, correction-in-place, and Responsive Context translation. v0.7.2 includes the locally prepared v0.7.1 operator-clarity work, repairs direct web updates from the public v0.7.0 release, pins the selected release, and reports updater failures in the operator interface.
+- v0.7.0 introduced real Faster-Whisper word timestamps and confidence, guarded weak words at the captured-audio edge, timestamp-driven removal of sealed audio, correction-in-place, and Responsive Context translation. v0.7.2 added updater recovery and operator clarity. v0.7.3 prevents silence-only or low-confidence Whisper hypotheses from replacing the last speech-backed caption and measures those interventions without retaining words.
 - Local HTTPS helper scripts for testing and managed-device deployments.
 - macOS, Windows, and Linux setup/start support, permission repair/password reset, and macOS LaunchAgent helper scripts.
 
@@ -166,7 +166,7 @@ More detail: [docs/linux.md](docs/linux.md).
 
 ## Recorded Sermon Testing
 
-v0.7.2 keeps the v0.6.1 service-run measurements and service-metrics schema 9. Reports identify cue-engine v5 and its immediate stable-prefix/guarded-edge-tail strategy. They include word-timestamp pass and aligned-word counts, weak edge words withheld or confirmed, actual start-to-start recognition-pass intervals, translated draft/final counts, and first translated-cue timing alongside cue, queue, shutdown, and resource measurements. The report retains no audio, recognition timestamps, confidence values, caption text, or translation text. Download the separate anonymised service report and follow [docs/recorded-sermon-testing.md](docs/recorded-sermon-testing.md).
+v0.7.3 advances service metrics to schema 11. Reports identify cue-engine v5 and the `silero_endpoint_progress_publication_guard_v3` strategy, including text-free counts for low-confidence hypotheses, post-speech hypotheses that were suppressed, speech-bounded inference passes, and total trailing silence removed before recognition. Silero VAD now uses streaming-oriented endpoint settings, and a repeated pass over identical post-speech audio cannot confirm a weak new final word. Existing word-timestamp, edge-guard, cadence, translation, cue, queue, shutdown, and resource measurements remain available. The report retains no audio, recognition timestamps, confidence values, caption text, or translation text. Download the separate anonymised service report and follow [docs/recorded-sermon-testing.md](docs/recorded-sermon-testing.md).
 
 ## Normal Use
 

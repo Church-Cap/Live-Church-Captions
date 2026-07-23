@@ -19,7 +19,7 @@ from app.paths import data_path
 
 logger = logging.getLogger(__name__)
 
-SERVICE_METRICS_SCHEMA_VERSION = 9
+SERVICE_METRICS_SCHEMA_VERSION = 11
 SERVICE_REPORT_SCHEMA_VERSION = 1
 MAX_COMPLETED_SERVICES = 5
 MAX_RESERVOIR_SAMPLES = 2048
@@ -56,6 +56,11 @@ class RuntimeMetrics:
     word_timestamp_words: int = 0
     edge_words_withheld: int = 0
     edge_words_confirmed: int = 0
+    unreliable_hypotheses_suppressed: int = 0
+    silence_hypotheses_suppressed: int = 0
+    suppressed_hypothesis_words: int = 0
+    speech_bounded_audio_passes: int = 0
+    trailing_silence_trimmed_seconds: float = 0.0
     last_translation_seconds: float | None = None
     last_translation_at: float | None = None
     translations_completed: int = 0
@@ -277,10 +282,16 @@ def _empty_summary(message: str | None = None) -> dict[str, Any]:
         "transcription_latency": _Series().summary(),
         "transcription_streaming": {
             "scheduling_strategy": "deadline_start_to_start",
+            "guard_strategy": "silero_endpoint_progress_publication_guard_v3",
             "word_timestamp_passes": 0,
             "aligned_words": 0,
             "edge_words_withheld": 0,
             "edge_words_confirmed": 0,
+            "unreliable_hypotheses_suppressed": 0,
+            "silence_hypotheses_suppressed": 0,
+            "suppressed_hypothesis_words": 0,
+            "speech_bounded_audio_passes": 0,
+            "trailing_silence_trimmed_seconds": 0.0,
             "pass_interval": _Series().summary(),
         },
         "english_publish_delay": _Series().summary(),
@@ -388,10 +399,16 @@ def _new_service(configuration: dict[str, Any] | None = None) -> dict[str, Any]:
         "caption_counts": {"partial": 0, "final": 0, "transcript_commits": 0},
         "transcription_streaming": {
             "scheduling_strategy": "deadline_start_to_start",
+            "guard_strategy": "silero_endpoint_progress_publication_guard_v3",
             "word_timestamp_passes": 0,
             "aligned_words": 0,
             "edge_words_withheld": 0,
             "edge_words_confirmed": 0,
+            "unreliable_hypotheses_suppressed": 0,
+            "silence_hypotheses_suppressed": 0,
+            "suppressed_hypothesis_words": 0,
+            "speech_bounded_audio_passes": 0,
+            "trailing_silence_trimmed_seconds": 0.0,
         },
         "source_units": {
             "engine": "word_timestamp_local_agreement_v5",
@@ -671,7 +688,7 @@ def initialise_service_metrics_storage(path: str | Path | None = None) -> None:
         active_marker = None
         try:
             payload = json.loads(_storage_path.read_text(encoding="utf-8")) if _storage_path.exists() else {}
-            if int(payload.get("service_metrics_schema_version") or 0) in {3, 4, 5, 6, 7, 8, SERVICE_METRICS_SCHEMA_VERSION}:
+            if int(payload.get("service_metrics_schema_version") or 0) in {3, 4, 5, 6, 7, 8, 9, 10, SERVICE_METRICS_SCHEMA_VERSION}:
                 _latest_completed_services = [
                     item for item in payload.get("latest_completed_services", [])
                     if isinstance(item, dict)
@@ -860,6 +877,45 @@ def record_transcription_pass_interval(seconds: float) -> None:
         _metrics.last_transcription_pass_interval_seconds = elapsed
         if _current_service is not None:
             _current_service["series"]["transcription_pass_interval"].add(elapsed)
+
+
+def record_transcription_guard_event(reason: str, *, suppressed_words: int = 0) -> None:
+    """Record text-free evidence that a suspect hypothesis was not published."""
+    key_by_reason = {
+        "unreliable_metadata": "unreliable_hypotheses_suppressed",
+        "silence_after_voice_grace": "silence_hypotheses_suppressed",
+    }
+    key = key_by_reason.get(str(reason or "").strip())
+    if key is None:
+        return
+    word_count = max(0, int(suppressed_words))
+    with _lock:
+        setattr(_metrics, key, getattr(_metrics, key) + 1)
+        _metrics.suppressed_hypothesis_words += word_count
+        if _current_service is not None:
+            streaming = _current_service["transcription_streaming"]
+            streaming[key] += 1
+            streaming["suppressed_hypothesis_words"] += word_count
+
+
+def record_transcription_input_trim(trailing_silence_seconds: float) -> None:
+    """Record that trailing non-speech audio was removed before inference."""
+    trimmed = round(max(0.0, float(trailing_silence_seconds)), 4)
+    if trimmed <= 0:
+        return
+    with _lock:
+        _metrics.speech_bounded_audio_passes += 1
+        _metrics.trailing_silence_trimmed_seconds = round(
+            _metrics.trailing_silence_trimmed_seconds + trimmed,
+            4,
+        )
+        if _current_service is not None:
+            streaming = _current_service["transcription_streaming"]
+            streaming["speech_bounded_audio_passes"] += 1
+            streaming["trailing_silence_trimmed_seconds"] = round(
+                streaming["trailing_silence_trimmed_seconds"] + trimmed,
+                4,
+            )
 
 
 def record_caption(*, is_final: bool, transcript_commits: int = 0) -> None:

@@ -3,7 +3,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-APP_VERSION = "0.7.2"
+APP_VERSION = "0.7.3"
 
 
 class Settings(BaseSettings):
@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Keep this release number as a literal as well as APP_VERSION. The v0.7.0
     # updater reads this exact field while validating a downloaded release.
     # A regression test keeps both values aligned.
-    app_version: str = "0.7.2"
+    app_version: str = "0.7.3"
     feedback_email: str = "info@churchcap.org"
     host: str = "0.0.0.0"
     port: int = 8080

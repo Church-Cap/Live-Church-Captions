@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v0.7.2
+Version: v0.7.3
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -32,7 +32,7 @@ Use **Benchmark** before selecting heavier models such as `small.en` or `medium.
 2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.7.2"
+cd "$HOME/Documents/Live-Church-Captions-0.7.3"
 ```
 
 3. Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -53,7 +53,7 @@ If setup asks whether to set the Mac hostname to `church-cap.local`, choose yes 
 2. Go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\Live-Church-Captions-0.7.2"
+cd "$HOME\Documents\Live-Church-Captions-0.7.3"
 ```
 
 3. Run setup.
@@ -79,7 +79,7 @@ If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came fro
 Open a terminal, then go to the Church Cap folder. This example assumes the downloaded and extracted folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.7.2"
+cd "$HOME/Documents/Live-Church-Captions-0.7.3"
 bash setup-linux.sh
 ```
 
@@ -301,7 +301,7 @@ AI-generated captions can contain mistakes. Use the sensitive blank/pause mode f
 
 ## Feedback
 
-The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For recorded-sermon comparisons, use **Diagnostics > Download anonymised service report**; this allow-listed file contains no speech, captions, translations, audio metadata, recognition timestamps, glossary content, paths, network identifiers, operator data, or logs. v0.7.2 retains the latest five completed summaries across restarts and reports timestamped cue-engine processing latency plus cue/queue health. Select **Reset test measurements** before a new comparison set.
+The operator page includes a **Feedback** link. Use it for feature ideas, issues, setup confusion, accessibility feedback, and caption or translation notes. Please include the Church Cap version number and any useful computer, operating system, audio interface, or error details. For recorded-sermon comparisons, use **Diagnostics > Download anonymised service report**; this allow-listed file contains no speech, captions, rejected wording, translations, audio metadata, recognition timestamps, glossary content, paths, network identifiers, operator data, or logs. v0.7.3 retains the latest five completed summaries across restarts and reports timestamped cue-engine processing latency, cue/queue health, and text-free end-of-speech guard counts. Select **Reset test measurements** before a new comparison set.
 
 Open **Diagnostics → Storage use** to see the application, Church Cap data, Hugging Face model downloads, OpenAI Whisper downloads, and current log use. Storage is calculated only when this page is opened or refreshed. **Review unused downloads** opens a Church Cap-themed confirmation menu; nothing is removed automatically. The active model, settings, transcripts, measurements, and current logs are protected. An inactive model offered for cleanup must download again if you select it later. Church Cap limits each of its diagnostic logs to 5 MB plus two archived copies.
 

@@ -144,7 +144,7 @@ class ClientUiStringTests(unittest.TestCase):
         self.assertIn("else if (seg.is_final && !hasLiveSourceUpdates && !finalSegments.length)", script)
         self.assertIn("segment.cue_id || segment.source_unit_id", script)
         self.assertIn("segment.cue_revision || segment.source_revision", script)
-        self.assertIn('/static/client.js?v=0.7.2-update-recovery-1', template)
+        self.assertIn('/static/client.js?v=0.7.3-silence-guard-1', template)
 
     def test_live_draft_extensions_keep_existing_line_breaks(self):
         script = Path("app/static/client.js").read_text(encoding="utf-8")

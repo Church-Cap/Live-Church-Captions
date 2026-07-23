@@ -1,6 +1,6 @@
 # Roadmap To v1.0.0
 
-Church Cap v0.7.2 continues the move from a single preview app toward one maintained codebase with two supported experiences:
+Church Cap v0.7.3 continues the move from a single preview app toward one maintained codebase with two supported experiences:
 
 - the open-source desktop app for macOS, Windows, and Linux
 - the Church Cap Appliance profile for locked-down AlmaLinux boxes

@@ -22,7 +22,7 @@ class ServiceMetricsTests(unittest.TestCase):
 
     def test_completed_summary_contains_stage_metrics_and_outcomes(self):
         metrics.start_service_metrics({
-            "app_version": "0.7.2",
+            "app_version": "0.7.3",
             "diagnostics_schema_version": 2,
             "translation_provider": "both",
             "translation_allowed_languages": ["fa", "zh"],
@@ -79,8 +79,8 @@ class ServiceMetricsTests(unittest.TestCase):
         summary = metrics.get_service_metrics()
 
         self.assertEqual(summary["status"], "completed")
-        self.assertEqual(summary["app_version"], "0.7.2")
-        self.assertEqual(summary["service_metrics_schema_version"], 9)
+        self.assertEqual(summary["app_version"], "0.7.3")
+        self.assertEqual(summary["service_metrics_schema_version"], 11)
         self.assertTrue(summary["run_id"])
         self.assertEqual(summary["load_identity"]["actual_model"], "base.en")
         self.assertEqual(summary["load_identity"]["model_load_seconds"], 1.25)
@@ -117,7 +117,7 @@ class ServiceMetricsTests(unittest.TestCase):
     def test_latest_five_completed_summaries_survive_storage_reload(self):
         run_ids = []
         for index in range(6):
-            metrics.start_service_metrics({"app_version": "0.7.2", "performance_label": f"preset-{index}"})
+            metrics.start_service_metrics({"app_version": "0.7.3", "performance_label": f"preset-{index}"})
             metrics.record_transcription(0.1 + index)
             metrics.finish_service_metrics()
             run_ids.append(metrics.get_service_metrics()["run_id"])
@@ -130,11 +130,25 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertEqual(report["latest_completed_service"]["run_id"], run_ids[-1])
         self.assertNotIn(run_ids[0], [item["run_id"] for item in report["completed_services"]])
 
+    def test_schema_nine_and_ten_summaries_remain_readable_after_schema_eleven_upgrade(self):
+        for schema, run_id in ((9, "v072-run"), (10, "v073-guard-v1-run")):
+            with self.subTest(schema=schema):
+                self.metrics_path.write_text(json.dumps({
+                    "service_metrics_schema_version": schema,
+                    "availability_state": "completed_service_available",
+                    "latest_completed_services": [{"run_id": run_id, "status": "completed"}],
+                }), encoding="utf-8")
+
+                metrics.initialise_service_metrics_storage(self.metrics_path)
+
+                report = metrics.get_service_metrics_report()
+                self.assertEqual(report["latest_completed_service"]["run_id"], run_id)
+
     def test_report_exposes_current_and_latest_completed_separately(self):
-        metrics.start_service_metrics({"app_version": "0.7.2"})
+        metrics.start_service_metrics({"app_version": "0.7.3"})
         metrics.finish_service_metrics()
         completed_id = metrics.get_service_metrics()["run_id"]
-        metrics.start_service_metrics({"app_version": "0.7.2"})
+        metrics.start_service_metrics({"app_version": "0.7.3"})
 
         report = metrics.get_service_metrics_report()
         self.assertEqual(report["availability_state"], "active_service")
@@ -142,7 +156,7 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertEqual(report["latest_completed_service"]["run_id"], completed_id)
 
     def test_abandoned_active_marker_is_reported_incomplete_after_restart(self):
-        metrics.start_service_metrics({"app_version": "0.7.2"})
+        metrics.start_service_metrics({"app_version": "0.7.3"})
         active_id = metrics.get_service_metrics()["run_id"]
 
         metrics.initialise_service_metrics_storage(self.metrics_path)
@@ -215,7 +229,7 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertEqual(scheduler["by_language"]["fa"]["queued"], 2)
         self.assertEqual(scheduler["by_language"]["zh"]["skipped_no_viewers"], 1)
 
-    def test_schema_nine_records_streaming_stability_backpressure_and_recovery(self):
+    def test_schema_eleven_records_streaming_guards_stability_backpressure_and_recovery(self):
         metrics.start_service_metrics({"translation_queue_capacity_per_language": 4})
         metrics.record_transcription(
             0.2,
@@ -225,6 +239,9 @@ class ServiceMetricsTests(unittest.TestCase):
             edge_words_confirmed=1,
         )
         metrics.record_transcription_pass_interval(0.95)
+        metrics.record_transcription_guard_event("unreliable_metadata", suppressed_words=3)
+        metrics.record_transcription_guard_event("silence_after_voice_grace", suppressed_words=4)
+        metrics.record_transcription_input_trim(0.75)
         metrics.record_cue_processing(0.001)
         metrics.record_cue_processing(0.002)
         metrics.record_source_unit(is_final=False, revision=1, stable_word_count=0, mutable_word_count=5)
@@ -246,7 +263,16 @@ class ServiceMetricsTests(unittest.TestCase):
 
         summary = metrics.get_service_metrics()
 
-        self.assertEqual(summary["service_metrics_schema_version"], 9)
+        self.assertEqual(summary["service_metrics_schema_version"], 11)
+        self.assertEqual(
+            summary["transcription_streaming"]["guard_strategy"],
+            "silero_endpoint_progress_publication_guard_v3",
+        )
+        self.assertEqual(summary["transcription_streaming"]["unreliable_hypotheses_suppressed"], 1)
+        self.assertEqual(summary["transcription_streaming"]["silence_hypotheses_suppressed"], 1)
+        self.assertEqual(summary["transcription_streaming"]["suppressed_hypothesis_words"], 7)
+        self.assertEqual(summary["transcription_streaming"]["speech_bounded_audio_passes"], 1)
+        self.assertEqual(summary["transcription_streaming"]["trailing_silence_trimmed_seconds"], 0.75)
         self.assertEqual(summary["transcription_streaming"]["word_timestamp_passes"], 1)
         self.assertEqual(summary["transcription_streaming"]["aligned_words"], 7)
         self.assertEqual(summary["transcription_streaming"]["edge_words_withheld"], 1)
