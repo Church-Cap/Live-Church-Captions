@@ -150,7 +150,7 @@
             <span class="status-pill status-fixed status-gpu">GPU: <strong id="stripGpu">—</strong></span>
           </div>
           <div class="quick-status-row quick-status-latency" aria-label="Caption and translation latency">
-            <span class="status-pill status-fixed status-delay" id="stripAudienceDelayPill">English Delay: <strong id="stripAudienceDelay">—</strong></span>
+            <span class="status-pill status-fixed status-delay" id="stripAudienceDelayPill">Source Delay: <strong id="stripAudienceDelay">—</strong></span>
             <span class="status-pill status-fixed status-delay wide" id="stripTranslationDelayPill">Translation Delay: <strong id="stripTranslationDelay">—</strong></span>
             <span class="status-pill status-fixed status-translate">Translate: <strong id="stripTranslate">0 / 1</strong></span>
           </div>
@@ -245,10 +245,21 @@
             <div class="panel-heading-row">
               <div>
                 <p class="eyebrow">Source captions</p>
-                <h2>English live feed</h2>
+                <h2>{{ source_language_name }} live feed</h2>
               </div>
               <span class="status-pill">Source language</span>
             </div>
+            <label for="sourceLanguage">Spoken language</label>
+            <div class="source-language-controls">
+              <select id="sourceLanguage">
+                {% for code, name in source_languages.items() %}
+                <option value="{{ code }}" {% if code == source_language %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+              </select>
+              <button id="saveSourceLanguageButton" onclick="saveSourceLanguage()">Save language</button>
+            </div>
+            <p class="muted">Stop captions before changing language. Changing it clears the current caption feed. A multilingual speech model may download on first start. Translation needs a model that supports the selected source language.</p>
+            <p id="sourceLanguageResult" role="status" aria-live="polite"></p>
             <div id="currentCaption" class="operator-caption premium-caption-preview">Waiting for captions…</div>
           </article>
 
@@ -415,7 +426,7 @@
                   Model size
                   <span class="info-dot" data-tip="Tiny is quickest but misses more words. Larger models understand more context but need more CPU/GPU time.">i</span>
                   <select id="whisperModel" onchange="handleWhisperModelChanged()">
-                    {% for model in ['tiny.en', 'base.en', 'small.en', 'medium.en'] %}
+                    {% for model in (['tiny.en', 'base.en', 'small.en', 'medium.en', 'tiny', 'base', 'small', 'medium'] if source_language == 'en' else ['tiny', 'base', 'small', 'medium']) %}
                     <option value="{{ model }}" {% if performance.effective.whisper_model == model %}selected{% endif %}>{{ model }}</option>
                     {% endfor %}
                   </select>
@@ -650,11 +661,11 @@
               </select>
               <label for="translationTimingMode">Translation timing</label>
               <select id="translationTimingMode">
-                <option value="responsive" {% if runtime.translation_timing_mode == 'responsive' %}selected{% endif %}>Responsive context — refine growing stable English (recommended)</option>
+                <option value="responsive" {% if runtime.translation_timing_mode == 'responsive' %}selected{% endif %}>Responsive context — refine growing stable source captions (recommended)</option>
                 <option value="live" {% if runtime.translation_timing_mode == 'live' %}selected{% endif %}>Live — translate partial captions quickly</option>
-                <option value="stable" {% if runtime.translation_timing_mode == 'stable' %}selected{% endif %}>More stable — wait for corrected English</option>
+                <option value="stable" {% if runtime.translation_timing_mode == 'stable' %}selected{% endif %}>More stable — wait for corrected source captions</option>
               </select>
-              <p class="muted small-result">Responsive context retranslates the stable portion of the current English caption as it grows, then refines the same translated cue when English is final. It avoids waiting for several completed thoughts. Live is the lowest-delay control; More stable updates less often. All modes work with the selected local translation provider.</p>
+              <p class="muted small-result">Responsive context retranslates the stable portion of the current source caption as it grows, then refines the same translated cue when the source caption is final. It avoids waiting for several completed thoughts. Live is the lowest-delay control; More stable updates less often. All modes work with the selected local translation provider.</p>
               <label class="toggle-row premium-toggle-row language-request-toggle-row" for="translationLanguageRequestsEnabled">
                 <input id="translationLanguageRequestsEnabled" type="checkbox" {% if runtime.translation_language_requests_enabled|default(true) %}checked{% endif %}>
                 <span class="toggle-slider" aria-hidden="true"></span>
@@ -1252,6 +1263,8 @@
   </div>
 
   <script>
+    const SOURCE_LANGUAGE = {{ source_language | tojson }};
+    window.CC_SOURCE_LANGUAGE = SOURCE_LANGUAGE;
     window.CC_LANGUAGES = {{ languages | tojson }};
     window.CC_DEPLOYMENT = {{ deployment | tojson }};
     window.CC_APP_VERSION_LABEL = {{ app_version_label | tojson }};
@@ -1888,7 +1901,7 @@
       operatorSelectedLanguages.delete(code);
       operatorSelectedLanguages.add(String(code).toLowerCase());
     });
-    operatorSelectedLanguages.add('en');
+    operatorSelectedLanguages.add(SOURCE_LANGUAGE);
     let cpuTranslationPromptResolver = null;
 
     function operatorCaptionActionLabel(path) {
@@ -1985,6 +1998,25 @@
       });
     }
 
+    async function saveSourceLanguage() {
+      const result = document.getElementById('sourceLanguageResult');
+      const button = document.getElementById('saveSourceLanguageButton');
+      button.disabled = true;
+      result.textContent = 'Saving source language…';
+      try {
+        const response = await fetch('/api/source-language', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({source_language: document.getElementById('sourceLanguage').value}),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || data.detail || 'Could not save the source language.');
+        location.reload();
+      } catch (error) {
+        result.textContent = error.message;
+        button.disabled = captionSettingsLocked;
+      }
+    }
+
     function captionSettingsAreLocked(status) {
       return ['listening', 'sensitive'].includes(status || '');
     }
@@ -1995,6 +2027,8 @@
       const message = document.getElementById('performanceLockedMessage');
       if (message) message.hidden = !captionSettingsLocked;
       const disabledIds = [
+        'sourceLanguage',
+        'saveSourceLanguageButton',
         'audioDevice',
         'saveAudioDeviceButton',
         'performancePreset',
@@ -2032,6 +2066,7 @@
     }
 
     function setControlValue(id, value) {
+      if (id === "whisperModel" && SOURCE_LANGUAGE !== "en" && typeof value === "string") value = value.replace(/\.en$/, "");
       const el = document.getElementById(id);
       if (el && value !== undefined && value !== null) {
         el.value = value;
@@ -2212,9 +2247,9 @@
       const warning = document.getElementById('mediumModelWarning');
       const storageHint = document.getElementById('whisperModelStorageHint');
       const model = document.getElementById('whisperModel')?.value;
-      if (warning) warning.hidden = model !== 'medium.en';
+      if (warning) warning.hidden = !['medium', 'medium.en'].includes(model);
       const approximateSizes = {'tiny.en': '75 MB', 'base.en': '150 MB', 'small.en': '500 MB', 'medium.en': '1.5 GB'};
-      if (storageHint) storageHint.textContent = `Approximate model download: ${approximateSizes[model] || 'varies'}. Installed cache use may be slightly larger; inactive downloads are retained until you clear them from Diagnostics.`;
+      if (storageHint) storageHint.textContent = `Approximate model download: ${approximateSizes[model?.endsWith('.en') ? model : `${model}.en`] || 'varies'}. Installed cache use may be slightly larger; inactive downloads are retained until you clear them from Diagnostics.`;
     }
 
     function handleWhisperModelChanged() {
@@ -2695,7 +2730,7 @@
       } else if (gpuWarning) {
         warning.innerHTML = '<strong>GPU recommended:</strong> this installation has no ready GPU acceleration, so translation may increase latency.';
       } else {
-        warning.innerHTML = `<strong>Translation load:</strong> ${activeCount} translated language${activeCount === 1 ? '' : 's'} active. Watch English Delay and Translation Delay during speech.`;
+        warning.innerHTML = `<strong>Translation load:</strong> ${activeCount} translated language${activeCount === 1 ? '' : 's'} active. Watch Source Delay and Translation Delay during speech.`;
       }
     }
 
@@ -3064,7 +3099,7 @@
       if (title) title.textContent = fastCoreReady ? 'Faster translation is installed' : 'Improve translation performance';
       if (copy) {
         copy.textContent = fastCoreReady
-          ? 'The faster local translation engine is ready. Use Auto or Faster translation for services with several audience languages, then watch English Delay and Translation Delay during real speech.'
+          ? 'The faster local translation engine is ready. Use Auto or Faster translation for services with several audience languages, then watch Source Delay and Translation Delay during real speech.'
           : 'If this computer struggles with more than one translated language, install the faster local translation engine. It stays local, needs internet once, and can take several minutes.';
       }
       if (installButton) {
@@ -3082,7 +3117,7 @@
       const signature = JSON.stringify({
         enabled: !!translation.enabled,
         provider: translation.provider || 'disabled',
-        allowed: translation.allowed_languages || ['en'],
+        allowed: translation.allowed_languages || [SOURCE_LANGUAGE],
         max: translation.max_active_languages || 1,
         policy: translation.language_policy || 'automatic',
         priority: translation.priority_mode || 'most_viewers',
@@ -3102,8 +3137,8 @@
       const requestToggle = document.getElementById('translationLanguageRequestsEnabled');
       if (requestToggle) requestToggle.checked = translation.language_requests_enabled !== false;
       operatorSelectedLanguages.clear();
-      (translation.allowed_languages || ['en']).forEach((code) => operatorSelectedLanguages.add(String(code).toLowerCase()));
-      operatorSelectedLanguages.add('en');
+      (translation.allowed_languages || [SOURCE_LANGUAGE]).forEach((code) => operatorSelectedLanguages.add(String(code).toLowerCase()));
+      operatorSelectedLanguages.add(SOURCE_LANGUAGE);
       filterOperatorLanguages();
       const maximum = String(translation.max_active_languages || 1);
       const slider = document.getElementById('translationMaxSlider');
@@ -3479,13 +3514,13 @@
       if (!(await ensureCpuTranslationAcknowledged())) return;
       const providerSelect = document.getElementById('translationProvider');
       const provider = providerSelect?.value || 'disabled';
-      operatorSelectedLanguages.add('en');
+      operatorSelectedLanguages.add(SOURCE_LANGUAGE);
       const tigrinyaReady = window.CC_LAST_TRANSLATION?.resources?.opus_tigrinya?.status?.ready === true;
       const selected = Array.from(operatorSelectedLanguages).filter((code) => code !== 'ti' || tigrinyaReady);
       if (!tigrinyaReady) operatorSelectedLanguages.delete('ti');
-      const selectedTranslated = selected.filter((code) => code !== 'en');
+      const selectedTranslated = selected.filter((code) => code !== SOURCE_LANGUAGE);
       if (provider === 'disabled' && selectedTranslated.length) {
-        setTranslationSaveResult('Translation mode is Off. Choose Recommended, Base, Compatibility, or Auto before saving selected translated languages, or clear the translated-language list to leave captions in English only.');
+        setTranslationSaveResult('Translation mode is Off. Choose Recommended, Base, Compatibility, or Auto before saving selected translated languages, or clear the translated-language list to leave source captions only.');
         providerSelect?.focus();
         return;
       }
@@ -3647,7 +3682,7 @@
 
     function translationLatencyTextForLanguage(code, translation = window.CC_LAST_TRANSLATION) {
       const key = String(code || '').toLowerCase();
-      if (key === 'en') return '—';
+      if (key === SOURCE_LANGUAGE) return '—';
       const latency = asFiniteNumber(translation?.translation_delay_seconds_by_language?.[key]);
       return latency == null ? '—' : `${latency.toFixed(1)}s`;
     }
@@ -3667,7 +3702,7 @@
         const codeLabel = code.toUpperCase();
         const tigrinyaNeedsInstall = code === 'ti' && window.CC_LAST_TRANSLATION?.resources?.opus_tigrinya?.status?.ready !== true;
         if (tigrinyaNeedsInstall) operatorSelectedLanguages.delete(code);
-        const selected = code === 'en' || operatorSelectedLanguages.has(code);
+        const selected = code === SOURCE_LANGUAGE || operatorSelectedLanguages.has(code);
         const label = document.createElement('label');
         label.className = 'language-toggle premium-language-toggle';
         label.dataset.languageSearch = `${code} ${codeLabel} ${language.name || ''} ${language.native || ''}`;
@@ -3679,7 +3714,7 @@
         input.name = 'translationLang';
         input.value = code;
         input.checked = selected;
-        input.disabled = code === 'en' || tigrinyaNeedsInstall;
+        input.disabled = code === SOURCE_LANGUAGE || tigrinyaNeedsInstall;
         if (tigrinyaNeedsInstall) {
           label.setAttribute('aria-disabled', 'true');
           label.title = 'Install or repair the Recommended package before selecting Tigrinya.';
@@ -3692,7 +3727,7 @@
         input.addEventListener('change', () => {
           if (input.checked) operatorSelectedLanguages.add(code);
           else operatorSelectedLanguages.delete(code);
-          operatorSelectedLanguages.add('en');
+          operatorSelectedLanguages.add(SOURCE_LANGUAGE);
           label.classList.toggle('selected', input.checked);
           label.setAttribute('aria-selected', input.checked ? 'true' : 'false');
           operatorTranslationEditing = true;
@@ -3732,7 +3767,7 @@
 
     function selectAllOperatorLanguages(checked) {
       operatorSelectedLanguages.clear();
-      operatorSelectedLanguages.add('en');
+      operatorSelectedLanguages.add(SOURCE_LANGUAGE);
       if (checked) {
         const tigrinyaReady = window.CC_LAST_TRANSLATION?.resources?.opus_tigrinya?.status?.ready === true;
         operatorLanguages.forEach((language) => {
@@ -4293,7 +4328,7 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
       }
       for (const [code, count] of entries) {
         const row = document.createElement('tr');
-        const status = code === 'en' ? 'Source captions' : (active.has(code) ? 'Translated' : 'Source / capacity');
+        const status = code === SOURCE_LANGUAGE ? 'Source captions' : (active.has(code) ? 'Translated' : 'Source / capacity');
         const latency = translationLatencyTextForLanguage(code, translationState);
         row.innerHTML = `<td><span class="table-language-cell">${languageFlagChip(code)}<span>${languageName(code)} <small class="muted">${String(code).toUpperCase()}</small></span></span></td><td>${count}</td><td>${status}</td><td><span class="table-latency-chip">${latency}</span></td>`;
         tbody.appendChild(row);
@@ -4305,6 +4340,7 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
         const res = await fetch('/api/status');
         if (res.status === 401) { location.href = '/login'; return; }
         const data = await res.json();
+        if (data.source_language && data.source_language !== SOURCE_LANGUAGE) { location.reload(); return; }
         renderServiceContext(data.service_context || {});
         const measured = data.last_service_metrics || {};
         const measuredSummary = document.getElementById('diagnosticsServiceSummary');
@@ -4757,6 +4793,6 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
     });
     setInterval(refreshStatus, 1500);
   </script>
-  <script src="/static/client.js"></script>
+  <script src="/static/client.js?v=0.8.0-source-language-1"></script>
 </body>
 </html>

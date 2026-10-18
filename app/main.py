@@ -75,8 +75,9 @@ from app.deployment import deployment_context
 from app.profanity_filter import ProfanityFilter
 from app.settings import get_settings
 from app.networking import default_base_url, detected_local_hostname, local_hostname_is_configured, local_ip
-from app.runtime_config import load_runtime_config, set_audio_device, set_performance_config, set_privacy_config, set_profanity_filter_config, set_translation_config, set_translated_audio_config, set_security_config
-from app.i18n import LANGUAGE_BY_CODE, SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, normalise_language
+from app.runtime_config import load_runtime_config, set_audio_device, set_performance_config, set_privacy_config, set_profanity_filter_config, set_translation_config, set_translated_audio_config, set_security_config, save_runtime_config
+from app.i18n import LANGUAGE_BY_CODE, SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, normalise_language, LocalTranslator
+from app.source_language import SOURCE_LANGUAGES, source_model, validate_source_language
 from app.localisation import get_client_ui_language_strings, get_client_ui_sources, get_client_ui_strings, get_runtime_translated_client_ui_strings
 from app.paths import app_support_dir, resource_root, runtime_mode
 from app.service_leader_auth import SERVICE_LEADER_COOKIE_NAME, ServiceLeaderAccessManager, ServiceLeaderSession
@@ -197,7 +198,7 @@ def submit_language_request(code: str) -> dict[str, object]:
     if not language_requests_enabled():
         raise HTTPException(status_code=403, detail="Language requests are currently disabled by the operator.")
     code = normalise_language(code)
-    if code == SOURCE_LANGUAGE or code not in LANGUAGE_BY_CODE:
+    if code == hub.source_language or code not in LANGUAGE_BY_CODE:
         raise HTTPException(status_code=400, detail="Choose a supported translated language.")
     state = safe_translation_state()
     requestable = set(state.get("requestable_languages") or [])
@@ -240,7 +241,7 @@ def safe_translation_state() -> dict:
                     "message": message,
                 },
                 "active_translated_languages": [],
-                "available_languages": [SOURCE_LANGUAGE],
+                "available_languages": [hub.source_language],
                 "requestable_languages": [],
                 "language_requests_enabled": requests_enabled,
                 "language_requests": [],
@@ -252,7 +253,7 @@ def safe_translation_state() -> dict:
             "enabled": False,
             "provider": "disabled",
             "provider_status": {"provider": "disabled", "ready": False, "message": f"Translation status failed: {exc}"},
-            "allowed_languages": [SOURCE_LANGUAGE],
+            "allowed_languages": [hub.source_language],
             "max_active_languages": 1,
             "language_policy": "automatic",
             "priority_mode": "most_viewers",
@@ -266,7 +267,7 @@ def safe_translation_state() -> dict:
                 "degraded_languages": [],
             },
             "resources": {},
-            "available_languages": [SOURCE_LANGUAGE],
+            "available_languages": [hub.source_language],
             "requestable_languages": [],
             "language_requests_enabled": True,
             "language_requests": [],
@@ -277,8 +278,9 @@ def public_translation_state() -> dict:
     """Return only the translation availability data needed by viewers."""
     state = safe_translation_state()
     return {
+        "source_language": hub.source_language,
         "enabled": bool(state.get("enabled")),
-        "available_languages": list(state.get("available_languages") or [SOURCE_LANGUAGE]),
+        "available_languages": list(state.get("available_languages") or [hub.source_language]),
         "language_policy": state.get("language_policy", "automatic"),
         "language_requests_enabled": bool(state.get("language_requests_enabled", True)),
         "requestable_languages": list(state.get("requestable_languages") or []),
@@ -306,6 +308,7 @@ translation_speech = TranslationSpeechManager(
     operator_enabled=bool(runtime_config.get("translated_audio_enabled", True)),
 )
 hub = CaptionHub(
+    source_language=runtime_config.get("source_language") or (settings.language if settings.language in SOURCE_LANGUAGES else "en"),
     retention_minutes=int(runtime_config.get("transcript_retention_minutes", settings.transcript_retention_minutes)),
     transcript_saving_enabled=bool(runtime_config.get("transcript_saving_enabled", settings.transcript_saving_enabled)),
     translation_queue_capacity_per_language=settings.translation_queue_capacity_per_language,
@@ -611,6 +614,7 @@ def effective_performance_config(runtime: dict | None = None) -> dict:
     ):
         cfg["transcriber_mode"] = "faster_whisper"
         cfg["whisper_beam_size"] = 1
+    cfg["whisper_model"] = source_model(cfg["whisper_model"], hub.source_language)
     return cfg
 
 
@@ -642,6 +646,11 @@ def auth_config():
 def base_template_context(request: Request | None = None) -> dict:
     system = platform.system()
     context = {
+        "source_language": hub.source_language,
+        "source_language_name": SOURCE_LANGUAGES[hub.source_language],
+        "source_language_flag": LANGUAGE_BY_CODE[hub.source_language].get("flag_code", ""),
+        "source_languages": SOURCE_LANGUAGES,
+        "languages": SUPPORTED_LANGUAGES,
         "church_name": settings.church_name,
         "app_version": settings.app_version,
         "app_version_label": settings.app_version_label,
@@ -751,15 +760,15 @@ def service_leader_language_context() -> dict:
     selected_codes = {
         code
         for code in runtime.get("translation_allowed_languages", ["en"])
-        if code != SOURCE_LANGUAGE and code in provider_codes
+        if code != hub.source_language and code in provider_codes
     }
     language_policy = str(runtime.get("translation_language_policy") or "automatic")
     requests_enabled = bool(runtime.get("translation_language_requests_enabled", True))
     if language_policy == "restricted":
         visible_codes = selected_codes
-        requestable_codes = provider_codes - selected_codes - {SOURCE_LANGUAGE} if requests_enabled else set()
+        requestable_codes = provider_codes - selected_codes - {hub.source_language} if requests_enabled else set()
     else:
-        visible_codes = provider_codes - {SOURCE_LANGUAGE}
+        visible_codes = provider_codes - {hub.source_language}
         requestable_codes = set()
     available = [language for language in SUPPORTED_LANGUAGES if language["code"] in visible_codes]
     requestable = [language for language in SUPPORTED_LANGUAGES if language["code"] in requestable_codes]
@@ -1627,10 +1636,12 @@ def create_transcriber():
     initial_prompt = base_initial_prompt
     if active_context and active_context.recognition_assistance_enabled and mode != "faster_whisper":
         initial_prompt = active_context.initial_prompt
+    if hub.source_language != "en":
+        initial_prompt = None
     common = dict(
         model_name=performance["whisper_model"],
         device=transcriber_device,
-        language=settings.language,
+        language=hub.source_language,
         audio_device=selected_audio_device(),
         sample_rate=settings.sample_rate,
         chunk_seconds=performance["chunk_seconds"],
@@ -1721,6 +1732,9 @@ async def transcription_loop():
             reference_corrected = format_bible_references(glossary_corrected)
             corrected = profanity_filter.apply(reference_corrected, enabled=filter_enabled)
             raw_text = profanity_filter.apply(segment.raw_text or segment.text, enabled=filter_enabled)
+            if hub.source_language != "en":
+                corrected = segment.text
+                raw_text = segment.raw_text or segment.text
             await hub.publish(
                 CaptionSegment(
                     text=corrected,
@@ -1851,7 +1865,7 @@ async def index(request: Request):
 async def display(request: Request):
     return _no_cache(template_response(
         "display.html",
-        {"request": request, "church_name": settings.church_name},
+        base_template_context(request),
     ))
 
 
@@ -2076,6 +2090,7 @@ async def service_leader_status(request: Request, session: ServiceLeaderSession 
     metrics = get_metrics()
     runtime = load_runtime_config()
     return {
+        "source_language": hub.source_language,
         "status": state.status,
         "sensitive_mode": state.sensitive_mode,
         "current": state.current.text if state.current else "",
@@ -2430,6 +2445,35 @@ async def audio_devices(_: None = Depends(require_operator)):
         return {"ok": False, "error": str(exc), "selected": selected_audio_device(), "devices": []}
 
 
+_source_language_changing = False
+
+
+@app.post("/api/source-language")
+async def set_source_language_api(request: Request, _: None = Depends(require_operator)):
+    global _source_language_changing
+    body = await request.json()
+    if captions_are_running() or _source_language_changing:
+        return JSONResponse({"error": "Stop captions before changing the source language."}, status_code=409)
+    try:
+        language = validate_source_language(body.get("source_language") if isinstance(body, dict) else None)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    runtime = load_runtime_config()
+    if language != hub.source_language:
+        runtime["translation_allowed_languages"] = [
+            code for code in runtime.get("translation_allowed_languages", []) if code != hub.source_language
+        ] + [language]
+    runtime["source_language"] = language
+    save_runtime_config(runtime)
+    _source_language_changing = True
+    try:
+        await hub.change_source_language(language)
+        _language_requests.clear()
+    finally:
+        _source_language_changing = False
+    return {"status": "saved", "source_language": language, "performance": effective_performance_config()}
+
+
 @app.post("/api/audio-device")
 async def set_audio_device_api(request: Request, _: None = Depends(require_operator)):
     body = await request.json()
@@ -2604,6 +2648,7 @@ async def api_status(_: None = Depends(require_operator)):
         apple_names = hardware_info.get("apple_gpu_names") or []
         gpu_label = "Apple GPU" if apple_names else ("Apple Metal" if runtime_device == "mps" else gpu_label)
     return {
+        "source_language": hub.source_language,
         "status": state.status,
         "viewers": state.viewers,
         "deployment": safe_deployment_context(performance["hardware_acceleration"]),
@@ -2920,6 +2965,8 @@ async def start_update(request: Request, _: None = Depends(require_operator)):
 
 async def start_captions_action() -> dict:
     global _transcription_task
+    if _source_language_changing:
+        raise HTTPException(status_code=409, detail="Wait for the source language change to finish.")
     if _transcription_task and not _transcription_task.done():
         return {"status": "already_running"}
     service_context.lock_for_service()
@@ -3156,7 +3203,7 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
     operator_allowed_codes = {
         code
         for code in runtime.get("translation_allowed_languages", ["en"])
-        if code != SOURCE_LANGUAGE and code in provider_codes
+        if code != hub.source_language and code in provider_codes
     }
     selectable_codes = operator_allowed_codes if str(runtime.get("translation_language_policy") or "automatic") == "restricted" else provider_codes
     submitted = body.get("languages") or []
@@ -3166,7 +3213,7 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
         {
             normalise_language(code)
             for code in submitted
-            if normalise_language(code) != SOURCE_LANGUAGE and normalise_language(code) in selectable_codes
+            if normalise_language(code) != hub.source_language and normalise_language(code) in selectable_codes
         }
     )
     max_active = clamp_translation_max_for_deployment(int(runtime.get("translation_max_active_languages", 2)), deployment)
@@ -3183,7 +3230,7 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
     enabled = requested_enabled and (language_policy == "automatic" or bool(selected))
     cfg = set_translation_config(
         enabled,
-        [SOURCE_LANGUAGE, *selected],
+        [hub.source_language, *selected],
         max_active,
         provider,
         language_policy,
@@ -3378,14 +3425,14 @@ async def service_leader_request_language(request: Request, session: ServiceLead
 
 def accept_language_request_action(language: str) -> None:
     code = normalise_language(language)
-    if code == SOURCE_LANGUAGE or code not in LANGUAGE_BY_CODE:
+    if code == hub.source_language or code not in LANGUAGE_BY_CODE:
         raise HTTPException(status_code=400, detail="Choose a supported translated language.")
     runtime = load_runtime_config()
     provider = str(runtime.get("translation_provider") or settings.translation_provider or "disabled")
     provider_codes = set(hub.translator.supported_languages_for_provider(provider))
     if code not in provider_codes:
         raise HTTPException(status_code=409, detail="That language is not installed for the current translation provider.")
-    allowed = sorted({*(runtime.get("translation_allowed_languages") or [SOURCE_LANGUAGE]), SOURCE_LANGUAGE, code})
+    allowed = sorted({*(runtime.get("translation_allowed_languages") or [hub.source_language]), hub.source_language, code})
     allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
     max_active = clamp_translation_max_for_deployment(int(runtime.get("translation_max_active_languages", 2)), deployment)
     cfg = set_translation_config(
@@ -3821,6 +3868,7 @@ async def languages():
     }
 
 
+
 @app.get("/api/client-ui/{language}")
 async def client_ui(language: str):
     language = normalise_language(language)
@@ -3829,7 +3877,7 @@ async def client_ui(language: str):
     if language != SOURCE_LANGUAGE and source == "fallback":
         strings, source = await get_runtime_translated_client_ui_strings(
             language,
-            translator=hub.translator,
+            translator=LocalTranslator("en"),
             provider="argos",
             cache=_client_ui_runtime_translation_cache,
         )
@@ -3847,7 +3895,7 @@ async def test_caption(_: None = Depends(require_operator)):
 
 @app.websocket("/ws/captions")
 async def ws_captions(websocket: WebSocket):
-    language = normalise_language(websocket.query_params.get("lang"))
+    language = normalise_language(websocket.query_params.get("lang") or hub.source_language)
     count_viewer = websocket.query_params.get("role") != "service-leader"
     await hub.connect(websocket, language=language, count_viewer=count_viewer)
     try:
@@ -3862,7 +3910,7 @@ async def ws_captions(websocket: WebSocket):
 @app.websocket("/ws/translation-audio")
 async def ws_translation_audio(websocket: WebSocket):
     """Opt-in audio channel kept separate from the proven caption stream."""
-    language = normalise_language(websocket.query_params.get("lang"))
+    language = normalise_language(websocket.query_params.get("lang") or hub.source_language)
     await translation_speech.connect(websocket, language)
     try:
         while True:

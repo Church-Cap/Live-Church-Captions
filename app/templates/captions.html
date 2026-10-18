@@ -17,8 +17,8 @@
       <div class="topbar-actions">
         <div class="language-picker" aria-label="Caption language" data-i18n-aria-label="caption_language">
           <button id="languagePickerButton" class="language-picker-button" type="button" aria-haspopup="dialog" aria-expanded="false">
-            <span id="languageFlag" class="language-flag-chip" data-code="EN" title="English · EN"><img src="/static/flags/4x3/gb.svg" alt="" decoding="async"></span>
-            <span id="languagePickerLabel">English</span>
+            <span id="languageFlag" class="language-flag-chip" data-code="{{ source_language | upper }}" title="{{ source_language_name }}"><img src="/static/flags/4x3/{{ source_language_flag }}.svg" alt="" decoding="async"></span>
+            <span id="languagePickerLabel">{{ source_language_name }}</span>
           </button>
           <select id="languageSelect" class="sr-only" aria-hidden="true" tabindex="-1">
             {% for lang in languages %}
@@ -108,6 +108,7 @@
     window.CC_UI_STRING_SOURCES = {{ ui_string_sources | tojson }};
     window.CC_TRANSLATION_STATE = {{ translation_state | tojson }};
   </script>
-  <script src="/static/client.js?v=0.8.0-ui-1"></script>
+  <script>window.CC_SOURCE_LANGUAGE = {{ source_language | tojson }};</script>
+  <script src="/static/client.js?v=0.8.0-source-language-1"></script>
 </body>
 </html>

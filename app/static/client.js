@@ -32,7 +32,7 @@
 
   const MAX_LIVE_SEGMENTS = 120;
   const MAX_TRANSCRIPT_ITEMS = 1000;
-  const SOURCE_LANGUAGE = 'en';
+  const SOURCE_LANGUAGE = window.CC_SOURCE_LANGUAGE || 'en';
   const VIEWER_LANGUAGE_ALIASES = {
     zh: 'zh-hans',
     'zh-cn': 'zh-hans',
@@ -69,7 +69,7 @@
   let transcriptVisible = false;
   let viewerThemePreference = initialiseViewerThemePreference();
   let viewerTheme = resolveViewerTheme();
-  const preferredLanguage = String(localStorage.getItem('captionLanguage') || navigator.language || SOURCE_LANGUAGE).toLowerCase();
+  const preferredLanguage = String((isPresentationPage || document.body.classList.contains('operator-page')) ? SOURCE_LANGUAGE : (localStorage.getItem('captionLanguage') || navigator.language || SOURCE_LANGUAGE)).toLowerCase();
   let viewerLanguage = VIEWER_LANGUAGE_ALIASES[preferredLanguage] || preferredLanguage;
   if (!LANGUAGES.find(l => l.code === viewerLanguage)) {
     const baseLanguage = preferredLanguage.split('-')[0];
@@ -1655,6 +1655,10 @@
       let payload;
       try { payload = JSON.parse(event.data); } catch (_) { return; }
 
+      if (payload.type === 'source_language' || (payload.type === 'viewer_meta' && payload.data?.source_language && payload.data.source_language !== SOURCE_LANGUAGE)) {
+        if (viewerLanguage === SOURCE_LANGUAGE) localStorage.setItem('captionLanguage', payload.language || payload.data.source_language);
+        location.reload(); return;
+      }
       if (payload.type === 'state') renderState(payload.data);
       if (payload.type === 'viewer_meta') {
         const previousAudioState = translationState?.translated_audio;

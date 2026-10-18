@@ -212,7 +212,7 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
 
     def test_service_leader_page_has_health_audio_and_expiry_controls(self):
         self.assertIn("How to improve caption health", self.service_leader)
-        self.assertIn("English delay", self.service_leader)
+        self.assertIn("Source delay", self.service_leader)
         self.assertIn("Language delay", self.service_leader)
         self.assertIn("serviceLeaderTranslationDelay", self.service_leader)
         self.assertIn('"translation_delay_seconds": translation_delay', self.main)

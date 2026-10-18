@@ -407,3 +407,31 @@ obs
 - More robust translation provider support.
 - Better signed/packaged update flow.
 - Accessibility testing with Deaf and hard-of-hearing users.
+
+## Configurable caption source language
+
+The operator Live service page persists `source_language` in runtime configuration.
+`app/source_language.py` owns the explicit speech-language catalogue and selects
+multilingual Whisper weights for non-English speech while preserving model size.
+The default remains English; an existing `LANGUAGE` environment setting is used
+until an operator saves a supported language. Automatic detection is not exposed.
+
+`POST /api/source-language` uses the existing operator authentication and request-token/origin checks. It rejects changes during transcription and serialises source
+changes against Start. Switching while stopped drains/cancels translation work,
+stops queued translated audio, clears the old caption feed and cache, rebuilds the
+translator with the new source, and notifies connected clients to reload. Source
+viewers follow the new language; explicit translation viewers keep their target.
+The source selection and effective model remain consistent across performance
+presets, custom settings, restarts, audience pages, room displays, and OBS.
+
+Translation providers receive the configured source, with English-only OPUS
+Tigrinya routing restricted to English. The client-UI translation path still uses
+English because its input strings are English. Non-English recognition bypasses
+English-specific prompts, glossary/reference/context corrections and profanity
+filtering. Translation resources must support the selected language pair; adding
+a source language does not install translation packs or voice packs.
+
+On Apple Metal, `app/transcription/whisper_mps.py` adapts Whisper 20250625's
+word-alignment DTW fallback. It transfers the alignment matrix to CPU before
+Whisper converts it to float64, which MPS does not support. Model inference stays
+on MPS, word timestamps remain enabled, and CPU/CUDA alignment paths are unchanged.

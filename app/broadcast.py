@@ -41,6 +41,7 @@ class CaptionHub:
         transcript_store: TranscriptStore | None = None,
         translation_queue_capacity_per_language: int = 8,
         translation_speech_manager: "TranslationSpeechManager | None" = None,
+        source_language: str = SOURCE_LANGUAGE,
     ):
         self._clients: dict[WebSocket, str] = {}
         self._viewer_clients: set[WebSocket] = set()
@@ -54,7 +55,7 @@ class CaptionHub:
         self._sensitive_mode = False
         self._sensitive_resume_ignore_until: datetime | None = None
         self._lock = asyncio.Lock()
-        self.source_language = SOURCE_LANGUAGE
+        self.source_language = normalise_language(source_language)
         self.translation_enabled = False
         self.translation_provider = "disabled"
         self.translation_allowed_languages: set[str] = {self.source_language}
@@ -186,6 +187,7 @@ class CaptionHub:
         except Exception as exc:
             resources = {"error": str(exc)}
         state = {
+            "source_language": self.source_language,
             "enabled": self.translation_enabled,
             "provider": self.translation_provider,
             "provider_status": provider_status,
@@ -281,7 +283,7 @@ class CaptionHub:
 
     def _translate_segment_for_language(self, segment: CaptionSegment, language: str) -> CaptionSegment:
         language = normalise_language(language)
-        if language == "en":
+        if language == self.source_language:
             return segment
         if self.translation_language_policy == "restricted" and language not in self.translation_allowed_languages:
             return segment.model_copy(update={"text": segment.text, "raw_text": segment.raw_text or segment.text})
@@ -306,7 +308,7 @@ class CaptionHub:
         )
 
     def state(self) -> CaptionState:
-        return self._state_for_language("en")
+        return self._state_for_language(self.source_language)
 
     @staticmethod
     def _normalise_for_duplicate(text: str) -> str:
@@ -426,6 +428,25 @@ class CaptionHub:
                 "message": self._current.text,
                 "message_key": "sensitive_resumed_message",
             })
+
+    async def change_source_language(self, language: str) -> None:
+        """Switch a stopped session without reusing translations or old captions."""
+        if language == self.source_language:
+            return
+        await self.drain_translation_work(timeout_seconds=0)
+        if self.translation_speech_manager is not None:
+            await self.translation_speech_manager.shutdown()
+        previous = self.source_language
+        self.source_language = language
+        self.translator = LocalTranslator(language)
+        self._translation_latency_seconds.clear()
+        self._translation_latency_at.clear()
+        self.translation_allowed_languages.discard(previous)
+        self.translation_allowed_languages.add(language)
+        self._clients = {ws: language if code == previous else code for ws, code in self._clients.items()}
+        await self.clear()
+        await self._broadcast({"type": "source_language", "language": language})
+        await self.broadcast_viewer_meta()
 
     async def clear(self) -> None:
         self._current = None
@@ -751,7 +772,7 @@ class CaptionHub:
         *,
         source_ready_monotonic: float | None = None,
     ) -> None:
-        languages = list(dict.fromkeys(normalise_language(language) for language in languages if normalise_language(language) != "en"))
+        languages = list(dict.fromkeys(normalise_language(language) for language in languages if normalise_language(language) != self.source_language))
         if not languages:
             return
         record_translation_batch(
@@ -1087,7 +1108,7 @@ class CaptionHub:
         languages_to_translate: list[str] = []
 
         for lang, sockets in clients_by_language.items():
-            if lang == "en":
+            if lang == self.source_language:
                 payload = self._caption_payload(
                     segment,
                     language=lang,
@@ -1115,9 +1136,9 @@ class CaptionHub:
             else:
                 should_translate = True
                 if self.translation_timing_mode == "responsive" and not segment.is_final:
-                    warning = "Translating the growing stable English caption for responsive context. The newest wording may refine in place."
+                    warning = "Translating the growing stable source caption for responsive context. The newest wording may refine in place."
                 elif self.translation_timing_mode == "stable" and not segment.is_final:
-                    warning = "Preparing a steadier translation from corrected English. New translated text updates during speech after the wording settles."
+                    warning = "Preparing a steadier translation from corrected source captions. New translated text updates during speech after the wording settles."
                 else:
                     warning = "Translating captions locally. New translated text will appear as soon as it is ready."
 

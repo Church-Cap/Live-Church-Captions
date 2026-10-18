@@ -211,7 +211,7 @@ class ClientUiStringTests(unittest.TestCase):
         self.assertIn("else if (seg.is_final && !hasLiveSourceUpdates && !finalSegments.length)", script)
         self.assertIn("segment.cue_id || segment.source_unit_id", script)
         self.assertIn("segment.cue_revision || segment.source_revision", script)
-        self.assertIn('/static/client.js?v=0.8.0-ui-1', template)
+        self.assertIn('/static/client.js?v=0.8.0-source-language-1', template)
 
     def test_viewer_connections_are_released_for_safari_page_cache(self):
         script = Path("app/static/client.js").read_text(encoding="utf-8")

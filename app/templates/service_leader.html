@@ -191,7 +191,7 @@
         <span id="serviceLeaderHealthPill" class="status-pill health-unknown">Waiting</span>
       </div>
       <div class="service-leader-health-grid">
-        <div><span>English delay</span><strong id="serviceLeaderLiveDelay">—</strong></div>
+        <div><span>Source delay</span><strong id="serviceLeaderLiveDelay">—</strong></div>
         <div><span>Language delay</span><strong id="serviceLeaderTranslationDelay">—</strong></div>
         <div><span>Transcription pass</span><strong id="serviceLeaderTranscription">—</strong></div>
         <div><span>System load</span><strong id="serviceLeaderSystemLoad">—</strong></div>
@@ -757,7 +757,7 @@
       document.getElementById('serviceLeaderTranslationEnabled').checked = !!translation.translation_enabled;
       document.getElementById('serviceLeaderLanguagePolicy').value = translation.translation_language_policy || 'automatic';
       syncServiceLeaderLanguagePolicyCopy();
-      document.getElementById('serviceLeaderLanguageHelp').textContent = `Manual mode can use up to ${serviceLeaderLanguageLimit} selected language(s). English source captions are always available.`;
+      document.getElementById('serviceLeaderLanguageHelp').textContent = `Manual mode can use up to ${serviceLeaderLanguageLimit} selected language(s). {{ source_language_name }} source captions are always available.`;
       renderServiceLeaderLanguageList(document.getElementById('serviceLeaderLanguageSearch').value);
     }
 
@@ -808,7 +808,7 @@
       if (slots) slots.textContent = `${active.length} / ${limit}${active.length ? ` · ${active.map(serviceLeaderLanguageDisplayName).join(', ')}` : ''}`;
       if (demand) {
         const demandItems = Object.entries(translation.viewer_language_counts || {})
-          .filter(([code, count]) => String(code).toLowerCase() !== 'en' && Number(count || 0) > 0)
+          .filter(([code, count]) => String(code).toLowerCase() !== {{ source_language | tojson }} && Number(count || 0) > 0)
           .sort((a, b) => Number(b[1]) - Number(a[1]));
         demand.textContent = demandItems.length
           ? demandItems.map(([code, count]) => `${serviceLeaderLanguageDisplayName(code)} ${count}`).join(' · ')
@@ -1140,7 +1140,7 @@
 
     function serviceLeaderWsUrl() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${protocol}//${location.host}/ws/captions?lang=en&role=service-leader`;
+      return `${protocol}//${location.host}/ws/captions?lang={{ source_language }}&role=service-leader`;
     }
 
     function connectServiceLeaderCaptionStream() {
@@ -1149,6 +1149,7 @@
       }
       serviceLeaderWs = new WebSocket(serviceLeaderWsUrl());
       serviceLeaderWs.onmessage = (event) => {
+        if (JSON.parse(event.data).type === "source_language") { location.reload(); return; }
         let payload;
         try { payload = JSON.parse(event.data); } catch (_) { return; }
         if (payload.type === 'state') updateServiceLeaderPreview(serviceLeaderCaptionTextFromState(payload.data));

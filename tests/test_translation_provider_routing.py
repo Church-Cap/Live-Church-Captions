@@ -234,7 +234,7 @@ class TranslationProviderRoutingTests(unittest.TestCase):
     def test_restricted_policy_filters_audience_available_languages(self):
         source = Path("app/broadcast.py").read_text(encoding="utf-8")
 
-        self.assertIn("self.source_language = SOURCE_LANGUAGE", source)
+        self.assertIn("self.source_language = normalise_language(source_language)", source)
         self.assertIn("LocalTranslator(self.source_language)", source)
         self.assertIn('self.translation_language_policy == "restricted"', source)
         self.assertIn("self.translation_allowed_languages | {self.source_language}", source)

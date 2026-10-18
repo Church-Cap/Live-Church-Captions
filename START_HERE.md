@@ -126,6 +126,27 @@ On Linux, both QR codes remain available. Until local DNS or mDNS is configured,
 
 The operator and Service Leader control buttons show a subtle active glow for the current state, and the pages show short status messages while captions start, stop, blank, resume, or send a test caption.
 
+## Changing the spoken language
+
+On the operator's **Live service** page, stop captions, choose **Spoken language**
+under **Source captions**, then select **Save language**. Start captions again.
+The choice is saved across restarts. English remains the default; Swedish and
+nineteen other source languages are available. This is a fixed spoken-language
+selection, not automatic language detection.
+
+For non-English speech, Church Cap automatically uses the multilingual version
+of the selected model size (for example, `base` instead of `base.en`). The first
+start may need internet access to download that model. Changing source language
+clears the current caption feed and reconnects viewers, room displays, and OBS.
+Export any transcript you need before switching.
+
+Translation still requires local models that support the selected source and
+target languages. The English-to-Tigrinya model only supports English input.
+English-specific glossary, Bible-reference, service-context corrections,
+profanity filtering, and recognition prompts are not applied to other languages.
+
+![Swedish source-language selection](docs/images/source-language-selector.png)
+
 ## Optional Service Leader Device
 
 On the Church Cap computer, use either route:

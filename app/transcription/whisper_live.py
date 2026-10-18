@@ -29,6 +29,7 @@ from app.metrics import (
 from app.models import CaptionSegment, RecognitionSpan
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
+from app.transcription.whisper_mps import enable_mps_alignment
 from app.transcription.audio_watchdog import AudioStreamWatchdog
 from app.transcription.audio_input import audio_input_health, input_default_sample_rate, resample_mono
 from app.transcription.streaming_words import (
@@ -126,6 +127,8 @@ class WhisperLiveTranscriber(AudioStreamWatchdog, Transcriber):
             started = time.monotonic()
             try:
                 import whisper
+                if self.device == "mps":
+                    enable_mps_alignment()
                 self._model = whisper.load_model(self.model_name, device=self.device)
             except Exception as exc:
                 if self.device not in {"cuda", "mps"}:

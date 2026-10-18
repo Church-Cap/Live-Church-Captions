@@ -474,7 +474,7 @@ class LocalTranslator:
                 languages -= set(CHINESE_VARIANTS)
         else:
             languages = set()
-        if tigrinya_ready and provider in {"argos", CT2_SMALL100_PROVIDER, "small100", "both"}:
+        if self.source_language == "en" and tigrinya_ready and provider in {"argos", CT2_SMALL100_PROVIDER, "small100", "both"}:
             languages.add("ti")
         languages.add(self.source_language)
         return sorted(language for language in languages if language in LANGUAGE_BY_CODE)
@@ -539,7 +539,7 @@ class LocalTranslator:
 
         attempts: list[str] = []
         actual_provider: str | None = None
-        if target_language == "ti" and provider != "demo":
+        if target_language == "ti" and provider != "demo" and self.source_language == "en":
             attempts.append(OPUS_TIGRINYA_PROVIDER)
             result = self._translate_with_opus_tigrinya(text)
             actual_provider = OPUS_TIGRINYA_PROVIDER
@@ -891,6 +891,7 @@ class LocalTranslator:
         try:
             import torch  # type: ignore
             model, tokenizer = self._load_small100()
+            tokenizer.src_lang = self.source_language
             tokenizer.tgt_lang = target_language
             inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=256)
             try:

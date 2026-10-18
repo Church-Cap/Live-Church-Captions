@@ -13,6 +13,7 @@
     <div id="connection" class="display-status">Connecting</div>
     <div id="history" class="display-history"></div>
   </main>
-  <script src="/static/client.js?v=0.8.0-ui-1"></script>
+  <script>window.CC_SOURCE_LANGUAGE = {{ source_language | tojson }}; window.CC_LANGUAGES = {{ languages | tojson }};</script>
+  <script src="/static/client.js?v=0.8.0-source-language-1"></script>
 </body>
 </html>

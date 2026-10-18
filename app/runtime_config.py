@@ -10,6 +10,7 @@ from threading import Lock
 from typing import Any
 
 from app.i18n import MAX_TRANSLATION_LANGUAGES
+from app.source_language import SOURCE_LANGUAGES
 from app.paths import data_path, migrate_project_data
 
 CONFIG_PATH = data_path("runtime_config.json")
@@ -17,6 +18,7 @@ _lock = Lock()
 
 DEFAULTS: dict[str, Any] = {
     "audio_device": None,
+    "source_language": None,
     "performance_preset": "balanced",
     "performance_platform": "auto",
     "transcriber_mode": None,
@@ -57,6 +59,8 @@ def load_runtime_config() -> dict[str, Any]:
             return dict(DEFAULTS)
         cfg = dict(DEFAULTS)
         cfg.update({k: v for k, v in loaded.items() if k in DEFAULTS})
+        if not isinstance(cfg.get("source_language"), str) or cfg["source_language"] not in SOURCE_LANGUAGES:
+            cfg["source_language"] = None
         if cfg.get("translation_timing_mode") in {"contextual", "extended"}:
             cfg["translation_timing_mode"] = "responsive"
         return cfg
@@ -67,6 +71,8 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         cfg = dict(DEFAULTS)
         cfg.update({k: v for k, v in config.items() if k in DEFAULTS})
+        if not isinstance(cfg.get("source_language"), str) or cfg["source_language"] not in SOURCE_LANGUAGES:
+            cfg["source_language"] = None
         try:
             cfg["transcript_retention_minutes"] = max(0, int(cfg["transcript_retention_minutes"]))
         except Exception:
@@ -97,7 +103,7 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
             cfg["performance_platform"] = "auto"
         if cfg.get("transcriber_mode") is not None and (not isinstance(cfg.get("transcriber_mode"), str) or cfg.get("transcriber_mode") not in {"whisper", "faster_whisper"}):
             cfg["transcriber_mode"] = None
-        if cfg.get("whisper_model") is not None and (not isinstance(cfg.get("whisper_model"), str) or cfg.get("whisper_model") not in {"tiny.en", "base.en", "small.en", "medium.en"}):
+        if cfg.get("whisper_model") is not None and (not isinstance(cfg.get("whisper_model"), str) or cfg.get("whisper_model") not in {"tiny.en", "base.en", "small.en", "medium.en", "tiny", "base", "small", "medium"}):
             cfg["whisper_model"] = None
         if cfg.get("whisper_device") is not None and (not isinstance(cfg.get("whisper_device"), str) or cfg.get("whisper_device") not in {"auto", "cpu", "cuda", "mps"}):
             cfg["whisper_device"] = None
@@ -125,8 +131,9 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(allowed, list):
             allowed = ["en"]
         cfg["translation_allowed_languages"] = sorted(set(str(x).lower().strip() for x in allowed if str(x).strip())) or ["en"]
-        if "en" not in cfg["translation_allowed_languages"]:
-            cfg["translation_allowed_languages"].insert(0, "en")
+        source_language = cfg.get("source_language") or "en"
+        if source_language not in cfg["translation_allowed_languages"]:
+            cfg["translation_allowed_languages"].insert(0, source_language)
         CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         return cfg
 

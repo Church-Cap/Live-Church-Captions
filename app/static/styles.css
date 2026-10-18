@@ -5546,3 +5546,14 @@ select {
     transition: none !important;
   }
 }
+
+.source-language-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 12px;
+}
+@media (max-width: 480px) {
+  .source-language-controls { grid-template-columns: 1fr; }
+}
