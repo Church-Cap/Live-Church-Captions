@@ -82,6 +82,42 @@ def update_script_for_system(project_root: Path, system_name: str | None = None)
     return None
 
 
+SELECTED_RELEASE_PATTERN = re.compile(r"^Selected GitHub release:\s*(\S+)\s*$", re.MULTILINE)
+
+
+def run_update_check_script(project_root: Path, timeout_seconds: int = 120) -> str:
+    """Run the Linux update script in check-only mode and return the release it selected.
+
+    The script makes no changes with ``--check``; it reads the latest GitHub
+    release and reports whether it is newer than this folder.
+    """
+    script = update_script_for_system(project_root, "Linux")
+    if script is None or not script.exists():
+        raise RuntimeError("The Linux update script is not available in this Church Cap folder.")
+    env = os.environ.copy()
+    env.pop("CHURCH_CAP_UPDATE_TARGET_VERSION", None)
+    env["CHURCH_CAP_UPDATE_STARTED_FROM"] = "operator"
+    try:
+        completed = subprocess.run(
+            ["/usr/bin/env", "bash", str(script), "--check"],
+            cwd=str(project_root),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{script.name} --check did not finish within {timeout_seconds} seconds.") from exc
+    if completed.returncode != 0:
+        detail = next((line.strip() for line in reversed(completed.stderr.splitlines()) if line.strip()), "")
+        raise RuntimeError(f"{script.name} --check failed (exit code {completed.returncode}). {detail}".strip())
+    match = SELECTED_RELEASE_PATTERN.search(completed.stdout)
+    if not match:
+        raise RuntimeError(f"{script.name} --check did not report a Church Cap release.")
+    return normalise_version(match.group(1))
+
+
 def poll_update_process_state(state: dict, process, log_label: str = "logs/update.log") -> dict:
     """Return a public update state after observing a tracked child process."""
     public_state = {**state, "log": log_label}

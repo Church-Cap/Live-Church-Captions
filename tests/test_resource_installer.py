@@ -1,17 +1,31 @@
 import os
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.resource_installer import (
     install_translation,
     install_tts,
+    validate_tokenizer_save_paths,
     validate_packaged_installer_runtime,
 )
 
 
 class PackagedResourceInstallerTests(unittest.TestCase):
+    def test_tokenizer_save_rejects_chat_template_path_traversal(self):
+        tokenizer = type("Tokenizer", (), {"chat_template": {"../../outside": "unsafe"}})()
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(RuntimeError, "unsafe chat-template path"):
+                validate_tokenizer_save_paths(tokenizer, Path(temporary) / "tokenizer")
+
+    def test_tokenizer_save_accepts_plain_chat_template_names(self):
+        tokenizer = type("Tokenizer", (), {"chat_template": {"default": "safe"}})()
+        with tempfile.TemporaryDirectory() as temporary:
+            validate_tokenizer_save_paths(tokenizer, Path(temporary) / "tokenizer")
+
     def test_translation_kind_dispatch_is_allow_listed(self):
         with patch("app.resource_installer.install_argos") as argos:
             install_translation("argos_all")
@@ -50,17 +64,17 @@ class PackagedResourceInstallerTests(unittest.TestCase):
     def test_parent_translation_caches_are_refreshed_after_install(self):
         from app.main import refresh_translation_resources
 
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(
-            os.environ, {"ARGOS_PACKAGES_DIR": str(Path(temporary) / "argos")}, clear=False
-        ):
-            from argostranslate.translate import get_installed_languages
+        argos = types.ModuleType("argostranslate")
+        argos.__path__ = []
+        translate = types.ModuleType("argostranslate.translate")
+        translate.get_installed_languages = types.SimpleNamespace(cache_clear=Mock())
+        with patch.dict(
+            sys.modules,
+            {"argostranslate": argos, "argostranslate.translate": translate},
+        ), patch("app.main.hub.translator.unload_models") as unload:
+            refresh_translation_resources()
 
-            with patch.object(get_installed_languages, "cache_clear") as clear, patch(
-                "app.main.hub.translator.unload_models"
-            ) as unload:
-                refresh_translation_resources()
-
-        clear.assert_called_once_with()
+        translate.get_installed_languages.cache_clear.assert_called_once_with()
         unload.assert_called_once_with()
 
     def test_packaged_installer_validation_checks_native_and_bundled_dependencies(self):

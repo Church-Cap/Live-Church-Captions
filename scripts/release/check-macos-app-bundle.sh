@@ -32,7 +32,7 @@ read_plist() {
 }
 
 [[ "$(read_plist CFBundleIdentifier)" == "org.churchcap.desktop" ]]
-[[ "$(read_plist CFBundleShortVersionString)" == "0.8.0" ]]
+[[ "$(read_plist CFBundleShortVersionString)" == "0.9.0" ]]
 [[ "$(read_plist LSMinimumSystemVersion)" == "13.0" ]]
 if [[ -z "$(read_plist NSMicrophoneUsageDescription)" ]]; then
   echo "The macOS microphone usage explanation is missing." >&2

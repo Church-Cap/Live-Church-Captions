@@ -211,7 +211,7 @@ class ClientUiStringTests(unittest.TestCase):
         self.assertIn("else if (seg.is_final && !hasLiveSourceUpdates && !finalSegments.length)", script)
         self.assertIn("segment.cue_id || segment.source_unit_id", script)
         self.assertIn("segment.cue_revision || segment.source_revision", script)
-        self.assertIn('/static/client.js?v=0.8.0-ui-1', template)
+        self.assertIn('/static/client.js?v=0.9.0-ui-4', template)
 
     def test_viewer_connections_are_released_for_safari_page_cache(self):
         script = Path("app/static/client.js").read_text(encoding="utf-8")
@@ -227,7 +227,7 @@ class ClientUiStringTests(unittest.TestCase):
         self.assertIn("screenWakeLock.release()?.catch?.(() => {})", script)
         self.assertIn("revokeTranslationAudioUrl(previousUrl);", script)
         for template in templates:
-            self.assertIn("v=0.8.0-ui-1", template)
+            self.assertIn("v=0.9.0-ui-4", template)
 
     def test_room_display_and_obs_share_the_polished_presentation_policy(self):
         script = Path("app/static/client.js").read_text(encoding="utf-8")

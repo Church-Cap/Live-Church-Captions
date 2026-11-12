@@ -19,7 +19,7 @@ Caption hub / broadcast manager
         ↓
 WebSocket stream
         ↓
-HTML5 caption pages on phones, tablets, side screens, and OBS browser sources
+HTML5 caption pages on phones, tablets, side screens, OBS browser sources, and ProPresenter Web objects
 ```
 
 ## Components
@@ -66,6 +66,8 @@ The live backends open the selected audio device before loading the speech model
 ## Scaling model
 
 The server transcribes audio once, then broadcasts text to all connected browsers over WebSockets. It does not run one AI model per viewer.
+
+Presentation clients identify themselves on the caption WebSocket as `role=presentation` and one of `propresenter`, `obs`, or `room-display`. They do not increase the congregation viewer count. They do contribute translation demand, so a fixed-language ProPresenter or OBS output continues to receive its selected translated captions even when no phone has chosen that language. Connection totals and languages are exposed only through the authenticated operator status; the public translation state remains resource- and diagnostics-free.
 
 ## Language And Translation Model
 

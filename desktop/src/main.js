@@ -7,7 +7,7 @@ const defaultStatus = {
   detail: invoke
     ? 'Connecting to the native Church Cap supervisor…'
     : 'Control-window preview. Start it through Tauri to manage the engine.',
-  supervisor_version: '0.8.0',
+  supervisor_version: '0.9.0',
   engine_version: null,
   engine_protocol_version: 2,
   pid: null,
@@ -21,7 +21,7 @@ let updateBusy = false;
 let statusRefreshInFlight = false;
 let updateState = {
   status: 'idle',
-  current_version: '0.8.0',
+  current_version: '0.9.0',
   version: null,
   notes: null,
   detail: 'Church Cap checks a platform-specific signed channel. Updates are never installed automatically.',
@@ -62,7 +62,7 @@ function render(nextStatus = status) {
   $('#headerStatus').className = `status-pill ${status.phase}`;
   $('#statusOrb').className = `status-orb ${status.phase}`;
   $('#browserAvailability').textContent = ready ? 'Available' : 'Waiting for server';
-  $('#supervisorVersion').textContent = `v${status.supervisor_version || '0.8.0'}`;
+  $('#supervisorVersion').textContent = `v${status.supervisor_version || '0.9.0'}`;
   $('#engineVersion').textContent = status.engine_version ? `v${status.engine_version}` : 'Not connected';
   $('#protocolVersion').textContent = String(status.engine_protocol_version ?? 2);
   $('#enginePid').textContent = status.pid ? String(status.pid) : 'Not running';
@@ -77,6 +77,7 @@ function render(nextStatus = status) {
   $$('[data-route]').forEach((button) => { button.disabled = !ready || busy; });
   const passwordResetAvailable = ['ready', 'stopped', 'error', 'recovery_required'].includes(status.phase);
   $('#resetOperatorPassword').disabled = !invoke || busy || status.captions_live || !passwordResetAvailable;
+  $('#factoryResetApplication').disabled = !invoke || busy || status.captions_live || !passwordResetAvailable;
   renderUpdate();
 }
 
@@ -173,7 +174,7 @@ async function changeStartAtLogin(enabled) {
   }
 }
 
-async function checkForUpdates() {
+async function checkForUpdates(revealResult = false) {
   if (!invoke || updateBusy) return;
   updateBusy = true;
   renderUpdate({status: 'checking', detail: 'Checking the signed Church Cap update channel…'});
@@ -186,13 +187,23 @@ async function checkForUpdates() {
   } finally {
     updateBusy = false;
     render();
+    if (revealResult) $('#updatePanel').scrollIntoView({block: 'nearest'});
   }
 }
 
-async function installAvailableUpdate() {
-  if (!invoke || updateBusy || status.captions_live) return;
+function requestUpdateInstall() {
+  if (!invoke || updateBusy || status.captions_live || updateState.status !== 'available') return;
   const version = updateState.version || 'the available version';
-  if (!window.confirm(`Download, verify and install Church Cap ${version}? The local server will stop just before installation and Church Cap will relaunch.`)) return;
+  $('#updateInstallDialogDescription').textContent = `Download, verify and install Church Cap ${version}? The local server will stop just before installation and Church Cap will relaunch.`;
+  const dialog = $('#updateInstallDialog');
+  if (!dialog.open) dialog.showModal();
+}
+
+async function installAvailableUpdate() {
+  const dialog = $('#updateInstallDialog');
+  if (!dialog.open || !invoke || updateBusy || status.captions_live || updateState.status !== 'available') return;
+  dialog.close();
+  const version = updateState.version || 'the available version';
   updateBusy = true;
   renderUpdate({status: 'downloading', detail: `Preparing Church Cap ${version}…`, downloaded: 0, total: null});
   render();
@@ -247,6 +258,46 @@ async function performOperatorPasswordReset() {
   }
 }
 
+function requestFactoryReset() {
+  if (!invoke || actionPending) return;
+  if (status.captions_live) {
+    showError('Stop live captions before factory resetting Church Cap.');
+    return;
+  }
+  const dialog = $('#factoryResetDialog');
+  const confirmation = $('#factoryResetConfirmation');
+  confirmation.value = '';
+  $('#confirmFactoryReset').disabled = true;
+  if (!dialog.open) {
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+  }
+  confirmation.focus();
+}
+
+function updateFactoryResetConfirmation() {
+  $('#confirmFactoryReset').disabled = $('#factoryResetConfirmation').value !== 'RESET';
+}
+
+async function performFactoryReset() {
+  if (!invoke || actionPending || $('#factoryResetConfirmation').value !== 'RESET') return;
+  const dialog = $('#factoryResetDialog');
+  if (dialog.open) dialog.close();
+  actionPending = true;
+  render();
+  try {
+    render(await invoke('factory_reset_application'));
+    localStorage.clear();
+    sessionStorage.clear();
+  } catch (error) {
+    showError(error);
+  } finally {
+    await refreshSupervisorStatus();
+    actionPending = false;
+    render();
+  }
+}
+
 function setAutomaticUpdateChecks(enabled) {
   localStorage.setItem('church-cap-automatic-update-checks', enabled ? '1' : '0');
   if (enabled) checkForUpdates();
@@ -291,6 +342,11 @@ function selectTab(name) {
   });
 }
 
+function handleOpenUpdates() {
+  selectTab('settings');
+  if (!updateBusy) checkForUpdates(true);
+}
+
 async function initialize() {
   render();
   renderStartAtLogin();
@@ -320,10 +376,14 @@ async function initialize() {
   $('#automaticUpdateChecks').addEventListener('change', (event) => {
     setAutomaticUpdateChecks(event.currentTarget.checked);
   });
-  $('#checkUpdates').addEventListener('click', checkForUpdates);
-  $('#installUpdate').addEventListener('click', installAvailableUpdate);
+  $('#checkUpdates').addEventListener('click', () => checkForUpdates());
+  $('#installUpdate').addEventListener('click', requestUpdateInstall);
+  $('#confirmUpdateInstall').addEventListener('click', installAvailableUpdate);
   $('#resetOperatorPassword').addEventListener('click', requestOperatorPasswordReset);
   $('#confirmPasswordReset').addEventListener('click', performOperatorPasswordReset);
+  $('#factoryResetApplication').addEventListener('click', requestFactoryReset);
+  $('#factoryResetConfirmation').addEventListener('input', updateFactoryResetConfirmation);
+  $('#confirmFactoryReset').addEventListener('click', performFactoryReset);
   $('#showLegalInformation').addEventListener('click', () => {
     const dialog = $('#legalDialog');
     if (typeof dialog.showModal === 'function') dialog.showModal();
@@ -339,6 +399,7 @@ async function initialize() {
     if (listen) {
       await listen('church-cap://supervisor-status', (event) => render(event.payload));
       await listen('church-cap://update-progress', (event) => renderUpdate({status: event.payload.phase, ...event.payload}));
+      await listen('church-cap://open-updates', handleOpenUpdates);
     }
     // Subscribe first so Ready cannot be lost between the initial snapshot
     // request and slower settings hydration.

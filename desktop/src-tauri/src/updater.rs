@@ -8,7 +8,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use crate::lifecycle::EngineSupervisor;
 
 const UPDATE_EVENT: &str = "church-cap://update-progress";
-const UPDATER_PUBLIC_KEY_ID: &str = "BF1E020A4490108A";
+const UPDATER_PUBLIC_KEY_ID: &str = "25BF3CCF4B6CBB01";
 
 #[derive(Clone)]
 pub struct UpdateCoordinator {
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn updater_trust_root_identity_is_auditable() {
-        assert_eq!(UPDATER_PUBLIC_KEY_ID, "BF1E020A4490108A");
+        assert_eq!(UPDATER_PUBLIC_KEY_ID, "25BF3CCF4B6CBB01");
     }
 
     #[test]

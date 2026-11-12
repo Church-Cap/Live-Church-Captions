@@ -44,6 +44,8 @@ class CaptionHub:
     ):
         self._clients: dict[WebSocket, str] = {}
         self._viewer_clients: set[WebSocket] = set()
+        self._translation_demand_clients: set[WebSocket] = set()
+        self._presentation_clients: dict[WebSocket, str] = {}
         self._history: list[CaptionSegment] = []
         self._history_draft: CaptionSegment | None = None
         self._current: CaptionSegment | None = None
@@ -60,6 +62,7 @@ class CaptionHub:
         self.translation_allowed_languages: set[str] = {self.source_language}
         self.translation_max_active_languages = 2
         self.translation_language_policy = "automatic"
+        self.translation_language_requests_enabled = True
         self.translation_priority_mode = "most_viewers"
         self.translation_timing_mode = "responsive"
         self.translator = LocalTranslator(self.source_language)
@@ -94,15 +97,32 @@ class CaptionHub:
     def translation_queue_capacity_per_language(self) -> int:
         return self._translation_scheduler.capacity_per_language
 
-    async def connect(self, websocket: WebSocket, language: str = "en", count_viewer: bool = True) -> None:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        language: str = "en",
+        count_viewer: bool = True,
+        drives_translation: bool | None = None,
+        presentation_kind: str | None = None,
+    ) -> None:
         await websocket.accept()
         language = normalise_language(language)
+        if drives_translation is None:
+            drives_translation = count_viewer
         async with self._lock:
             self._clients[websocket] = language
             if count_viewer:
                 self._viewer_clients.add(websocket)
             else:
                 self._viewer_clients.discard(websocket)
+            if drives_translation:
+                self._translation_demand_clients.add(websocket)
+            else:
+                self._translation_demand_clients.discard(websocket)
+            if presentation_kind:
+                self._presentation_clients[websocket] = str(presentation_kind)
+            else:
+                self._presentation_clients.pop(websocket, None)
         await websocket.send_json({"type": "state", "data": self._state_for_language(language).model_dump(mode="json"), "language": language})
         record_viewer_counts(self.language_counts())
         await self._broadcast_viewer_meta()
@@ -111,6 +131,8 @@ class CaptionHub:
         async with self._lock:
             self._clients.pop(websocket, None)
             self._viewer_clients.discard(websocket)
+            self._translation_demand_clients.discard(websocket)
+            self._presentation_clients.pop(websocket, None)
         record_viewer_counts(self.language_counts())
         await self._broadcast_viewer_meta()
 
@@ -125,6 +147,7 @@ class CaptionHub:
         allowed_languages: list[str],
         max_active_languages: int,
         language_policy: str = "automatic",
+        language_requests_enabled: bool = True,
         priority_mode: str = "most_viewers",
         timing_mode: str = "responsive",
     ) -> None:
@@ -134,6 +157,7 @@ class CaptionHub:
         self.translation_allowed_languages.add(self.source_language)
         self.translation_max_active_languages = max(1, min(MAX_TRANSLATION_LANGUAGES, int(max_active_languages)))
         self.translation_language_policy = language_policy if language_policy in {"automatic", "restricted"} else "automatic"
+        self.translation_language_requests_enabled = bool(language_requests_enabled)
         self.translation_priority_mode = priority_mode if priority_mode in {"most_viewers", "pinned_first"} else "most_viewers"
         previous_timing_mode = self.translation_timing_mode
         if timing_mode in {"contextual", "extended"}:
@@ -148,8 +172,37 @@ class CaptionHub:
     def language_counts(self) -> dict[str, int]:
         return dict(Counter(lang for ws, lang in self._clients.items() if ws in self._viewer_clients))
 
+    def translation_demand_counts(self) -> dict[str, int]:
+        return dict(Counter(lang for ws, lang in self._clients.items() if ws in self._translation_demand_clients))
+
+    def presentation_connections(self) -> dict:
+        by_kind = Counter(self._presentation_clients.values())
+        languages = Counter(
+            self._clients[ws]
+            for ws in self._presentation_clients
+            if ws in self._clients
+        )
+        languages_by_kind: dict[str, Counter] = {}
+        for websocket, kind in self._presentation_clients.items():
+            if websocket not in self._clients:
+                continue
+            languages_by_kind.setdefault(kind, Counter())[self._clients[websocket]] += 1
+        return {
+            "total": sum(by_kind.values()),
+            "by_kind": dict(by_kind),
+            "languages": dict(languages),
+            "languages_by_kind": {
+                kind: dict(language_counts)
+                for kind, language_counts in languages_by_kind.items()
+            },
+        }
+
     def active_translated_languages(self) -> list[str]:
-        counts = Counter(lang for ws, lang in self._clients.items() if ws in self._viewer_clients and lang != self.source_language)
+        counts = Counter(
+            lang
+            for ws, lang in self._clients.items()
+            if ws in self._translation_demand_clients and lang != self.source_language
+        )
         if self.translation_language_policy == "restricted":
             allowed = [lang for lang, _ in counts.most_common() if lang in self.translation_allowed_languages]
         else:
@@ -171,7 +224,11 @@ class CaptionHub:
         provider_languages.add(self.source_language)
         if self.translation_enabled and self.translation_language_policy == "restricted":
             available_languages = sorted((self.translation_allowed_languages | {self.source_language}) & provider_languages)
-            requestable_languages = sorted(provider_languages - self.translation_allowed_languages - {self.source_language})
+            requestable_languages = (
+                sorted(provider_languages - self.translation_allowed_languages - {self.source_language})
+                if self.translation_language_requests_enabled
+                else []
+            )
         else:
             available_languages = sorted(provider_languages)
             requestable_languages = []
@@ -195,7 +252,9 @@ class CaptionHub:
             "priority_mode": self.translation_priority_mode,
             "timing_mode": self.translation_timing_mode,
             "viewer_languages": self.language_counts(),
+            "translation_demand_languages": self.translation_demand_counts(),
             "active_translated_languages": self.active_translated_languages(),
+            "presentation_connections": self.presentation_connections(),
             "translation_latency_seconds": dict(self._translation_latency_seconds),
             "translation_latency_at": dict(self._translation_latency_at),
             "scheduler": self._translation_scheduler.snapshot(),
@@ -206,6 +265,20 @@ class CaptionHub:
         if self.translation_speech_manager is not None:
             state["translated_audio"] = self.translation_speech_manager.public_state()
         return state
+
+    def viewer_translation_state(self) -> dict:
+        """Return only live availability fields needed by public caption pages."""
+        state = self.translation_state()
+        public_state = {
+            "enabled": bool(state.get("enabled")),
+            "available_languages": list(state.get("available_languages") or [self.source_language]),
+            "language_policy": state.get("language_policy", "automatic"),
+            "language_requests_enabled": self.translation_language_requests_enabled,
+            "requestable_languages": list(state.get("requestable_languages") or []),
+        }
+        if "translated_audio" in state:
+            public_state["translated_audio"] = state["translated_audio"]
+        return public_state
 
     def configure_retention(self, retention_minutes: int, transcript_saving_enabled: bool) -> None:
         self._retention_minutes = max(0, int(retention_minutes))
@@ -926,6 +999,9 @@ class CaptionHub:
         async with self._lock:
             for ws in dead:
                 self._clients.pop(ws, None)
+                self._viewer_clients.discard(ws)
+                self._translation_demand_clients.discard(ws)
+                self._presentation_clients.pop(ws, None)
         await self._broadcast_viewer_meta()
 
     async def _broadcast_translated_caption(
@@ -1155,7 +1231,7 @@ class CaptionHub:
                 )
 
     async def _broadcast_viewer_meta(self) -> None:
-        await self._broadcast({"type": "viewer_meta", "data": self.translation_state(), "viewers": self.viewer_count})
+        await self._broadcast({"type": "viewer_meta", "data": self.viewer_translation_state(), "viewers": self.viewer_count})
 
     async def broadcast_viewer_meta(self) -> None:
         """Publish safe viewer-facing availability after an operator change."""
@@ -1176,3 +1252,6 @@ class CaptionHub:
             async with self._lock:
                 for ws in dead:
                     self._clients.pop(ws, None)
+                    self._viewer_clients.discard(ws)
+                    self._translation_demand_clients.discard(ws)
+                    self._presentation_clients.pop(ws, None)

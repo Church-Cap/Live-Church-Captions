@@ -18,6 +18,7 @@ import ctranslate2
 from ctranslate2.converters import TransformersConverter
 from transformers import AutoTokenizer
 from app.install_progress import write_install_progress
+from app.resource_installer import validate_tokenizer_save_paths
 
 model_name = "Helsinki-NLP/opus-mt-en-ti"
 revision = "72f1e40b4b60ff4863407f90792b4fac517562ec"
@@ -35,6 +36,7 @@ else:
     write_install_progress(86, "downloading", "Downloading the pinned English-to-Tigrinya model.", indeterminate=True)
     print("Downloading the pinned Apache-2.0 English-to-Tigrinya model…", flush=True)
     tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
+    validate_tokenizer_save_paths(tokenizer, tokenizer_dir)
     tokenizer.save_pretrained(tokenizer_dir)
     write_install_progress(91, "converting", "Converting the Tigrinya model to INT8.", indeterminate=True)
     print("Converting the Tigrinya model to CTranslate2 INT8…", flush=True)

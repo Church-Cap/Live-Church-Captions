@@ -23,6 +23,7 @@
   const isPhonePage = document.body.classList.contains('phone-page');
   const isRoomDisplayPage = document.body.classList.contains('display-page');
   const isObsPage = document.body.classList.contains('obs-page');
+  const isOperatorPage = document.body.classList.contains('operator-page');
   // Room Display and OBS deliberately share one calmer presentation policy.
   // Audience phones remain the fastest live reader and may show the mutable
   // recognition tail; presentation outputs wait only for the server's existing
@@ -69,7 +70,13 @@
   let transcriptVisible = false;
   let viewerThemePreference = initialiseViewerThemePreference();
   let viewerTheme = resolveViewerTheme();
-  const preferredLanguage = String(localStorage.getItem('captionLanguage') || navigator.language || SOURCE_LANGUAGE).toLowerCase();
+  const presentationParameters = isPresentationPage ? new URLSearchParams(location.search) : null;
+  const presentationRequestedLanguage = presentationParameters?.get('lang');
+  const preferredLanguage = String(
+    (isPresentationPage || isOperatorPage)
+      ? (presentationRequestedLanguage || SOURCE_LANGUAGE)
+      : (localStorage.getItem('captionLanguage') || navigator.language || SOURCE_LANGUAGE)
+  ).toLowerCase();
   let viewerLanguage = VIEWER_LANGUAGE_ALIASES[preferredLanguage] || preferredLanguage;
   if (!LANGUAGES.find(l => l.code === viewerLanguage)) {
     const baseLanguage = preferredLanguage.split('-')[0];
@@ -549,7 +556,7 @@
     }
     if (current && current.dataset.i18n === 'waiting') current.textContent = t('waiting');
     if (translationNotice) translationNotice.hidden = viewerLanguage === SOURCE_LANGUAGE || translationNoticeDismissed;
-    localStorage.setItem('captionLanguage', viewerLanguage);
+    if (!isPresentationPage && !isOperatorPage) localStorage.setItem('captionLanguage', viewerLanguage);
     applyViewerTheme();
     applyComfortMode();
     updateTranscriptToggleButton();
@@ -1630,7 +1637,18 @@
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = null;
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${protocol}://${location.host}/ws/captions?lang=${encodeURIComponent(viewerLanguage)}`);
+    const captionSocketParameters = new URLSearchParams({lang: viewerLanguage});
+    if (isPresentationPage) {
+      const requestedIntegration = String(presentationParameters?.get('integration') || '').toLowerCase();
+      const presentationKind = (requestedIntegration === 'propresenter' || location.pathname === '/propresenter')
+        ? 'propresenter'
+        : (isRoomDisplayPage ? 'room-display' : 'obs');
+      captionSocketParameters.set('role', 'presentation');
+      captionSocketParameters.set('presentation', presentationKind);
+    } else if (isOperatorPage) {
+      captionSocketParameters.set('role', 'operator');
+    }
+    const ws = new WebSocket(`${protocol}://${location.host}/ws/captions?${captionSocketParameters.toString()}`);
     socket = ws;
     // The intentionally closed socket is now distinguishable by identity.
     // Let this new attempt reconnect even if it fails before reaching onopen.

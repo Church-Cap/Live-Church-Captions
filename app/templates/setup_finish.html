@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Church Cap · Setup complete</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.0-onboarding-24">
+  <script src="/static/setup-theme.js?v=0.9.0-onboarding-21" defer></script>
+  <script src="/static/setup-finish.js?v=0.9.0-onboarding-21" defer></script>
+</head>
+<body class="auth-page glass-page onboarding-page">
+  <script>
+    (() => {
+      try {
+        const stored = localStorage.getItem('operatorTheme');
+        const manual = localStorage.getItem('operatorThemeManual') === '1';
+        const systemLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
+        if ((manual && stored === 'light') || (!manual && systemLight)) document.body.classList.add('light-mode');
+      } catch (_) {}
+    })();
+  </script>
+  <main class="auth-shell onboarding-shell">
+    <header class="onboarding-topbar">
+      <div class="auth-brand onboarding-brand">
+        <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
+        <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
+      </div>
+    </header>
+    <div class="onboarding-stage">
+      <aside class="onboarding-hero">
+        <p class="eyebrow">Setup complete</p>
+        <h2>Your operator station is ready.</h2>
+        <p>Church Cap is configured. Complete a short test with the real sound-desk feed before relying on it in a service.</p>
+        <div class="onboarding-hero-notes"><div><strong>English is ready</strong><span>Captioning remains available even while an optional language pack downloads.</span></div><div><strong>Settings stay flexible</strong><span>Performance and language coverage can be reviewed from the Operator page.</span></div></div>
+        <button type="button" class="onboarding-theme-toggle" id="onboardingThemeToggle" aria-label="Switch to light mode">
+          <span class="onboarding-theme-glyph" id="onboardingThemeGlyph" aria-hidden="true">☀︎</span>
+          <span id="onboardingThemeLabel">Light mode</span>
+        </button>
+      </aside>
+      <section class="auth-card glass-card onboarding-card onboarding-finish-card">
+      <div class="onboarding-finish-mark" aria-hidden="true">✓</div>
+      <p class="eyebrow">Setup complete</p>
+      <h1>Your operator station is ready</h1>
+      <p class="muted">Your password, security mode and caption performance settings have been saved.</p>
+
+      {% if translation_enabled %}
+      <section class="onboarding-install-card" id="onboardingInstallCard" data-state="{{ translation_install.status|default('idle') }}" role="status" aria-live="polite">
+        <div class="onboarding-install-heading">
+          <span class="spoken-audio-install-spinner" id="onboardingInstallSpinner" aria-hidden="true"></span>
+          <div><strong id="onboardingInstallTitle">Preparing translated captions…</strong><small id="onboardingInstallLanguages">{{ language_pack.label }}</small></div>
+          <span class="install-progress-percent" id="onboardingInstallPercent">{{ translation_install.progress.percent|default(0) }}%</span>
+        </div>
+        <div class="spoken-audio-install-progress-track" aria-hidden="true"><span id="onboardingInstallProgressBar"></span></div>
+        <p class="muted small-result" id="onboardingInstallDetail">{{ translation_install.progress.detail|default('Preparing the selected local language pack.') }}</p>
+        <p class="install-progress-meta" id="onboardingInstallMeta" hidden></p>
+      </section>
+      <p class="fine-print" id="onboardingBackgroundNote">The download can take several minutes. It continues locally if you open the Dashboard; English captions remain available while it finishes.</p>
+      {% else %}
+      <div class="onboarding-ready-note"><strong>English captions are ready.</strong> No translation package was requested. You can add translated captions later from Languages.</div>
+      {% endif %}
+
+      {% if spoken_audio_requested %}
+      <section class="onboarding-install-card onboarding-spoken-install-card" id="onboardingSpokenInstallCard" data-state="{{ spoken_audio_install.status|default('waiting') }}" role="status" aria-live="polite">
+        <div class="onboarding-install-heading">
+          <span class="spoken-audio-install-spinner" id="onboardingSpokenInstallSpinner" aria-hidden="true"></span>
+          <div><strong id="onboardingSpokenInstallTitle">Spoken audio is queued</strong><small>{{ spoken_audio_install.package_ids|length }} selected voice pack{% if spoken_audio_install.package_ids|length != 1 %}s{% endif %}{% if spoken_audio_install.download_label %} · {{ spoken_audio_install.download_label }}{% endif %}</small></div>
+          <span class="install-progress-percent" id="onboardingSpokenInstallPercent">{{ spoken_audio_install.progress.percent|default(0) }}%</span>
+        </div>
+        <div class="spoken-audio-install-progress-track" aria-hidden="true"><span id="onboardingSpokenInstallProgressBar"></span></div>
+        <p class="muted small-result" id="onboardingSpokenInstallDetail">{{ spoken_audio_install.progress.detail|default('Waiting for caption language installation to finish.') }}</p>
+        <p class="install-progress-meta" id="onboardingSpokenInstallMeta" hidden></p>
+      </section>
+      {% endif %}
+
+      <div class="onboarding-review-list compact">
+        <article><span>Language pack</span><strong>{{ language_pack.label }}</strong></article>
+        {% if translation_enabled %}<article><span>Simultaneous translation limit</span><strong>{{ active_language_limit }}</strong></article>{% endif %}
+      </div>
+      <div class="onboarding-actions finish-actions">
+        <a class="button-link secondary" href="/operator#languages">Review languages</a>
+        <a class="button-link primary-button" href="/operator">Open Dashboard</a>
+      </div>
+      <div class="onboarding-progress onboarding-progress-complete" aria-label="Setup complete">
+        <div class="onboarding-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" aria-label="Setup completion"><span></span></div>
+        <ol class="onboarding-step-indicators" style="--onboarding-step-count: {{ 7 if spoken_audio_requested else 6 }}">
+          <li class="is-complete"><span>✓</span><small>Welcome</small></li><li class="is-complete"><span>✓</span><small>Security</small></li><li class="is-complete"><span>✓</span><small>Sound</small></li><li class="is-complete"><span>✓</span><small>Computer</small></li><li class="is-complete"><span>✓</span><small>Languages</small></li>{% if spoken_audio_requested %}<li class="is-complete"><span>✓</span><small>Voices</small></li>{% endif %}<li aria-current="step"><span>✓</span><small>Ready</small></li>
+        </ol>
+        <span class="onboarding-progress-percent">100%</span>
+      </div>
+      <script type="application/json" id="onboardingInstallInitialState">{{ translation_install|tojson }}</script>
+      <script type="application/json" id="onboardingSpokenInstallInitialState">{{ spoken_audio_install|tojson }}</script>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

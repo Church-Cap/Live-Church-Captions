@@ -7,7 +7,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 if [[ "$(uname -m)" != "arm64" ]]; then
-  echo "The v0.8.0 macOS target requires an Apple Silicon (arm64) build host." >&2
+  echo "The v0.9.0 macOS target requires an Apple Silicon (arm64) build host." >&2
   exit 1
 fi
 

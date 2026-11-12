@@ -26,6 +26,18 @@ platform adapter -> operating-system capability
 
 The shared app must not import Tauri/Rust code or assume a particular installer. The wrapper must not copy or reimplement web templates, routes, authentication, caption logic, translation logic, or legal content.
 
+## Engine lifecycle protocol (version 2)
+
+The engine and the desktop supervisor exchange single JSON lines defined in `engine/protocol.py` and `desktop/src-tauri/src/model.rs`:
+
+| Direction | Prefix | Allowed values |
+| --- | --- | --- |
+| Engine → supervisor, stdout | `CHURCH_CAP_ENGINE_EVENT=` | Lifecycle `state` with version, URLs, detail, and PID |
+| Engine → supervisor, stdout | `CHURCH_CAP_ENGINE_REQUEST=` | `{"request":"open_updates","protocol_version":2,"pid":…}` only |
+| Supervisor → engine, stdin | `CHURCH_CAP_ENGINE_COMMAND=` | `{"command":"shutdown","protocol_version":2}` only |
+
+The engine sends `open_updates` only when an authenticated local operator selects **Updates → Check for updates** in a packaged Mac or Windows build. Repeated clicks within a few seconds send one request. The supervisor accepts the request only from the engine PID it owns. It shows the control window on **Settings** and runs the same signed-updater check as that tab's button. Installing still needs the operator to confirm in the desktop app. Any other request value is ignored.
+
 ## Change workflow
 
 For every product change:

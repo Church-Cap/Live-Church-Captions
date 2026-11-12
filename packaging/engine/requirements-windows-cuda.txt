@@ -1,0 +1,7 @@
+# Experimental large Windows x64 / CPython 3.12 packaging overlay.
+# NOT FOR THE v0.9.0 SMALL WINDOWS INSTALLER. It grows the setup from about
+# 259 MB to about 2.16 GB and crosses standard NSIS's size limit.
+# Retained for a separately reviewed GPU-PyTorch packaging design only.
+# This wheel comes from PyTorch's official CUDA 13.0 index; the fragment pins
+# its published SHA-256. Do not apply it to macOS or Linux builds.
+torch @ https://download-r2.pytorch.org/whl/cu130/torch-2.13.0%2Bcu130-cp312-cp312-win_amd64.whl#sha256=2efab1e83604ca628c6d85b9e188c153690980498d1297081a9dad704919303c

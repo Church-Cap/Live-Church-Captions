@@ -22,6 +22,9 @@ class FakeWebSocket:
     def __init__(self):
         self.payloads = []
 
+    async def accept(self):
+        return None
+
     async def send_json(self, payload):
         self.payloads.append(payload)
 
@@ -67,6 +70,67 @@ class TranslationSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hub.source_language, "en")
         self.assertIn("en", state["available_languages"])
         self.assertIn("en", state["allowed_languages"])
+
+    async def test_restricted_viewer_metadata_updates_policy_and_request_setting(self):
+        hub = CaptionHub(transcript_store=self.transcript_store)
+        hub.configure_translation(
+            enabled=True,
+            provider="demo",
+            allowed_languages=["en", "fr"],
+            max_active_languages=2,
+            language_policy="restricted",
+            language_requests_enabled=False,
+        )
+
+        state = hub.viewer_translation_state()
+
+        self.assertEqual(state["language_policy"], "restricted")
+        self.assertFalse(state["language_requests_enabled"])
+        self.assertIn("en", state["available_languages"])
+        self.assertIn("fr", state["available_languages"])
+        self.assertEqual(state["requestable_languages"], [])
+
+    async def test_presentation_drives_translation_without_inflating_viewer_count(self):
+        hub = CaptionHub(transcript_store=self.transcript_store)
+        hub.configure_translation(
+            enabled=True,
+            provider="demo",
+            allowed_languages=["en", "fr"],
+            max_active_languages=2,
+            language_policy="restricted",
+        )
+        presentation = FakeWebSocket()
+
+        await hub.connect(
+            presentation,
+            language="fr",
+            count_viewer=False,
+            drives_translation=True,
+            presentation_kind="propresenter",
+        )
+
+        self.assertEqual(hub.viewer_count, 0)
+        self.assertEqual(hub.language_counts(), {})
+        self.assertEqual(hub.translation_demand_counts(), {"fr": 1})
+        self.assertEqual(hub.active_translated_languages(), ["fr"])
+        self.assertEqual(
+            hub.presentation_connections(),
+            {
+                "total": 1,
+                "by_kind": {"propresenter": 1},
+                "languages": {"fr": 1},
+                "languages_by_kind": {"propresenter": {"fr": 1}},
+            },
+        )
+        viewer_meta = [payload for payload in presentation.payloads if payload.get("type") == "viewer_meta"][-1]
+        self.assertNotIn("presentation_connections", viewer_meta["data"])
+        self.assertNotIn("translation_demand_languages", viewer_meta["data"])
+        self.assertNotIn("resources", viewer_meta["data"])
+        self.assertNotIn("scheduler", viewer_meta["data"])
+
+        await hub.disconnect(presentation)
+        self.assertEqual(hub.translation_demand_counts(), {})
+        self.assertEqual(hub.presentation_connections()["total"], 0)
 
     async def test_live_viewer_metadata_keeps_translated_audio_readiness(self):
         hub = CaptionHub(
@@ -193,6 +257,7 @@ class TranslationSchedulerTests(unittest.IsolatedAsyncioTestCase):
         async with hub._lock:
             hub._clients = {english: "en", farsi: "fa"}
             hub._viewer_clients = {english, farsi}
+            hub._translation_demand_clients = {english, farsi}
 
         await hub.publish(CaptionSegment(text="Grace welcomes every person here", is_final=False))
 
@@ -235,6 +300,7 @@ class TranslationSchedulerTests(unittest.IsolatedAsyncioTestCase):
         async with hub._lock:
             hub._clients = {english: "en", farsi: "fa"}
             hub._viewer_clients = {english, farsi}
+            hub._translation_demand_clients = {english, farsi}
 
         await hub.publish(CaptionSegment(text="Grace welcomes every person here", is_final=False))
         self.assertEqual(translator.calls, [])
@@ -292,6 +358,7 @@ class TranslationSchedulerTests(unittest.IsolatedAsyncioTestCase):
         async with hub._lock:
             hub._clients = {farsi: "fa"}
             hub._viewer_clients = {farsi}
+            hub._translation_demand_clients = {farsi}
 
         hub._queue_translation_batch(
             CaptionSegment(
@@ -320,6 +387,7 @@ class TranslationSchedulerTests(unittest.IsolatedAsyncioTestCase):
         async with hub._lock:
             hub._clients = {farsi: "fa"}
             hub._viewer_clients = {farsi}
+            hub._translation_demand_clients = {farsi}
 
         hub._queue_translation_batch(
             CaptionSegment(
@@ -453,6 +521,7 @@ class TranslationSchedulerTests(unittest.IsolatedAsyncioTestCase):
             async with hub._lock:
                 hub._clients = {es: "es", fr: "fr"}
                 hub._viewer_clients = {es, fr}
+                hub._translation_demand_clients = {es, fr}
 
             hub._queue_translation_batch(CaptionSegment(text="old caption", is_final=True), ["es", "fr"])
             await asyncio.sleep(0)

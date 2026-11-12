@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Church Cap",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "identifier": "org.churchcap.desktop",
   "build": {
     "frontendDist": "../src"
@@ -47,7 +47,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJGMUUwMjBBNDQ5MDEwOEEKUldTS0VKQkVDZ0lldjl6V1NqYzB2N1A3V2JtbEFqZEI2azIrQ1FrOHRidGQvRDBGTEk4T2I3R08K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI1QkYzQ0NGNEI2Q0JCMDEKUldRQnUyeEx6enkvSmI2MEdzZ0NXWXJHZ3Z2eW9OdnJuN3dHWVk5a2JsWlVISEUxTE4va1d1TkgK",
       "endpoints": [
         "https://raw.githubusercontent.com/Church-Cap/Live-Church-Captions/main/updates/desktop/{{target}}-{{arch}}/latest.json"
       ],

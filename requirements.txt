@@ -8,5 +8,8 @@ numpy==2.2.1
 sounddevice==0.5.1
 openai-whisper==20250625
 faster-whisper==1.2.1
+# Kept equal to packaging/locks/*-py312.txt (packaged engine); must stay <1.0 for transformers<5.
+huggingface-hub==0.36.2
+tokenizers==0.22.2
 requests==2.33.0
 cryptography>=42.0.0

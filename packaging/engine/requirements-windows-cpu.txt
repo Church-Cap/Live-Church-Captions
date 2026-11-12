@@ -1,0 +1,5 @@
+# Windows x64 / CPython 3.12 small-installer profile. Install this before
+# requirements-packaged.txt so the shared resolver retains CPU-only PyTorch.
+# The wheel URL and SHA-256 are published by PyPI for torch 2.13.0.
+# Optional installer CUDA 12.4/cuDNN 9 serves CTranslate2, not this wheel.
+torch @ https://files.pythonhosted.org/packages/21/d6/e8f3c6f7e01f626f77259de9860d2a78bc84c40539e28e79b7e98b0bb659/torch-2.13.0-cp312-cp312-win_amd64.whl#sha256=024c6cc0c1b085f2f91f20a3dc27b0471d021c31ce84b81be3afdc39f791fd9d

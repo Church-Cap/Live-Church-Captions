@@ -7,8 +7,6 @@
   const lengthRequirement = form.querySelector('#passwordLengthRequirement');
   const matchRequirement = form.querySelector('#passwordMatchRequirement');
   const validationMessage = form.querySelector('#passwordValidationMessage');
-  const easyOfflineInfoButton = document.querySelector('#easyOfflineInfoButton');
-  const easyOfflineInfoDialog = document.querySelector('#easyOfflineInfoDialog');
 
   function markRequirement(element, met) {
     element.classList.toggle('is-met', met);
@@ -20,12 +18,10 @@
     const matchMet = confirmation.value.length > 0 && password.value === confirmation.value;
     markRequirement(lengthRequirement, lengthMet);
     markRequirement(matchRequirement, matchMet);
-
     if (password.value.length > 0) password.setAttribute('aria-invalid', String(!lengthMet));
     else password.removeAttribute('aria-invalid');
     if (confirmation.value.length > 0) confirmation.setAttribute('aria-invalid', String(!matchMet));
     else confirmation.removeAttribute('aria-invalid');
-
     if (lengthMet && matchMet) validationMessage.hidden = true;
     return {lengthMet, matchMet};
   }
@@ -39,9 +35,10 @@
 
   password.addEventListener('input', updateRequirements);
   confirmation.addEventListener('input', updateRequirements);
-  easyOfflineInfoButton?.addEventListener('click', () => {
-    if (typeof easyOfflineInfoDialog?.showModal === 'function') easyOfflineInfoDialog.showModal();
-    else easyOfflineInfoDialog?.setAttribute('open', '');
+  document.querySelector('#easyOfflineInfoButton')?.addEventListener('click', () => {
+    const dialog = document.querySelector('#easyOfflineInfoDialog');
+    if (typeof dialog?.showModal === 'function') dialog.showModal();
+    else dialog?.setAttribute('open', '');
   });
   form.addEventListener('submit', (event) => {
     const {lengthMet, matchMet} = updateRequirements();

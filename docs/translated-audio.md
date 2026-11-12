@@ -1,6 +1,6 @@
 # Local Translated Audio
 
-Version: v0.7.6
+Version: v0.9.0
 
 Church Cap can optionally read completed translated captions through a local Sherpa-ONNX voice. The client language search shows a small headphone marker beside each language whose local voice is ready, so visitors can see listening availability before selecting it. Every translated-language audience page still shows **Listen** so the feature is discoverable. If that language does not yet have a verified, installed voice pack, selecting the control displays a clear unavailable message; it never pretends audio has started. English does not offer translated audio. Voice gender and model names are deliberately not shown to listeners; Church Cap uses one operator-approved voice per language, selected for intelligibility before gender.
 

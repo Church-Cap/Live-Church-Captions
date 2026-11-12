@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$PROJECT_ROOT/scripts/release/macos-signing-identity.sh"
 APP_PATH="${CHURCH_CAP_MACOS_APP:-$PROJECT_ROOT/dist/macos-arm64/Church Cap.app}"
-VERSION="${CHURCH_CAP_RELEASE_VERSION:-0.8.0}"
+VERSION="${CHURCH_CAP_RELEASE_VERSION:-0.9.0}"
 OUTPUT_PATH="${CHURCH_CAP_MACOS_DMG:-$PROJECT_ROOT/dist/Church-Cap-v$VERSION-macOS-Apple-Silicon.dmg}"
 IDENTITY="${CHURCH_CAP_CODESIGN_IDENTITY:-}"
 IDENTITY_SHA1="${CHURCH_CAP_CODESIGN_IDENTITY_SHA1:-}"

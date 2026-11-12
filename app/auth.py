@@ -22,6 +22,7 @@ AUTH_FORM_CSRF_COOKIE_NAME = "caption_auth_request"
 AUTH_FORM_CSRF_MAX_AGE_SECONDS = 10 * 60
 AUTH_PATH = data_path("operator_auth.json")
 AUTH_BACKUP_PATH = data_path("operator_auth.backup.json")
+FACTORY_RESET_MARKER = data_path("factory_reset.flag")
 _lock = Lock()
 
 
@@ -93,6 +94,14 @@ class AuthenticationThrottle:
 
 
 authentication_throttle = AuthenticationThrottle()
+
+
+def _factory_reset_pending() -> bool:
+    """Keep legacy environment credentials out of a deliberate clean setup."""
+    try:
+        return FACTORY_RESET_MARKER.is_file()
+    except OSError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -350,6 +359,10 @@ def bootstrap_auth_store(env_password: str | None = None, env_secret: str | None
     server. Sessions rotate on password changes and if the operator manually
     deletes the auth store.
     """
+    reset_pending = _factory_reset_pending()
+    if reset_pending:
+        env_password = None
+        env_secret = None
     store = _load_store()
     changed = False
 
@@ -370,6 +383,9 @@ def bootstrap_auth_store(env_password: str | None = None, env_secret: str | None
 
 
 def get_auth_config(max_age_seconds: int, env_password: str | None = None, env_secret: str | None = None) -> AuthConfig:
+    if _factory_reset_pending():
+        env_password = None
+        env_secret = None
     store = _load_store()
     password_hash = store.get("password_hash")
     secret = store.get("session_secret") or env_secret or secrets.token_urlsafe(48)

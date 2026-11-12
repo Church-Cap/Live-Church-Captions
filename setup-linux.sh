@@ -110,7 +110,7 @@ fi
 require_linux_install_space "$APP_DIR" $((8 * 1024 * 1024))
 PYTHON_BIN="$(find_supported_linux_python || true)"
 if [[ -z "$PYTHON_BIN" ]]; then
-  echo "The system Python is not compatible with Church Cap v0.8.0's pinned ML packages." >&2
+  echo "The system Python is not compatible with Church Cap v0.9.0's pinned ML packages." >&2
   echo "Preparing a verified, project-local Python 3.12 without changing the system Python..." >&2
   if ! PYTHON_BIN="$(install_managed_linux_python "$APP_DIR" "$INSTALL_TMP")"; then
     echo "Church Cap could not prepare its project-local Python 3.12 runtime." >&2
@@ -230,27 +230,12 @@ else
   echo "Church Cap will use CPU / int8."
 fi
 
-step "7/7 Optional local translation resources"
-echo "Translation is optional and experimental. You can install it later from the operator Languages page."
-echo "  1) Install common Base package / Argos packs"
-echo "  2) Install all available Base package / Argos packs"
-echo "  3) Install common Base package plus Recommended package / CTranslate2 INT8"
-echo "  4) Install common Base package plus Compatibility package / PyTorch SMaLL-100"
-echo "  5) Skip translation resources"
-read -r -p "Choose translation setup [5]: " translation_answer
-case "${translation_answer:-5}" in
-  1) ./scripts/install-translation-models-argos.sh ;;
-  2) ./scripts/install-translation-models-argos.sh --all ;;
-  3)
-    ./scripts/install-translation-models-argos.sh
-    ./scripts/install-small100-ct2-int8.sh
-    ;;
-  4)
-    ./scripts/install-translation-models-argos.sh
-    ./scripts/install-small100-core.sh
-    ;;
-  *) echo "Skipping translation resources." ;;
-esac
+step "7/7 Preparing browser-guided language setup"
+echo "No optional translation model is downloaded by this terminal setup."
+echo "The first-run browser assistant offers friendly language packs,"
+echo "recommends a safe pack and simultaneous-language limit using local hardware checks,"
+echo "and can install the selected open-source local translation runtime."
+echo "Additional Base and compatibility controls remain available later from Operator > Languages."
 
 cat <<DONE
 

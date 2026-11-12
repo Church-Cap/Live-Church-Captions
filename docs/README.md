@@ -34,6 +34,24 @@ This folder keeps reference material out of the project root.
 - [Desktop update release runbook](project/DESKTOP_UPDATE_RELEASE_RUNBOOK.md)
 - [Translation model research](project/TRANSLATION_MODEL_RESEARCH.md)
 
+## Current v0.9.0 Development
+
+- [Implementation record and ProPresenter integration](project/V0.9.0_IMPLEMENTATION.md)
+- [Release notes](project/V0.9.0_RELEASE_NOTES.md)
+- [Dependency audit](project/V0.9.0_DEPENDENCY_AUDIT.md)
+- [Windows x64 build handoff](project/WINDOWS_V0.9.0_BUILD_HANDOFF.md)
+- [Copy-ready Windows build prompt](project/WINDOWS_V0.9.0_BUILD_PROMPT.md)
+- [Engineering durability backlog](project/V0.9.0_ENGINEERING_BACKLOG.md)
+- [Lifecycle and settings incident handoff](project/V0.9.0_SERVER_SETTINGS_PERSISTENCE_HANDOFF.md)
+
+## v0.8.1 Release Records
+
+v0.8.1 was prepared but not published separately; its changes ship in v0.9.0.
+
+- [Implementation record and first-run onboarding](project/V0.8.1_IMPLEMENTATION.md)
+- [Release notes](project/V0.8.1_RELEASE_NOTES.md)
+- [Development and release workspace](project/DEVELOPMENT_AND_RELEASE_LAYOUT.md)
+
 ## v0.8.0 Release Records
 
 - [Release notes](project/V0.8.0_RELEASE_NOTES.md)

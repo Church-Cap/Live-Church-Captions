@@ -3,42 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OBS overlay setup - {{ church_name }}</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <title>OBS caption setup - {{ church_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.0-ui-6">
 </head>
 <body class="operator-page glass-page">
   <main class="operator-shell docs-shell">
     <p><a href="/operator">← Back to operator controls</a></p>
     <p class="eyebrow">{{ church_name }}</p>
-    <h1>OBS browser-source overlay</h1>
-    <p class="muted">Church Cap provides a transparent browser-source overlay for OBS. It uses the same local caption feed as phones and display screens, so no separate OBS plugin or cloud service is required.</p>
+    <h1>Add captions to OBS</h1>
+    <p class="muted">Church Cap provides a transparent local caption overlay for OBS browser sources. It uses the same caption feed as phones and display screens, so no separate plugin or cloud service is required.</p>
 
-    <section class="operator-panel glass-card">
-      <h2>Browser source URL</h2>
-      <p>Use the direct IP URL when OBS runs on another computer or when <code>.local</code> hostnames are unreliable on the production network.</p>
-      <pre class="code-block">{{ obs_ip_url }}</pre>
-      <p class="muted">System IP address: <code>{{ system_ip }}</code></p>
-      <p class="muted">Hostname URL, useful when local hostname resolution works: <code>{{ obs_url }}</code></p>
-      <div class="button-row">
-        <a class="button-link" href="/obs?return=operator">Preview overlay</a>
-      </div>
-    </section>
-
-    <section class="operator-panel glass-card">
+    <section class="operator-panel glass-card" id="obs">
+      <p class="eyebrow">OBS</p>
       <h2>Recommended OBS settings</h2>
+      <p>First open <strong>Operator → Congregation → OBS Live Stream</strong>, choose the required output language, and copy the generated URL. Every URL identifies one language and ends with parameters similar to <code>?integration=obs&amp;lang=en</code>.</p>
       <ol class="steps-list">
-        <li>In OBS, click <strong>Sources → + → Browser</strong>.</li>
-        <li>Name the source <strong>Live Captions</strong>.</li>
-        <li>Paste the direct IP browser-source URL above. It normally ends in <strong>/obs</strong>.</li>
-        <li>Set width to <strong>1920</strong> and height to <strong>300</strong> for a lower-third layout.</li>
-        <li>Place the source near the bottom of the stream canvas.</li>
+        <li>In OBS, click <strong>Sources → + → Browser</strong> and name the source <strong>Church Cap captions</strong>.</li>
+        <li>Paste the complete language-specific URL copied from Church Cap.</li>
+        <li>Set width to <strong>1920</strong> and height to <strong>300</strong> for a lower-third layout, then place the source near the bottom of the stream canvas.</li>
         <li>Enable <strong>Refresh browser when scene becomes active</strong> if you want OBS to reconnect automatically when switching scenes.</li>
+        <li>Start Church Cap captions and check the source shows the selected language.</li>
       </ol>
+      <p class="muted">Changing the language on the Operator page creates a new address. Copy it into OBS and refresh the existing browser source. Church Cap intentionally shows only the direct-IP option because it is the clearest choice between computers on the church network.</p>
     </section>
 
     <section class="operator-panel glass-card">
       <h2>Operating notes</h2>
-      <p class="muted">The overlay has a transparent background and shows the current caption with the same smoother caption pacing used by the audience display. If the overlay is blank, confirm captions are running, the OBS computer can reach the URL above, and no firewall is blocking the Church Cap port.</p>
+      <p class="muted">The overlay has a transparent background and shows the current caption with the same smoother caption pacing used by the audience display. If the overlay is blank, confirm captions are running, the presentation computer can reach the generated URL, and no firewall is blocking the Church Cap port.</p>
       <p class="muted">For public livestreams, remember that AI captions and translations can be inaccurate. They may also include spoken names, pastoral details, testimony, or copyrighted worship lyrics. Use blank/pause mode when captions should not be shown or retained.</p>
     </section>
 

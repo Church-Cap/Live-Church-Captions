@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verified, project-local Python bootstrap for Linux distributions whose system
-# Python is newer than Church Cap v0.8.0's pinned ML packages support.
+# Python is newer than Church Cap v0.9.0's pinned ML packages support.
 
 CHURCH_CAP_UV_VERSION="0.12.3"
 CHURCH_CAP_MANAGED_PYTHON_VERSION="3.12"

@@ -13,6 +13,7 @@ class LinuxScriptTests(unittest.TestCase):
         cls.cuda_helper = Path("scripts/linux-cuda-runtime.sh").read_text(encoding="utf-8")
         cls.update = Path("update-linux.sh").read_text(encoding="utf-8")
         cls.shared_update = Path("scripts/update-unix.sh").read_text(encoding="utf-8")
+        cls.factory_reset = Path("factory-reset-linux.sh").read_text(encoding="utf-8")
         cls.release_manifest = Path("packaging/linux/release-manifest.txt").read_text(encoding="utf-8")
         cls.release_checker = Path("scripts/release/check-linux-cli-release.py").read_text(encoding="utf-8")
 
@@ -116,8 +117,15 @@ class LinuxScriptTests(unittest.TestCase):
             "update-linux.sh",
             "scripts/run-dual.py",
             "scripts/linux-python-runtime.sh",
+            "factory-reset-linux.sh",
+            "scripts/factory-reset.py",
         ):
             self.assertIn(required, self.release_manifest.splitlines())
+
+    def test_linux_factory_reset_requires_confirmation_and_reopens_setup(self):
+        self.assertIn('Type RESET to continue', self.factory_reset)
+        self.assertIn('scripts/factory-reset.py --confirm RESET', self.factory_reset)
+        self.assertIn('The complete first-time setup will open', Path("scripts/factory-reset.py").read_text(encoding="utf-8"))
         for forbidden in ("desktop", "dist", "tests", ".git", "work"):
             self.assertNotIn(forbidden, self.release_manifest.splitlines())
         self.assertNotIn("update-macos.sh", self.release_manifest.splitlines())

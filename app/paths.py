@@ -15,6 +15,10 @@ from app.platform_services.paths import (
 
 def migrate_project_data(filename: str, destination: Path) -> None:
     """Copy old project-local data/<filename> to the new stable location once."""
+    # A factory reset must not immediately resurrect a legacy project-local
+    # password or runtime configuration before the new setup is completed.
+    if (destination.parent / "factory_reset.flag").is_file():
+        return
     legacy = PROJECT_ROOT / "data" / filename
     if destination.exists() or not legacy.exists():
         return

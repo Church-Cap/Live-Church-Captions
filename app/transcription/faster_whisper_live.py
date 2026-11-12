@@ -20,6 +20,7 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 
 from app.models import CaptionSegment, RecognitionSpan
+from app.paths import model_data_dir
 from app.metrics import (
     record_transcription,
     record_transcription_guard_event,
@@ -116,7 +117,12 @@ class FasterWhisperTranscriber(AudioStreamWatchdog, Transcriber):
         if self._model is None:
             started = time.monotonic()
             try:
-                self._model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+                self._model = WhisperModel(
+                    self.model_name,
+                    device=self.device,
+                    compute_type=self.compute_type,
+                    download_root=str(model_data_dir() / "whisper" / "faster-whisper"),
+                )
             except Exception as exc:
                 if self.device != "cuda":
                     raise
@@ -127,7 +133,12 @@ class FasterWhisperTranscriber(AudioStreamWatchdog, Transcriber):
                     model_compute_type=self.compute_type,
                     error=f"CUDA model load failed; fell back to CPU: {exc}",
                 )
-                self._model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+                self._model = WhisperModel(
+                    self.model_name,
+                    device=self.device,
+                    compute_type=self.compute_type,
+                    download_root=str(model_data_dir() / "whisper" / "faster-whisper"),
+                )
             update_metrics(model_loaded=True, model_load_seconds=time.monotonic() - started)
         return self._model
 

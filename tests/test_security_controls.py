@@ -1,4 +1,5 @@
 import io
+import re
 import stat
 import tempfile
 import unittest
@@ -198,7 +199,9 @@ class AuthenticationSecurityTests(unittest.TestCase):
         operator = (root / "app/templates/operator.html").read_text(encoding="utf-8")
         login = (root / "app/templates/login.html").read_text(encoding="utf-8")
         setup = (root / "app/templates/setup.html").read_text(encoding="utf-8")
-        setup_password_script = (root / "app/static/setup-password.js").read_text(encoding="utf-8")
+        recovery_setup = (root / "app/templates/setup_recovery.html").read_text(encoding="utf-8")
+        setup_password_script = (root / "app/static/setup-onboarding.js").read_text(encoding="utf-8")
+        recovery_password_script = (root / "app/static/setup-password.js").read_text(encoding="utf-8")
         account = (root / "app/templates/account.html").read_text(encoding="utf-8")
         self.assertIn("require_operator_mutation(request, csrf_token)", main)
         self.assertIn('headers.set(\'X-CSRF-Token\', csrfToken)', operator)
@@ -214,12 +217,17 @@ class AuthenticationSecurityTests(unittest.TestCase):
         self.assertIn('caution-badge">Caution', setup)
         self.assertIn('id="easyOfflineInfoButton"', setup)
         self.assertIn('id="easyOfflineInfoDialog"', setup)
-        self.assertIn("Operator controls can be reached from other devices on the same LAN.", setup)
-        self.assertIn("Advantage", setup)
-        self.assertIn("Disadvantage", setup)
+        self.assertIn("Other computers or tablets on the same private network can reach operator sign-in.", setup)
+        self.assertIn("Convenient, but less isolated", setup)
+        self.assertIn('data-onboarding-step="5"', setup)
         self.assertIn("Use at least 8 characters for the operator password.", setup_password_script)
         self.assertIn("The passwords do not match.", setup_password_script)
         self.assertIn("easyOfflineInfoDialog.showModal()", setup_password_script)
+        self.assertIn('name="csrf_token"', recovery_setup)
+        self.assertIn("settings will stay unchanged", recovery_setup)
+        self.assertIn("Use at least 8 characters for the operator password.", recovery_password_script)
+        self.assertIn("password_recovery_requested()", main)
+        self.assertIn("clear_password_recovery_request()", main)
         self.assertIn('name="csrf_token"', account)
         self.assertIn("Captions and connected viewers are not affected.", main)
         self.assertIn('"desktop_password_reset": system in {"Darwin", "Windows"}', main)
@@ -328,6 +336,41 @@ class TranslationPackageSecurityTests(unittest.TestCase):
         self.assertIn("CT2_SMALL100_TOKENIZER_SHA256", source)
         self.assertIn("revision=CT2_SMALL100_MODEL_REVISION", source)
         self.assertIn("use_safetensors=True", source)
+
+    def test_transformers_loads_keep_the_pinned_commit_exception_conditions(self):
+        # PYSEC-2026-3929 and PYSEC-2026-4174 are excepted in CI only while every
+        # Hugging Face load uses an immutable commit pin or a local directory.
+        root = Path(__file__).resolve().parents[1]
+        sources = sorted(
+            [*(root / "app").rglob("*.py"), *(root / "scripts").glob("install-*.sh"), *(root / "scripts").glob("install-*.ps1")]
+        )
+        loads = 0
+        for path in sources:
+            source = path.read_text(encoding="utf-8")
+            self.assertFalse("trust_remote_code=True" in source, path.name)
+            self.assertFalse("custom_generate" in source, path.name)
+            for value in re.findall(r'(?:revision|_REVISION)\s*=\s*"([^"]*)"', source):
+                self.assertRegex(value, r"^[0-9a-f]{40}$", path.name)
+            for match in re.finditer(r"(?:\.from_pretrained|TransformersConverter|hf_hub_download|snapshot_download)\(", source):
+                depth, end = 1, match.end()
+                while depth:
+                    depth += {"(": 1, ")": -1}.get(source[end], 0)
+                    end += 1
+                call = source[match.start():end]
+                loads += 1
+                if "local_files_only=True" in call:
+                    continue
+                # The revision must be a commit literal, or a name assigned one in the same file.
+                pin = re.search(r'revision=("[0-9a-f]{40}"|[A-Za-z_]\w*)\s*[,)]', call)
+                self.assertIsNotNone(pin, f"{path.name}: {call}")
+                if not pin.group(1).startswith('"'):
+                    self.assertRegex(source, rf'(?m)^\s*{pin.group(1)}\s*=\s*"[0-9a-f]{{40}}"', f"{path.name}: {call}")
+        self.assertGreater(loads, 10)
+        workflow = (root / ".github/workflows/python-check.yml").read_text(encoding="utf-8")
+        audit = (root / "docs/project/V0.9.0_DEPENDENCY_AUDIT.md").read_text(encoding="utf-8")
+        for advisory in ("PYSEC-2026-3929", "PYSEC-2026-4174"):
+            self.assertIn(f"--ignore-vuln {advisory}", workflow)
+            self.assertIn(f"`{advisory}`", audit)
 
     def test_argos_uses_the_existing_bounded_cue_without_stanza(self):
         from app.i18n import _BoundedCueSentencizer, _use_bounded_argos_cue

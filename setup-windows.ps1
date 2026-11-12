@@ -166,34 +166,15 @@ if ($GpuStatus -and $GpuStatus.nvidia_smi_available -and -not $GpuStatus.cuda_av
     }
 }
 
-Step "6/6 Installing Base translation dependencies/models"
+Step "6/6 Preparing browser-guided language setup"
 if ($SkipTranslation) {
-    Write-Host "Skipping Argos Translate setup because -SkipTranslation was used."
+    Write-Host "Optional translation setup was explicitly skipped. English captions remain available."
 } else {
-    Write-Host "Base translation uses Argos Translate for local, offline text translation after language packs are downloaded."
-    Write-Host "Translation is experimental and may be inaccurate. Recommended package / CTranslate2 INT8 SMaLL-100 is the preferred broad translation path. Base package / Argos usually runs on CPU and remains available as fallback."
-    Write-Host "You can install all Base package / Argos packs, the Recommended package / CTranslate2 INT8, or the Compatibility package / PyTorch SMaLL-100 later from the operator Languages page."
-    Write-Host ""
-    Write-Host "Translation resource options:"
-    Write-Host "  1) Install common Base package / Argos packs"
-    Write-Host "  2) Install all available Base package / Argos packs"
-    Write-Host "  3) Install common Base package plus Recommended package / CTranslate2 INT8"
-    Write-Host "  4) Install common Base package plus Compatibility package / PyTorch SMaLL-100"
-    Write-Host "  5) Skip translation resources for now"
-    $translationAnswer = Read-Host "Choose translation setup [1]"
-    switch ($translationAnswer) {
-        "2" { & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1") -All }
-        "3" {
-            & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1")
-            & (Join-Path $AppDir "scripts\install-small100-ct2-int8.ps1")
-        }
-        "4" {
-            & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1")
-            & (Join-Path $AppDir "scripts\install-small100-core.ps1")
-        }
-        "5" { Write-Host "Skipping translation resources. You can install them later from the operator Languages page." }
-        default { & (Join-Path $AppDir "scripts\install-translation-models-argos.ps1") }
-    }
+    Write-Host "No optional translation model is downloaded by this PowerShell setup."
+    Write-Host "The first-run browser assistant offers friendly language packs,"
+    Write-Host "recommends a safe pack and simultaneous-language limit using local hardware checks,"
+    Write-Host "and can install the selected open-source local translation runtime."
+    Write-Host "Additional Base and compatibility controls remain available later from Operator > Languages."
 }
 
 Write-Host ""

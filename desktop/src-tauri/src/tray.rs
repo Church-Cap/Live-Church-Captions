@@ -237,10 +237,10 @@ fn sync_on_main_thread(app: &AppHandle, snapshot: &SupervisorSnapshot) {
     if let Err(error) = controls.stop_engine.set_text(state.stop_text) {
         eprintln!("Church Cap could not refresh its Start/Stop label: {error}");
     }
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        if let Err(error) = tray.set_tooltip(Some(state.tooltip)) {
-            eprintln!("Church Cap could not refresh its menu-bar tooltip: {error}");
-        }
+    if let Some(tray) = app.tray_by_id(TRAY_ID)
+        && let Err(error) = tray.set_tooltip(Some(state.tooltip))
+    {
+        eprintln!("Church Cap could not refresh its menu-bar tooltip: {error}");
     }
 }
 

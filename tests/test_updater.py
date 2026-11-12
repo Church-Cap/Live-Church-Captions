@@ -1,11 +1,13 @@
 import unittest
+import os
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 from app.settings import APP_VERSION, Settings
-from app.updater import launch_update_process, normalise_version, parse_version_from_settings, poll_update_process_state, update_script_for_system, version_label, version_tuple
+from app.updater import launch_update_process, run_update_check_script, normalise_version, parse_version_from_settings, poll_update_process_state, update_script_for_system, version_label, version_tuple
 
 
 class UpdaterVersionTests(unittest.TestCase):
@@ -76,6 +78,87 @@ class UpdaterVersionTests(unittest.TestCase):
         self.assertIn("/api/update/status?update=", operator_source)
         self.assertIn("showUpdateFailure(state.error)", operator_source)
         self.assertIn("downloadUpdateFailureDiagnostics()", operator_source)
+
+    def test_linux_check_runs_update_script_in_check_only_mode(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="Church Cap updater\nCurrent version: v0.9.0\nSelected GitHub release: v0.9.1\n  /app\n\nUpdate available: v0.9.1\n",
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "update-linux.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            with patch.dict(os.environ, {"CHURCH_CAP_UPDATE_TARGET_VERSION": "0.1.0"}), patch(
+                "app.updater.subprocess.run", return_value=completed
+            ) as run:
+                self.assertEqual(run_update_check_script(root), "0.9.1")
+        command = run.call_args.args[0]
+        self.assertEqual(command[-2:], [str(root / "update-linux.sh"), "--check"])
+        self.assertNotIn("--yes", command)
+        self.assertNotIn("CHURCH_CAP_UPDATE_TARGET_VERSION", run.call_args.kwargs["env"])
+        self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+
+    def test_linux_check_reports_script_failure_without_guessing_a_version(self):
+        failed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="Could not read the latest Church Cap release tag from GitHub.\n")
+        silent = subprocess.CompletedProcess(args=[], returncode=0, stdout="Church Cap updater\n", stderr="")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, "not available"):
+                run_update_check_script(root)
+            (root / "update-linux.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            with patch("app.updater.subprocess.run", return_value=failed):
+                with self.assertRaisesRegex(RuntimeError, r"exit code 1\)\. Could not read"):
+                    run_update_check_script(root)
+            with patch("app.updater.subprocess.run", return_value=silent):
+                with self.assertRaisesRegex(RuntimeError, "did not report"):
+                    run_update_check_script(root)
+
+    def test_packaged_desktop_check_hands_off_to_the_desktop_updater(self):
+        from app import main
+
+        with patch.dict(os.environ, {"CHURCH_CAP_SUPERVISOR_PID": "4321"}), patch(
+            "app.main.runtime_mode", return_value=type("Mode", (), {"value": "packaged"})()
+        ):
+            for system in ("Darwin", "Windows"):
+                self.assertTrue(main.desktop_shell_manages_updates(system))
+            self.assertFalse(main.desktop_shell_manages_updates("Linux"))
+        with patch.dict(os.environ, {"CHURCH_CAP_SUPERVISOR_PID": ""}), patch(
+            "app.main.runtime_mode", return_value=type("Mode", (), {"value": "packaged"})()
+        ):
+            self.assertFalse(main.desktop_shell_manages_updates("Windows"))
+        with patch.dict(os.environ, {"CHURCH_CAP_SUPERVISOR_PID": "4321"}), patch(
+            "app.main.runtime_mode", return_value=type("Mode", (), {"value": "source"})()
+        ):
+            self.assertFalse(main.desktop_shell_manages_updates("Darwin"))
+
+    def test_desktop_update_request_is_one_protocol_line_and_debounced(self):
+        from app import main
+        from engine.protocol import REQUEST_PREFIX, EngineRequest, EngineRequestName
+
+        with patch.object(main, "_desktop_update_request_at", 0.0), patch("builtins.print") as printed, patch(
+            "app.main.time.monotonic", side_effect=[100.0, 101.0, 104.0]
+        ):
+            self.assertTrue(main.request_desktop_update_check())
+            self.assertFalse(main.request_desktop_update_check())
+            self.assertTrue(main.request_desktop_update_check())
+        self.assertEqual(printed.call_count, 2)
+        line = printed.call_args.args[0]
+        self.assertTrue(line.startswith(REQUEST_PREFIX))
+        self.assertEqual(EngineRequest.parse(line).request, EngineRequestName.OPEN_UPDATES)
+        self.assertTrue(printed.call_args.kwargs["flush"])
+
+    def test_update_routes_keep_desktop_installs_in_the_signed_updater(self):
+        root = Path(__file__).resolve().parents[1]
+        main_source = (root / "app" / "main.py").read_text(encoding="utf-8")
+        check = main_source.split('async def check_for_update(', 1)[1].split("@app.get(", 1)[0]
+        start = main_source.split('async def start_update(', 1)[1].split("@app.", 1)[0]
+        self.assertLess(check.index("is_local_client(request)"), check.index("request_desktop_update_check()"))
+        self.assertIn("run_update_check_script, PROJECT_ROOT", check)
+        self.assertIn('capability["managed_by"] == "desktop"', start)
+        self.assertLess(start.index('capability["managed_by"] == "desktop"'), start.index("launch_update_process"))
+        operator_source = (root / "app" / "templates" / "operator.html").read_text(encoding="utf-8")
+        self.assertIn("data.status === 'desktop_requested'", operator_source)
 
     def test_update_capability_converts_child_failure_to_safe_state(self):
         class FailedProcess:

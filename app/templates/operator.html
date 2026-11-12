@@ -6,7 +6,7 @@
   <meta name="church-cap-csrf-token" content="{{ csrf_token }}">
   <title>Church Cap · Operator</title>
   <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
-  <link rel="stylesheet" href="/static/styles.css?v=0.8.0-ui-1">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.0-ui-6">
 </head>
 <body class="operator-page glass-page{% if deployment.capabilities.simple_operator %} appliance-simple-operator{% endif %}" data-deployment-profile="{{ deployment.capabilities.profile }}" data-appliance="{{ 'true' if deployment.capabilities.is_appliance else 'false' }}">
   <script>
@@ -14,10 +14,12 @@
       const stored = localStorage.getItem('operatorTheme');
       const manual = localStorage.getItem('operatorThemeManual') === '1';
       const explicit = stored === 'light' || stored === 'dark';
+      const setupTheme = {{ runtime.get('operator_theme', 'system')|tojson }};
+      const setupThemeIsExplicit = setupTheme === 'light' || setupTheme === 'dark';
       const isAppliance = document.body.dataset.appliance === 'true';
-      const saved = manual && explicit ? stored : (isAppliance ? (explicit ? stored : 'dark') : 'system');
+      const saved = manual && explicit ? stored : (setupThemeIsExplicit ? setupTheme : (isAppliance ? (explicit ? stored : 'dark') : 'system'));
       if (saved === 'system') localStorage.removeItem('operatorTheme');
-      if (isAppliance && saved !== 'system') {
+      if (saved !== 'system') {
         localStorage.setItem('operatorTheme', saved);
         localStorage.setItem('operatorThemeManual', '1');
       }
@@ -97,6 +99,7 @@
               <button type="button" class="nav-submenu-button" data-section="audience" data-subsection="room-access" data-description="Help congregation members join live captions by scanning a QR code or opening a local link.">Join Live Captions</button>
               <button type="button" class="nav-submenu-button" data-section="audience" data-subsection="room-display" data-description="Open large captions for a projector, confidence screen, or display capture.">Room Display</button>
               <button type="button" class="nav-submenu-button" data-section="audience" data-subsection="obs-live-stream" data-description="Add transparent lower-third captions to OBS, vMix, or another livestream tool.">OBS Live Stream</button>
+              <button type="button" class="nav-submenu-button" data-section="audience" data-subsection="propresenter" data-label="ProPresenter" data-description="Show Church Cap captions over a ProPresenter audience output using a local Web object.">ProPresenter</button>
             </div>
           </div>
         </div>
@@ -157,14 +160,13 @@
         </div>
       </header>
 
-      {% if operator_password_is_default or session_secret_is_default %}
-      <section class="warning-panel glass-card">
-        <strong>Security setup needed:</strong>
-        create a strong operator password before using this at church. Use the first-run setup page or the account page.
-      </section>
-      {% endif %}
-
       <section class="operator-section active" id="operator-section-dashboard" data-title="Dashboard" data-description="Start captions, choose audio input, monitor the microphone, and manage sensitive moments.">
+        {% if operator_password_is_default or session_secret_is_default %}
+        <section class="warning-panel glass-card operator-security-warning">
+          <strong>Security setup needed:</strong>
+          create a strong operator password before using this at church. Use the first-run setup page or the account page.
+        </section>
+        {% endif %}
         <div class="dashboard-grid">
           <article class="operator-panel glass-card dashboard-hero-card operator-subpage-item subpage-visible" data-subpage="live-service">
             <div class="panel-heading-row">
@@ -789,7 +791,7 @@
             <p class="muted">The hostname QR is available for future use but will not resolve until local DNS or mDNS is configured. For now, use the direct-IP QR. If that does not open, allow the viewer port through the Linux firewall and check that the router does not isolate Wi-Fi clients.</p>
             {% endif %}
           </article>
-          <article class="operator-panel glass-card output-links-panel operator-subpage-item" data-subpages="room-display obs-live-stream">
+          <article class="operator-panel glass-card output-links-panel operator-subpage-item" data-subpages="room-display obs-live-stream propresenter">
             <div class="operator-subpage-item subpage-visible" data-subpage="room-display">
             <div class="panel-heading-row">
               <div>
@@ -808,35 +810,179 @@
               </div>
               <p class="muted">Add transparent lower-third captions to OBS, vMix, or similar livestream software.</p>
             </div>
-            <p class="muted">System IP address: <code>{{ system_ip }}</code></p>
+            <div class="operator-subpage-item" data-subpage="propresenter">
+              <div class="panel-heading-row">
+                <div>
+                  <p class="eyebrow">ProPresenter</p>
+                  <h2>Place live captions over an audience screen</h2>
+                </div>
+              </div>
+              <p class="muted">Use Church Cap's existing transparent overlay as a Web object inside a ProPresenter Prop. Everything stays on the local network; no ProPresenter plugin or cloud connection is required.</p>
+            </div>
+            <p class="muted output-system-address">System IP address: <code>{{ system_ip }}</code></p>
             {% if deployment.capabilities.is_appliance %}
             <div class="warning-panel slim-warning output-safeguard-note">
-              <strong>Appliance safeguard:</strong> display and OBS outputs are clean full-screen pages with no operator controls. Opening one on the appliance kiosk may leave the operator page until the shell is reopened or the browser is reset.
+              <strong>Appliance safeguard:</strong> presentation outputs are clean full-screen pages with no operator controls. Opening one on the appliance kiosk may leave the operator page until the shell is reopened or the browser is reset.
             </div>
             {% endif %}
             <div class="output-option-grid">
-              <div class="output-option-card operator-subpage-item subpage-visible" data-subpage="room-display">
-                <p class="tiny-label">Room display</p>
-                <h3>Projector or confidence screen</h3>
-                <p class="muted">Shows a large caption view for in-room screens. Use the direct IP address when the display computer cannot resolve the local hostname.</p>
-                <dl class="output-link-list">
-                  <div><dt>Hostname</dt><dd><a href="{{ display_url }}" onclick="return handleApplianceOutputLink(event, 'display')">{{ display_url }}</a></dd></div>
-                  <div><dt>Direct IP</dt><dd><a href="{{ display_ip_url }}" onclick="return handleApplianceOutputLink(event, 'display-ip')">{{ display_ip_url }}</a></dd></div>
-                </dl>
-                <a class="button-link secondary" href="{{ display_url }}" onclick="return handleApplianceOutputLink(event, 'display')">Open display</a>
-              </div>
-              <div class="output-option-card operator-subpage-item" data-subpage="obs-live-stream">
-                <p class="tiny-label">OBS overlay</p>
-                <h3>Livestream browser source</h3>
-                <p class="muted">Transparent lower-third captions for OBS, vMix, or similar software. Add the URL as a browser source on the streaming computer.</p>
-                <dl class="output-link-list">
-                  <div><dt>Hostname</dt><dd><a href="{{ obs_url }}" onclick="return handleApplianceOutputLink(event, 'obs')">{{ obs_url }}</a></dd></div>
-                  <div><dt>Direct IP</dt><dd><a href="{{ obs_ip_url }}" onclick="return handleApplianceOutputLink(event, 'obs-ip')">{{ obs_ip_url }}</a></dd></div>
-                </dl>
-                <div class="button-row output-button-row">
-                  <a class="button-link" href="/obs/help">OBS setup guide</a>
-                  <a class="button-link secondary" href="/obs?return=operator" onclick="return handleApplianceOutputLink(event, 'obs-preview')">Preview overlay</a>
+              <div class="output-option-card presentation-output-card operator-subpage-item subpage-visible" data-subpage="room-display">
+                <div class="propresenter-card-heading">
+                  <div>
+                    <p class="tiny-label">Room display</p>
+                    <h3>Projector or confidence screen</h3>
+                  </div>
+                  <span id="roomDisplayConnectionStatus" class="status-pill">Not connected</span>
                 </div>
+                <p class="muted">Shows large, clean captions on an in-room projector or confidence screen. Choose the language this display should show.</p>
+                <div class="presentation-language-control" role="group" aria-labelledby="roomDisplayLanguageHeading">
+                  <div class="presentation-language-heading">
+                    <strong id="roomDisplayLanguageHeading">Output language</strong>
+                    <small>Choose one installed language for this room display.</small>
+                  </div>
+                  <div class="presentation-language-fields">
+                    <label class="sr-only" for="roomDisplayLanguageSearch">Search installed room display languages</label>
+                    <input class="language-search presentation-language-search" id="roomDisplayLanguageSearch" type="search" placeholder="Search installed languages" autocomplete="off" role="searchbox" aria-autocomplete="list" aria-controls="roomDisplayLanguageResults" oninput="filterPresentationLanguages('display', this.value)">
+                    <label class="sr-only" for="roomDisplayLanguage">Choose room display output language</label>
+                    <select id="roomDisplayLanguage" onchange="handlePresentationLanguageChange('display')">
+                    {% for language in languages %}
+                    {% if language.code in translation_state.available_languages %}
+                    <option value="{{ language.code }}">{{ language.name }}{% if language.native != language.name %} · {{ language.native }}{% endif %}</option>
+                    {% endif %}
+                    {% endfor %}
+                    </select>
+                  </div>
+                  <div id="roomDisplayLanguageResults" class="presentation-language-search-results" role="listbox" aria-label="Matching room display languages" hidden></div>
+                  <p id="roomDisplayLanguageEmpty" class="language-empty presentation-language-empty" hidden>No installed languages match that search.</p>
+                </div>
+                <dl class="output-link-list">
+                  <div><dt>Hostname</dt><dd><a id="roomDisplayHostnameUrl" data-base-url="{{ display_url }}" href="{{ display_url }}?integration=room-display&amp;lang=en" onclick="return handleApplianceOutputLink(event, 'display')">{{ display_url }}?integration=room-display&amp;lang=en</a></dd></div>
+                  <div><dt>Direct IP</dt><dd><a id="roomDisplayIpUrl" data-base-url="{{ display_ip_url }}" href="{{ display_ip_url }}?integration=room-display&amp;lang=en" onclick="return handleApplianceOutputLink(event, 'display-ip')">{{ display_ip_url }}?integration=room-display&amp;lang=en</a></dd></div>
+                </dl>
+                <p id="roomDisplayLanguageStatus" class="muted small-result presentation-language-feedback" role="status" aria-live="polite">English captions selected for this display.</p>
+                <p id="roomDisplayConnectionDetail" class="muted small-result">No active room display has connected yet.</p>
+                <div class="button-row output-button-row">
+                  <button type="button" class="primary-button" onclick="copyPresentationOutputUrl('display')">Copy URL</button>
+                  <a id="roomDisplayPreviewLink" class="button-link secondary" href="/display?integration=room-display&amp;lang=en&amp;return=operator" onclick="return handleApplianceOutputLink(event, 'display')">Open display</a>
+                </div>
+              </div>
+              <div class="output-option-card presentation-output-card operator-subpage-item" data-subpage="obs-live-stream">
+                <div class="propresenter-card-heading">
+                  <div>
+                    <p class="tiny-label">OBS overlay</p>
+                    <h3>Livestream browser source</h3>
+                  </div>
+                  <span id="obsConnectionStatus" class="status-pill">Not connected</span>
+                </div>
+                <p class="muted">Transparent lower-third captions for OBS, vMix, or similar software. Add the URL as a browser source on the streaming computer.</p>
+                <div class="presentation-language-control" role="group" aria-labelledby="obsOutputLanguageHeading">
+                  <div class="presentation-language-heading">
+                    <strong id="obsOutputLanguageHeading">Output language</strong>
+                    <small>Choose one installed language for this OBS browser source.</small>
+                  </div>
+                  <div class="presentation-language-fields">
+                    <label class="sr-only" for="obsOutputLanguageSearch">Search installed OBS languages</label>
+                    <input class="language-search presentation-language-search" id="obsOutputLanguageSearch" type="search" placeholder="Search installed languages" autocomplete="off" role="searchbox" aria-autocomplete="list" aria-controls="obsOutputLanguageResults" oninput="filterPresentationLanguages('obs', this.value)">
+                    <label class="sr-only" for="obsOutputLanguage">Choose OBS output language</label>
+                    <select id="obsOutputLanguage" onchange="handlePresentationLanguageChange('obs')">
+                    {% for language in languages %}
+                    {% if language.code in translation_state.available_languages %}
+                    <option value="{{ language.code }}">{{ language.name }}{% if language.native != language.name %} · {{ language.native }}{% endif %}</option>
+                    {% endif %}
+                    {% endfor %}
+                    </select>
+                  </div>
+                  <div id="obsOutputLanguageResults" class="presentation-language-search-results" role="listbox" aria-label="Matching OBS output languages" hidden></div>
+                  <p id="obsOutputLanguageEmpty" class="language-empty presentation-language-empty" hidden>No installed languages match that search.</p>
+                </div>
+                <div class="presentation-url-box">
+                  <span class="tiny-label">Paste this URL into OBS</span>
+                  <code id="obsOutputUrl" data-base-url="{{ obs_ip_url }}">{{ obs_ip_url }}?integration=obs&amp;lang=en</code>
+                </div>
+                <p id="obsLanguageStatus" class="muted small-result presentation-language-feedback" role="status" aria-live="polite">English captions selected for this output.</p>
+                <p id="obsConnectionDetail" class="muted small-result">No active OBS browser source has connected yet.</p>
+                <details class="presentation-instructions">
+                  <summary>
+                    <span><span class="tiny-label">Setup instructions</span><strong>How to add captions to OBS</strong><small>Five short steps and the detailed guide</small></span>
+                    <span class="presentation-instructions-chevron" aria-hidden="true">⌄</span>
+                  </summary>
+                  <div class="presentation-instructions-body">
+                    <div class="presentation-guide-action"><a class="button-link primary-button" href="/obs/help">Open full OBS guide</a></div>
+                    <ol class="propresenter-quick-steps" aria-label="OBS caption setup steps">
+                      <li><span>1</span><p>In OBS, select <strong>Sources → + → Browser</strong> and name the source <strong>Church Cap captions</strong>.</p></li>
+                      <li><span>2</span><p>Copy the URL above and paste it into the browser source URL field.</p></li>
+                      <li><span>3</span><p>Use <strong>1920 × 300</strong> for a lower-third source, then position it near the bottom of the canvas.</p></li>
+                      <li><span>4</span><p>Enable <strong>Refresh browser when scene becomes active</strong> if OBS should reconnect after scene changes.</p></li>
+                      <li><span>5</span><p>Start Church Cap captions and use <strong>Preview overlay</strong> below to check the selected language.</p></li>
+                    </ol>
+                  </div>
+                </details>
+                <div class="button-row output-button-row">
+                  <button type="button" class="primary-button" onclick="copyPresentationOutputUrl('obs')">Copy URL</button>
+                  <a id="obsPreviewLink" class="button-link secondary" href="/obs?integration=obs&amp;lang=en&amp;return=operator" onclick="return handleApplianceOutputLink(event, 'obs-preview')">Preview overlay</a>
+                </div>
+              </div>
+              <div class="output-option-card presentation-output-card propresenter-output-card operator-subpage-item" data-subpage="propresenter">
+                <div class="propresenter-card-heading">
+                  <div>
+                    <p class="tiny-label">Local caption overlay</p>
+                    <h3>ProPresenter Web object</h3>
+                  </div>
+                  <span id="proPresenterConnectionStatus" class="status-pill">Not connected</span>
+                </div>
+                <p class="muted">Use the URL below on the ProPresenter computer. A “Waiting for captions” preview means the Web object is connected and ready.</p>
+                <div class="presentation-language-control" role="group" aria-labelledby="proPresenterLanguageHeading">
+                  <div class="presentation-language-heading">
+                    <strong id="proPresenterLanguageHeading">Output language</strong>
+                    <small>Choose one installed language for this ProPresenter Prop.</small>
+                  </div>
+                  <div class="presentation-language-fields">
+                    <label class="sr-only" for="proPresenterLanguageSearch">Search installed ProPresenter languages</label>
+                    <input class="language-search presentation-language-search" id="proPresenterLanguageSearch" type="search" placeholder="Search installed languages" autocomplete="off" role="searchbox" aria-autocomplete="list" aria-controls="proPresenterLanguageResults" oninput="filterPresentationLanguages('propresenter', this.value)">
+                    <label class="sr-only" for="proPresenterLanguage">Choose ProPresenter output language</label>
+                    <select id="proPresenterLanguage" onchange="handlePresentationLanguageChange('propresenter')">
+                    {% for language in languages %}
+                    {% if language.code in translation_state.available_languages %}
+                    <option value="{{ language.code }}">{{ language.name }}{% if language.native != language.name %} · {{ language.native }}{% endif %}</option>
+                    {% endif %}
+                    {% endfor %}
+                    </select>
+                  </div>
+                  <div id="proPresenterLanguageResults" class="presentation-language-search-results" role="listbox" aria-label="Matching ProPresenter output languages" hidden></div>
+                  <p id="proPresenterLanguageEmpty" class="language-empty presentation-language-empty" hidden>No installed languages match that search.</p>
+                </div>
+                <div class="presentation-url-box propresenter-url-box">
+                  <span class="tiny-label">Paste this address</span>
+                  <code id="proPresenterOverlayUrl" data-base-url="{{ propresenter_ip_url }}">{{ propresenter_ip_url }}?lang=en</code>
+                </div>
+                <p id="proPresenterLanguageStatus" class="muted small-result presentation-language-feedback" role="status" aria-live="polite">English captions selected for this output.</p>
+                <p id="proPresenterConnectionDetail" class="muted small-result">No active ProPresenter Web object has connected yet.</p>
+                <details class="presentation-instructions">
+                  <summary>
+                    <span><span class="tiny-label">Setup instructions</span><strong>How to add captions to ProPresenter</strong><small>Five short steps and the detailed guide</small></span>
+                    <span class="presentation-instructions-chevron" aria-hidden="true">⌄</span>
+                  </summary>
+                  <div class="presentation-instructions-body">
+                    <div class="presentation-guide-action"><a class="button-link primary-button" href="/propresenter/help">Open full ProPresenter guide</a></div>
+                    <ol class="propresenter-quick-steps" aria-label="ProPresenter caption setup steps">
+                      <li><span>1</span><p>Open <strong>Show Controls → Props</strong>, create a new Prop, then right-click it and choose <strong>Edit</strong>.</p></li>
+                      <li><span>2</span><p>In the Prop editor, select the <strong>globe icon</strong>. Click and drag near the bottom to create a wide Web object.</p></li>
+                      <li><span>3</span><p>Paste the address above into the URL field on the right and press <strong>Enter</strong>.</p></li>
+                      <li><span>4</span><p>Open <strong>Screens → Edit Looks</strong>, enable <strong>Props</strong> for the required Audience screen, then make that Look live.</p></li>
+                      <li><span>5</span><p>Click <strong>Show</strong> in the bottom-right of the editor, or trigger the Prop thumbnail. Start captions in Church Cap and speak; clear the Prop when captions should be hidden.</p></li>
+                    </ol>
+                    <div class="propresenter-important-note">
+                      <strong>Two separate actions are required.</strong>
+                      <span>Enabling the Props layer permits the Prop to appear; clicking <strong>Show</strong> or triggering its thumbnail actually displays it. The transparent overlay may look empty while no caption is being spoken.</span>
+                    </div>
+                  </div>
+                </details>
+                <div class="button-row output-button-row">
+                  <button type="button" class="primary-button" onclick="copyProPresenterUrl()">Copy URL</button>
+                  <a id="proPresenterPreviewLink" class="button-link secondary" href="/propresenter?lang=en&amp;return=operator" onclick="return handleApplianceOutputLink(event, 'obs-preview')">Preview overlay</a>
+                </div>
+                <p id="proPresenterCopyStatus" class="muted small-result" role="status" aria-live="polite"></p>
+                <p class="muted propresenter-disclaimer">Test the Prop and its Look before a service, especially when only one audience screen should receive captions. ProPresenter is a product of Renewed Vision; Church Cap is not affiliated with or endorsed by Renewed Vision.</p>
               </div>
             </div>
           </article>
@@ -1075,8 +1221,8 @@
             <dl class="update-status-grid">
               <div><dt>Installed</dt><dd id="installedVersion">{{ app_version_label }}</dd></div>
               <div><dt>Computer</dt><dd id="updateOs">Detecting…</dd></div>
-              <div><dt>Update script</dt><dd id="updateScript">Detecting…</dd></div>
-              <div class="update-integrity-row">
+              <div><dt id="updateScriptLabel">Update script</dt><dd id="updateScript">Detecting…</dd></div>
+              <div class="update-integrity-row" id="updateIntegrityRow">
                 <dt>Integrity checks</dt>
                 <dd>
                   <span>ZIP test</span>
@@ -1297,6 +1443,7 @@
       'room-access': ['audience', 'room-access'],
       'room-display': ['audience', 'room-display'],
       'obs-live-stream': ['audience', 'obs-live-stream'],
+      propresenter: ['audience', 'propresenter'],
       security: ['privacy', 'security'],
       'transcript-controls': ['privacy', 'transcript-controls'],
       guidance: ['privacy', 'guidance'],
@@ -1403,6 +1550,281 @@
     function showServiceContextInformation() {
       const dialog = document.getElementById('serviceContextInformationDialog');
       if (dialog?.showModal) dialog.showModal();
+    }
+
+    function presentationOutputConfig(kind) {
+      const configs = {
+        display: {
+            kind: 'display',
+            integration: 'room-display',
+            connectionKind: 'room-display',
+            name: 'Room Display',
+            outputSubject: 'display',
+            copyTarget: 'room display browser',
+            selectionInstruction: 'Open or refresh the room display to use this language.',
+            selectId: 'roomDisplayLanguage',
+            searchId: 'roomDisplayLanguageSearch',
+            resultsId: 'roomDisplayLanguageResults',
+            emptyId: 'roomDisplayLanguageEmpty',
+            urlIds: ['roomDisplayIpUrl', 'roomDisplayHostnameUrl'],
+            previewId: 'roomDisplayPreviewLink',
+            previewPath: '/display',
+            languageStatusId: 'roomDisplayLanguageStatus',
+            connectionStatusId: 'roomDisplayConnectionStatus',
+            connectionDetailId: 'roomDisplayConnectionDetail',
+            disconnectedText: 'No active room display has connected yet. Open the display link to connect it.',
+          },
+        obs: {
+            kind: 'obs',
+            integration: 'obs',
+            connectionKind: 'obs',
+            name: 'OBS',
+            outputSubject: 'output',
+            copyTarget: 'OBS browser source',
+            selectionInstruction: 'Copy the updated address into OBS, then refresh the browser source.',
+            selectId: 'obsOutputLanguage',
+            searchId: 'obsOutputLanguageSearch',
+            resultsId: 'obsOutputLanguageResults',
+            emptyId: 'obsOutputLanguageEmpty',
+            urlIds: ['obsOutputUrl'],
+            previewId: 'obsPreviewLink',
+            previewPath: '/obs',
+            languageStatusId: 'obsLanguageStatus',
+            connectionStatusId: 'obsConnectionStatus',
+            connectionDetailId: 'obsConnectionDetail',
+            disconnectedText: 'No active OBS browser source has connected yet.',
+          },
+        propresenter: {
+            kind: 'propresenter',
+            integration: 'propresenter',
+            connectionKind: 'propresenter',
+            name: 'ProPresenter',
+            outputSubject: 'output',
+            copyTarget: 'ProPresenter Web object URL field',
+            selectionInstruction: 'Copy the updated address into ProPresenter, then refresh the Web object.',
+            selectId: 'proPresenterLanguage',
+            searchId: 'proPresenterLanguageSearch',
+            resultsId: 'proPresenterLanguageResults',
+            emptyId: 'proPresenterLanguageEmpty',
+            urlIds: ['proPresenterOverlayUrl'],
+            previewId: 'proPresenterPreviewLink',
+            previewPath: '/propresenter',
+            // The /propresenter path identifies the output, so no integration parameter.
+            integrationInPath: true,
+            languageStatusId: 'proPresenterLanguageStatus',
+            connectionStatusId: 'proPresenterConnectionStatus',
+            connectionDetailId: 'proPresenterConnectionDetail',
+            disconnectedText: 'No active ProPresenter Web object has connected yet. Show the Prop to connect it.',
+          },
+      };
+      return configs[kind] || configs.obs;
+    }
+
+    const presentationLanguageCatalogs = {display: [], obs: [], propresenter: []};
+
+    function presentationOutputLanguageName(code) {
+      const language = operatorLanguages.find((item) => item.code === code);
+      if (!language) return String(code || 'en').toUpperCase();
+      const name = language.name || language.native || language.code.toUpperCase();
+      return language.native && language.native !== name ? `${name} · ${language.native}` : name;
+    }
+
+    function updatePresentationOutputUrl(kind, {announce = false} = {}) {
+      const config = presentationOutputConfig(kind);
+      const select = document.getElementById(config.selectId);
+      const language = String(select?.value || 'en').toLowerCase();
+      let directUrl = '';
+      for (const [index, urlId] of config.urlIds.entries()) {
+        const source = document.getElementById(urlId);
+        if (!source) continue;
+        const url = new URL(source.dataset.baseUrl || source.textContent?.trim() || '/obs', location.href);
+        if (config.integrationInPath) url.searchParams.delete('integration');
+        else url.searchParams.set('integration', config.integration);
+        url.searchParams.set('lang', language);
+        source.textContent = url.toString();
+        if (source instanceof HTMLAnchorElement) source.href = url.toString();
+        if (index === 0) directUrl = url.toString();
+      }
+      const preview = document.getElementById(config.previewId);
+      const previewIntegration = config.integrationInPath ? '' : `integration=${config.integration}&`;
+      if (preview) preview.href = `${config.previewPath}?${previewIntegration}lang=${encodeURIComponent(language)}&return=operator`;
+      const feedback = document.getElementById(config.languageStatusId);
+      if (feedback) {
+        feedback.textContent = announce
+          ? `${presentationOutputLanguageName(language)} selected. ${config.selectionInstruction}`
+          : `${presentationOutputLanguageName(language)} captions selected for this ${config.outputSubject}.`;
+      }
+      return directUrl;
+    }
+
+    function choosePresentationLanguage(kind, languageCode) {
+      const config = presentationOutputConfig(kind);
+      const select = document.getElementById(config.selectId);
+      if (!select) return;
+      const availableCodes = (presentationLanguageCatalogs[config.kind] || []).map((language) => language.code);
+      const selectedCode = availableCodes.includes(languageCode) ? languageCode : (availableCodes.includes('en') ? 'en' : availableCodes[0]);
+      if (!selectedCode) return;
+      select.value = selectedCode;
+      localStorage.setItem(`presentationOutputLanguage:${config.kind}`, selectedCode);
+      const search = document.getElementById(config.searchId);
+      if (search) search.value = '';
+      renderPresentationLanguageOptions(config.kind, selectedCode);
+      updatePresentationOutputUrl(config.kind, {announce: true});
+    }
+
+    function handlePresentationLanguageChange(kind) {
+      const config = presentationOutputConfig(kind);
+      const select = document.getElementById(config.selectId);
+      if (select) choosePresentationLanguage(config.kind, select.value || 'en');
+    }
+
+    function renderPresentationLanguageOptions(kind, preferredCode = '') {
+      const config = presentationOutputConfig(kind);
+      const select = document.getElementById(config.selectId);
+      if (!select) return;
+      const catalog = presentationLanguageCatalogs[config.kind] || [];
+      const selectedCode = String(
+        preferredCode || select.value || localStorage.getItem(`presentationOutputLanguage:${config.kind}`) || 'en'
+      ).toLowerCase();
+      const query = normaliseLanguageSearch(document.getElementById(config.searchId)?.value || '');
+      const matches = query
+        ? catalog.filter((language) => operatorLanguageSearchText(language).includes(query))
+        : [];
+      const desiredCodes = catalog.map((language) => language.code);
+      const existingCodes = Array.from(select.options).map((option) => option.value);
+      const optionsChanged = existingCodes.length !== desiredCodes.length ||
+        existingCodes.some((code, index) => code !== desiredCodes[index]);
+      if (optionsChanged) {
+        const options = catalog.map((language) => {
+          const option = document.createElement('option');
+          option.value = language.code;
+          option.textContent = presentationOutputLanguageName(language.code);
+          return option;
+        });
+        select.replaceChildren(...options);
+      }
+      select.value = desiredCodes.includes(selectedCode) ? selectedCode : (desiredCodes.includes('en') ? 'en' : (desiredCodes[0] || ''));
+      select.disabled = catalog.length === 0;
+      const results = document.getElementById(config.resultsId);
+      if (results) {
+        const resultButtons = matches.map((language) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'presentation-language-result secondary-button';
+          button.setAttribute('role', 'option');
+          button.setAttribute('aria-selected', String(language.code === select.value));
+          button.classList.toggle('selected', language.code === select.value);
+          const title = document.createElement('strong');
+          title.textContent = language.name || language.native || language.code.toUpperCase();
+          const detail = document.createElement('small');
+          const nativeName = language.native && language.native !== language.name ? `${language.native} · ` : '';
+          detail.textContent = `${nativeName}${language.code.toUpperCase()}`;
+          button.append(title, detail);
+          button.addEventListener('click', () => choosePresentationLanguage(config.kind, language.code));
+          return button;
+        });
+        results.replaceChildren(...resultButtons);
+        results.hidden = !query || matches.length === 0;
+      }
+      const empty = document.getElementById(config.emptyId);
+      if (empty) empty.hidden = !query || matches.length > 0;
+    }
+
+    function filterPresentationLanguages(kind) {
+      renderPresentationLanguageOptions(kind);
+    }
+
+    function syncPresentationLanguageOptions(kind, translation = {}) {
+      const config = presentationOutputConfig(kind);
+      const select = document.getElementById(config.selectId);
+      if (!select) return;
+      const available = new Set(translation.available_languages || ['en']);
+      available.add('en');
+      const desiredLanguages = operatorLanguages.filter((item) => available.has(item.code));
+      presentationLanguageCatalogs[config.kind] = desiredLanguages;
+      const stored = localStorage.getItem(`presentationOutputLanguage:${config.kind}`) || '';
+      const preferred = available.has(stored)
+        ? stored
+        : (available.has(select.value) ? select.value : 'en');
+      renderPresentationLanguageOptions(config.kind, preferred);
+      updatePresentationOutputUrl(config.kind);
+    }
+
+    function syncPresentationOutputLanguageOptions(translation = {}) {
+      syncPresentationLanguageOptions('display', translation);
+      syncPresentationLanguageOptions('obs', translation);
+      syncPresentationLanguageOptions('propresenter', translation);
+    }
+
+    function updateProPresenterOverlayUrl() {
+      return updatePresentationOutputUrl('propresenter');
+    }
+
+    function syncProPresenterLanguageOptions(translation = {}) {
+      syncPresentationLanguageOptions('propresenter', translation);
+    }
+
+    function renderPresentationConnectionStatus(kind, translation = {}) {
+      const config = presentationOutputConfig(kind);
+      const state = translation.presentation_connections || {};
+      const connected = Number(state.by_kind?.[config.connectionKind] || 0);
+      const badge = document.getElementById(config.connectionStatusId);
+      const detail = document.getElementById(config.connectionDetailId);
+      if (badge) {
+        badge.textContent = connected > 0 ? 'Connected' : 'Not connected';
+        badge.classList.toggle('ok', connected > 0);
+      }
+      if (detail) {
+        const languages = Object.entries(state.languages_by_kind?.[config.connectionKind] || {})
+          .filter(([, count]) => Number(count) > 0)
+          .map(([code, count]) => `${languageName(code)}${Number(count) > 1 ? ` × ${count}` : ''}`);
+        detail.textContent = connected > 0
+          ? `${connected} ${config.name} output${connected === 1 ? '' : 's'} connected${languages.length ? ` · ${languages.join(', ')}` : ''}.`
+          : config.disconnectedText;
+      }
+    }
+
+    function renderRoomDisplayConnectionStatus(translation = {}) {
+      renderPresentationConnectionStatus('display', translation);
+    }
+
+    function renderProPresenterConnectionStatus(translation = {}) {
+      renderPresentationConnectionStatus('propresenter', translation);
+    }
+
+    function renderObsConnectionStatus(translation = {}) {
+      renderPresentationConnectionStatus('obs', translation);
+    }
+
+    async function copyPresentationOutputUrl(kind) {
+      const config = presentationOutputConfig(kind);
+      const status = document.getElementById(
+        config.kind === 'propresenter' ? 'proPresenterCopyStatus' : config.languageStatusId
+      );
+      const url = updatePresentationOutputUrl(config.kind);
+      if (!url) return;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          const field = document.createElement('textarea');
+          field.value = url;
+          field.setAttribute('readonly', '');
+          field.style.position = 'fixed';
+          field.style.opacity = '0';
+          document.body.appendChild(field);
+          field.select();
+          if (!document.execCommand('copy')) throw new Error('Copy was unavailable.');
+          field.remove();
+        }
+        if (status) status.textContent = `URL copied. Paste it into the ${config.copyTarget}.`;
+      } catch (_error) {
+        if (status) status.textContent = 'Could not copy automatically. Select and copy the address above.';
+      }
+    }
+
+    async function copyProPresenterUrl() {
+      return copyPresentationOutputUrl('propresenter');
     }
 
     function setServiceContextMessage(message = '', tone = '') {
@@ -1747,6 +2169,12 @@
       const manual = localStorage.getItem('operatorThemeManual') === '1';
       const explicit = stored === 'light' || stored === 'dark';
       if (manual && explicit) return stored;
+      const setupTheme = {{ runtime.get('operator_theme', 'system')|tojson }};
+      if (setupTheme === 'light' || setupTheme === 'dark') {
+        localStorage.setItem('operatorTheme', setupTheme);
+        localStorage.setItem('operatorThemeManual', '1');
+        return setupTheme;
+      }
       if (isApplianceOperator()) {
         const applianceTheme = explicit ? stored : 'dark';
         localStorage.setItem('operatorTheme', applianceTheme);
@@ -3483,12 +3911,12 @@
       const tigrinyaReady = window.CC_LAST_TRANSLATION?.resources?.opus_tigrinya?.status?.ready === true;
       const selected = Array.from(operatorSelectedLanguages).filter((code) => code !== 'ti' || tigrinyaReady);
       if (!tigrinyaReady) operatorSelectedLanguages.delete('ti');
+      // Off must always save as "translation disabled". The selected list is
+      // kept so turning translation back on restores the same languages; it
+      // is never a reason to refuse the save, because a refused save leaves
+      // the page showing Off while every audience device still sees the old
+      // languages.
       const selectedTranslated = selected.filter((code) => code !== 'en');
-      if (provider === 'disabled' && selectedTranslated.length) {
-        setTranslationSaveResult('Translation mode is Off. Choose Recommended, Base, Compatibility, or Auto before saving selected translated languages, or clear the translated-language list to leave captions in English only.');
-        providerSelect?.focus();
-        return;
-      }
       setTranslationSaveButtonsBusy(true);
       setTranslationSaveResult('Saving language settings…');
       try {
@@ -3515,7 +3943,11 @@
           setTranslationSaveResult(data.error || 'Unable to save language settings.');
           return;
         }
-        setTranslationSaveResult(`Saved. Translation: ${data.enabled ? 'on' : 'off'}. Mode: ${data.provider}. Maximum active languages: ${data.max_active_languages}.`);
+        if (!data.enabled && selectedTranslated.length) {
+          setTranslationSaveResult(`Saved. Translation is off, so audience devices receive English only. Your ${selectedTranslated.length} selected translated language${selectedTranslated.length === 1 ? ' is' : 's are'} kept for when you turn translation back on.`);
+        } else {
+          setTranslationSaveResult(`Saved. Translation: ${data.enabled ? 'on' : 'off'}. Mode: ${data.provider}. Maximum active languages: ${data.max_active_languages}.`);
+        }
         operatorTranslationEditing = false;
         operatorTranslationSignature = '';
         syncTranslationModeCopy();
@@ -4022,6 +4454,10 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
           return;
         }
         renderUpdateCapability(data);
+        if (data.status === 'desktop_requested' || data.status === 'desktop_already_requested') {
+          updateResult('The Church Cap app is checking for updates. Switch to its Settings tab to review and install them.');
+          return;
+        }
         if (!data.update_available) {
           updateResult(`Church Cap is up to date. Installed: ${data.current_version_label || data.current_version}.`);
           return;
@@ -4341,6 +4777,10 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
         const activeTranslationLanguages = document.getElementById('activeTranslationLanguages');
         if (activeTranslationLanguages) activeTranslationLanguages.textContent = activeText;
         runStatusPanel('viewer languages', () => renderViewerLanguageTable(data.translation));
+        runStatusPanel('presentation output languages', () => syncPresentationOutputLanguageOptions(data.translation));
+        runStatusPanel('Room Display connection', () => renderRoomDisplayConnectionStatus(data.translation));
+        runStatusPanel('OBS connection', () => renderObsConnectionStatus(data.translation));
+        runStatusPanel('ProPresenter connection', () => renderProPresenterConnectionStatus(data.translation));
         window.CC_LAST_TRANSLATION = data.translation || null;
         runStatusPanel('translation resources', () => renderTranslationResources({...data.translation, install: data.translation_install}));
         runStatusPanel('translated audio', () => renderTranslatedAudio(
@@ -4693,8 +5133,13 @@ ${copy.message}`)) window.location.href = applianceTargetUrl;
       if (!update) return;
       const os = document.getElementById('updateOs');
       if (os) os.textContent = update.system || 'Unknown';
+      const desktopManaged = update.managed_by === 'desktop';
       const script = document.getElementById('updateScript');
-      if (script) script.textContent = update.supported ? (update.script || 'Available') : 'Not available';
+      if (script) script.textContent = desktopManaged ? 'Church Cap app (signed updater)' : (update.supported ? (update.script || 'Available') : 'Not available');
+      const scriptLabel = document.getElementById('updateScriptLabel');
+      if (scriptLabel) scriptLabel.textContent = desktopManaged ? 'Updated by' : 'Update script';
+      const integrity = document.getElementById('updateIntegrityRow');
+      if (integrity) integrity.hidden = desktopManaged;
       const installed = document.getElementById('installedVersion');
       if (installed) installed.textContent = update.current_version_label || update.current_version || 'Unknown';
       const pill = document.getElementById('updateSystemPill');

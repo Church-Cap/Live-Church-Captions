@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProPresenter caption setup - {{ church_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.0-ui-6">
+</head>
+<body class="operator-page glass-page">
+  <main class="operator-shell docs-shell">
+    <p><a href="/operator">← Back to operator controls</a></p>
+    <p class="eyebrow">{{ church_name }}</p>
+    <h1>Add captions to ProPresenter</h1>
+    <p class="muted">Church Cap's transparent local caption overlay can be placed in a ProPresenter Prop as a Web object. It uses the same caption feed as phones and display screens, so no separate plugin or cloud service is required.</p>
+
+    <section class="operator-panel glass-card" id="propresenter">
+      <p class="eyebrow">ProPresenter</p>
+      <h2>Add captions with a Prop</h2>
+      <p>First open <strong>Operator → Congregation → ProPresenter</strong>, choose the required language, and copy the complete URL shown there. Every URL identifies one language and looks similar to <code>/propresenter?lang=en</code>. Props created with an older <code>/obs?integration=propresenter&amp;lang=…</code> address keep working.</p>
+      <p class="muted">Each Prop has one fixed language. Create another Prop when two audience outputs need different languages.</p>
+      <ol class="steps-list">
+        <li>Open <strong>Show Controls → Props</strong>, select <strong>+</strong> to create a Prop, then right-click it and choose <strong>Edit</strong>.</li>
+        <li>In the Prop editor, click the <strong>globe icon</strong>. Click and drag near the bottom of the canvas to create a wide Web object.</li>
+        <li>Paste the generated address into the Web object's URL field on the right and press <strong>Enter</strong>. “Waiting for captions” means it is ready.</li>
+        <li>Open <strong>Screens → Edit Looks</strong>. Enable the <strong>Props</strong> layer for the required Audience screen, then make that Look live.</li>
+        <li>Click <strong>Show</strong> in the bottom-right of the Prop editor, or trigger the Prop thumbnail from the main window. Start captions in Church Cap and speak; clear the Prop when captions should be hidden.</li>
+      </ol>
+      <div class="warning-panel slim-warning">
+        <strong>Remember:</strong> enabling the Props layer and showing the Prop are separate actions. Enabling the layer only permits Props to appear; you must also click <strong>Show</strong> or trigger the Prop. Because the overlay is transparent, it can look empty when no caption is active.
+      </div>
+      <p class="muted">The Operator page reports when a ProPresenter Web object is connected. A translated Prop requests its selected translation while it is open, but it is not counted as a congregation viewer. Props are drawn over a Video Input, making this suitable for captions over an incoming programme feed. Rehearse the Web object for a full service-length session and confirm the chosen Look sends Props only to the intended Audience screen. If the Web object is unreliable on the church's system, composite the video and Church Cap overlay in OBS and send that result to ProPresenter as a Video Input.</p>
+    </section>
+
+    <section class="operator-panel glass-card">
+      <h2>Operating notes</h2>
+      <p class="muted">The overlay has a transparent background and shows the current caption with the same smoother caption pacing used by the audience display. If the Prop is blank, confirm captions are running, the ProPresenter computer can reach the generated URL, and no firewall is blocking the Church Cap port.</p>
+      <p class="muted">AI captions and translations can be inaccurate. They may also include spoken names, pastoral details, testimony, or copyrighted worship lyrics. Use blank/pause mode when captions should not be shown or retained.</p>
+    </section>
+
+    <section class="operator-panel glass-card">
+      <h2>Open-source support note</h2>
+      <p class="muted">Church Cap is open-source local software. It is provided under its open-source licence without warranty. Test the Prop and its Look before the service, and make sure your church's privacy, safeguarding, accessibility, and copyright practices are followed.</p>
+      <p class="muted">ProPresenter is a product of Renewed Vision. Church Cap is not affiliated with or endorsed by Renewed Vision.</p>
+    </section>
+  </main>
+</body>
+</html>

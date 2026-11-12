@@ -13,6 +13,8 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         cls.pair = Path("app/templates/service_leader_pair.html").read_text(encoding="utf-8")
         cls.login = Path("app/templates/login.html").read_text(encoding="utf-8")
         cls.operator = Path("app/templates/operator.html").read_text(encoding="utf-8")
+        cls.obs_help = Path("app/templates/obs_help.html").read_text(encoding="utf-8")
+        cls.propresenter_help = Path("app/templates/propresenter_help.html").read_text(encoding="utf-8")
         cls.styles = Path("app/static/styles.css").read_text(encoding="utf-8")
 
     def test_full_operator_lock_remains_in_middleware(self):
@@ -165,6 +167,92 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
         self.assertIn("applianceOutputDialog", self.operator)
         self.assertIn("output-option-grid", self.styles)
 
+    def test_operator_propresenter_guide_uses_the_existing_local_overlay(self):
+        self.assertIn('data-subsection="propresenter"', self.operator)
+        self.assertIn('data-label="ProPresenter"', self.operator)
+        self.assertIn('ProPresenter Web object', self.operator)
+        self.assertIn('id="proPresenterOverlayUrl" data-base-url="{{ propresenter_ip_url }}"', self.operator)
+        self.assertIn('{{ propresenter_ip_url }}?lang=en', self.operator)
+        self.assertIn('href="/propresenter?lang=en&amp;return=operator"', self.operator)
+        self.assertIn('globe icon', self.operator)
+        self.assertIn('Screens → Edit Looks', self.operator)
+        self.assertIn('Two separate actions are required.', self.operator)
+        self.assertIn('copyProPresenterUrl()', self.operator)
+        self.assertIn('id="proPresenterLanguage"', self.operator)
+        self.assertIn('id="proPresenterLanguageSearch"', self.operator)
+        self.assertIn('id="proPresenterLanguageResults"', self.operator)
+        self.assertIn('id="roomDisplayLanguage"', self.operator)
+        self.assertIn('id="roomDisplayLanguageSearch"', self.operator)
+        self.assertIn('id="roomDisplayLanguageResults"', self.operator)
+        self.assertIn('id="roomDisplayHostnameUrl" data-base-url="{{ display_url }}"', self.operator)
+        self.assertIn('id="roomDisplayIpUrl" data-base-url="{{ display_ip_url }}"', self.operator)
+        self.assertIn('id="obsOutputLanguage"', self.operator)
+        self.assertIn('id="obsOutputLanguageSearch"', self.operator)
+        self.assertIn('id="obsOutputLanguageResults"', self.operator)
+        self.assertIn('id="obsOutputUrl" data-base-url="{{ obs_ip_url }}"', self.operator)
+        self.assertGreaterEqual(self.operator.count('>Copy URL</button>'), 2)
+        self.assertNotIn('>Copy direct-IP address</button>', self.operator)
+        self.assertNotIn('id="obsHostnameOutputUrl"', self.operator)
+        self.assertIn("handlePresentationLanguageChange('obs')", self.operator)
+        self.assertIn("handlePresentationLanguageChange('propresenter')", self.operator)
+        self.assertIn("handlePresentationLanguageChange('display')", self.operator)
+        self.assertIn("filterPresentationLanguages('display'", self.operator)
+        self.assertIn("filterPresentationLanguages('obs'", self.operator)
+        self.assertIn("filterPresentationLanguages('propresenter'", self.operator)
+        self.assertIn('function choosePresentationLanguage(kind, languageCode)', self.operator)
+        self.assertIn("button.className = 'presentation-language-result secondary-button'", self.operator)
+        self.assertIn("presentationOutputLanguage:", self.operator)
+        self.assertIn("if (optionsChanged)", self.operator)
+        self.assertIn("select.replaceChildren(...options)", self.operator)
+        self.assertNotIn("languageDisplayName(", self.operator)
+        self.assertIn("syncPresentationOutputLanguageOptions(data.translation)", self.operator)
+        self.assertIn("renderRoomDisplayConnectionStatus(data.translation)", self.operator)
+        self.assertIn("renderObsConnectionStatus(data.translation)", self.operator)
+        self.assertIn('id="proPresenterConnectionStatus"', self.operator)
+        self.assertNotIn('sendProPresenterTestCaption()', self.operator)
+        self.assertIn('<details class="presentation-instructions">', self.operator)
+        self.assertIn('Open full OBS guide', self.operator)
+        self.assertIn('Open full ProPresenter guide', self.operator)
+        self.assertNotIn('ProPresenter <span class="beta-pill"', self.operator)
+        self.assertIn("renderProPresenterConnectionStatus(data.translation)", self.operator)
+        self.assertIn("height: 3rem;", self.styles.split(".presentation-language-search {", 1)[1].split("}", 1)[0])
+        self.assertIn("height: 3rem;", self.styles.split(".presentation-language-control select {", 1)[1].split("}", 1)[0])
+        self.assertIn('.propresenter-quick-steps', self.styles)
+        self.assertIn('id="propresenter"', self.propresenter_help)
+        self.assertIn('click the <strong>globe icon</strong>', self.propresenter_help)
+        self.assertIn('enabling the Props layer and showing the Prop are separate actions', self.propresenter_help)
+
+    def test_obs_and_propresenter_guides_are_separate_operator_pages(self):
+        self.assertIn('href="/obs/help">Open full OBS guide</a>', self.operator)
+        self.assertIn('href="/propresenter/help">Open full ProPresenter guide</a>', self.operator)
+        self.assertNotIn("/obs/help#", self.operator)
+        self.assertNotIn("propresenter", self.obs_help.lower())
+        self.assertNotIn('id="obs"', self.propresenter_help)
+        for route, handler in (("/obs/help", "obs_help"), ("/propresenter/help", "propresenter_help")):
+            declaration = self.main.split(f'@app.get("{route}", response_class=HTMLResponse)', 1)[1].split("\n", 2)[1]
+            self.assertIn(f"async def {handler}(", declaration)
+            self.assertIn("Depends(require_operator)", declaration)
+        public_paths = self.main.split("PUBLIC_EXACT_PATHS = ", 1)[1].split("\n", 1)[0]
+        self.assertNotIn("/propresenter/help", public_paths)
+        self.assertNotIn("/obs/help", public_paths)
+
+    def test_propresenter_instructions_use_five_steps(self):
+        quick = self.operator.split('aria-label="ProPresenter caption setup steps">', 1)[1].split("</ol>", 1)[0]
+        self.assertEqual(quick.count("<li>"), 5)
+        self.assertIn("<small>Five short steps and the detailed guide</small>", self.operator)
+        guide = self.propresenter_help.split('<ol class="steps-list">', 1)[1].split("</ol>", 1)[0]
+        self.assertEqual(guide.count("<li>"), 5)
+
+    def test_obs_instructions_use_five_steps_and_one_source_name(self):
+        quick = self.operator.split('aria-label="OBS caption setup steps">', 1)[1].split("</ol>", 1)[0]
+        self.assertEqual(quick.count("<li>"), 5)
+        self.assertIn("<strong>How to add captions to OBS</strong><small>Five short steps and the detailed guide</small>", self.operator)
+        guide = self.obs_help.split('<ol class="steps-list">', 1)[1].split("</ol>", 1)[0]
+        self.assertEqual(guide.count("<li>"), 5)
+        for steps in (quick, guide):
+            self.assertIn("<strong>Church Cap captions</strong>", steps)
+            self.assertNotIn("Live Captions", steps)
+
     def test_congregation_icon_uses_three_people(self):
         congregation_button = self.operator.split('data-menu-category="audience"', 1)[1].split('</button>', 1)[0]
         self.assertIn('class="nav-icon nav-icon-congregation"', congregation_button)
@@ -183,6 +271,7 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
             "room-access",
             "room-display",
             "obs-live-stream",
+            "propresenter",
             "security",
             "transcript-controls",
             "guidance",
@@ -287,8 +376,10 @@ class ServiceLeaderSecuritySourceTests(unittest.TestCase):
     def test_service_leader_uses_live_caption_observer_stream(self):
         self.assertIn("new WebSocket(serviceLeaderWsUrl())", self.service_leader)
         self.assertIn("role=service-leader", self.service_leader)
-        self.assertIn('websocket.query_params.get("role") != "service-leader"', self.main)
+        self.assertIn('count_viewer = role not in {"service-leader", "operator", "presentation"}', self.main)
         self.assertIn("count_viewer=count_viewer", self.main)
+        self.assertIn("drives_translation=count_viewer or is_presentation", self.main)
+        self.assertIn("captionSocketParameters.set('role', 'operator')", Path("app/static/client.js").read_text(encoding="utf-8"))
         self.assertIn("self._viewer_clients", Path("app/broadcast.py").read_text(encoding="utf-8"))
 
     def test_service_leader_has_start_stop_progress_messages(self):

@@ -1,6 +1,6 @@
 # Church Cap Quick Start Guide
 
-Version: v0.8.0
+Software described: v0.9.0
 
 This guide is for the person setting up Church Cap for a church service.
 
@@ -26,9 +26,15 @@ Recommended for live services: Apple Silicon Mac with 16 GB RAM, or Windows/Linu
 
 Use **Benchmark** before selecting heavier models such as `small.en` or `medium.en`.
 
+## Upgrading From v0.8.0
+
+Mac and Windows: download and run the v0.9.0 DMG or Windows installer once, as described below. Do not use **Check for updates** in v0.8.0 for this upgrade; v0.8.0 cannot verify v0.9.0 because the updater signing key was replaced, so it will stop safely without changing your installation. Your operator password, settings, and local data are kept. Signed in-app updates work again from v0.9.0 onward.
+
+Linux: run `./update-linux.sh` as usual; Linux uses its own checksum-verified update path and is not affected by the key change.
+
 ## First-Time Setup On Mac
 
-1. Open the [Church Cap v0.8.0 release](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0) and download `Church-Cap-v0.8.0-macOS-Apple-Silicon.dmg`.
+1. Open the [Church Cap v0.9.0 release](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0) and download `Church-Cap-v0.9.0-macOS-Apple-Silicon.dmg`.
 2. Open the DMG and drag **Church Cap** to **Applications**.
 3. Open Church Cap from Applications and allow microphone access when macOS asks.
 4. Church Cap opens the existing browser setup page. Create the operator password there.
@@ -37,18 +43,20 @@ The Mac release is Developer-ID signed, notarized, and stapled. It does not requ
 
 ## First-Time Setup On Windows
 
-1. Open the [Church Cap v0.8.0 release](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0) and download the Church Cap Windows x64 setup executable.
-2. Run setup. Windows may show a SmartScreen warning because the v0.8.0 Windows build is currently unsigned; check that the file hash matches the SHA-256 value published with the release before continuing.
+1. Open the [Church Cap v0.9.0 release](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0) and download the Church Cap Windows x64 setup executable.
+2. Run setup. Windows may show a SmartScreen warning because the v0.9.0 Windows build is not Authenticode-signed; check that the file hash matches the SHA-256 value published with the release before continuing.
 3. Leave optional NVIDIA CUDA unchecked unless this computer has a supported NVIDIA GPU. If selected, setup downloads verified per-user CUDA 12.4/cuDNN 9 runtime files. An interrupted download safely retries after first launch and can also be repaired later from **Operator → Performance**.
 4. Open Church Cap from the Start menu. No Command Prompt window is required.
 
 Church Cap keeps mutable application data under `%APPDATA%\Church Cap`. English captions work on CPU when CUDA is not installed or not ready.
 
+The Windows installer keeps PyTorch translation as a CPU compatibility option. The optional CUDA checkbox downloads runtime files for Faster Whisper/CTranslate2; it does not make the PyTorch SMaLL-100 language pack GPU-enabled. Church Cap recommends the Broad language pack on a capable Windows computer, and the first-run screen reports the installed runtime's actual status.
+
 If optional CUDA does not become ready, keep Church Cap open and review **Operator → Performance** for installation progress. The installer hand-off record is `%APPDATA%\Church Cap\logs\cuda-installer-handoff.log`; the background download record is `%APPDATA%\Church Cap\logs\cuda-runtime-install.log`. These logs contain no caption text.
 
 ## First-Time Setup On Linux
 
-1. Open the [Church Cap v0.8.0 release](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0) and download both `Church-Cap-Linux-CLI.tar.gz` and `Church-Cap-Linux-CLI.tar.gz.sha256`.
+1. Open the [Church Cap v0.9.0 release](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0) and download both `Church-Cap-Linux-CLI.tar.gz` and `Church-Cap-Linux-CLI.tar.gz.sha256`.
 2. In a terminal, verify and extract the curated archive:
 
 ```bash
@@ -66,7 +74,7 @@ bash setup-linux.sh
 
 The Linux download is a terminal-first source package rather than a desktop wrapper. It contains the shared Church Cap runtime without repository history, Mac/Windows artifacts, tests, or developer build caches. Setup detects `apt`, `dnf`, `yum`, `zypper`, `pacman`, or `apk`, installs only system prerequisites, and keeps Python packages inside this folder's `.venv`. It does not install NVIDIA drivers or enable extra repositories.
 
-Allow at least 8 GiB free for the initial Python environment. Church Cap v0.8.0 uses Python 3.10-3.13. If Linux only provides Python 3.14 or newer, setup automatically downloads a pinned, SHA-256-verified bootstrap and keeps managed Python 3.12 in this Church Cap folder; it does not change the system Python. This supports the Python 3.14 supplied by Ubuntu 26.04 without asking the user to find a separate installer. Setup disables pip's persistent cache to reduce temporary storage. If it reports `Disk quota exceeded`, free space owned by that Linux user or ask the administrator to raise the account quota, then rerun setup. A partial incompatible Church Cap `.venv` can be removed and recreated from the setup prompt; no other folder is removed.
+Allow at least 8 GiB free for the initial Python environment. Church Cap v0.9.0 uses Python 3.10-3.13. If Linux only provides Python 3.14 or newer, setup automatically downloads a pinned, SHA-256-verified bootstrap and keeps managed Python 3.12 in this Church Cap folder; it does not change the system Python. This supports the Python 3.14 supplied by Ubuntu 26.04 without asking the user to find a separate installer. Setup disables pip's persistent cache to reduce temporary storage. If it reports `Disk quota exceeded`, free space owned by that Linux user or ask the administrator to raise the account quota, then rerun setup. A partial incompatible Church Cap `.venv` can be removed and recreated from the setup prompt; no other folder is removed.
 
 Linux keeps both QR codes visible. The direct-IP QR is recommended unless local DNS/mDNS is configured. If a working NVIDIA driver is present but CTranslate2 reports missing `libcublas.so.12` or `libcudnn.so.9`, run `./install-cuda-runtime-linux.sh` and restart with `./start-linux.sh`.
 
@@ -159,7 +167,9 @@ In the operator page, open **Congregation → Join Live Captions**.
 
 Use the configured-hostname QR first when local DNS/mDNS is working. On Linux without hostname setup—or whenever a phone cannot open the hostname—use the direct-IP QR. On an appliance, the Operator and Service Leader pages can create a temporary **Share QR** phone handoff so the QR image can be saved on a phone for printing or service slides.
 
-The **Outputs** area is separate from audience phones. **Room display** is for a projector, TV, or confidence monitor. **OBS overlay** is for livestream software as a browser source. Both use the same smoother caption animation as the audience view. On a Church Cap Appliance, Church Cap warns before opening these clean output pages because they intentionally have no operator navigation and can cover the kiosk controls.
+The **Outputs** area is separate from audience phones. **Room display** is for a projector, TV, or confidence monitor. **OBS Live Stream** generates a one-language browser-source address for livestream software. **ProPresenter** creates a one-language local Web-object address and shows whether the active Prop has connected. Changing an output language updates its address; copy the new address into OBS or ProPresenter and refresh an already-open source. A translated presentation output requests that translation without appearing in the congregation viewer count. All three use the same smoother caption animation as the audience view. On a Church Cap Appliance, Church Cap warns before opening these clean output pages because they intentionally have no operator navigation and can cover the kiosk controls.
+
+For ProPresenter, open **Congregation → ProPresenter**, choose English or an installed translated language, copy the address, and follow the six short Prop instructions. Enabling the Props layer in a Look and actually showing the Prop are separate actions. Start captions and rehearse with the real audio feed before the service; if ProPresenter's Web object is unreliable, use the documented OBS composite fallback.
 
 ## Visitor Caption View
 
@@ -340,3 +350,9 @@ You can also use **Updates** on the operator page. Source installations check th
 The updater preserves `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. The displayed app version is code-owned so a stale `APP_VERSION` in `.env` cannot keep Windows showing an older release after an update.
 
 The source updater checks its downloaded release archive, required release files, release version, staged Python syntax, and SHA-256 file checksums before and after copying. Linux selects the curated `Church-Cap-Linux-CLI.tar.gz` asset and verifies its separately published SHA-256 before extraction. If the internet drops during download or dependency installation, the current app is left alone. During replacement, Church Cap keeps a rollback backup in `data/update-backups/` and restores it automatically if the copy or checksum check fails.
+
+## Returning to first-time setup
+
+On the installed Mac or Windows application, open **Settings → Updates and recovery → Factory reset Church Cap**. Read the removal list and type `RESET`. Church Cap stops its server before removing local credentials, configuration, transcripts, measurements, logs, in-app exports and downloaded caption/voice models. It then restarts and opens the complete first-time setup. The application itself remains installed.
+
+On Linux, stop the running Church Cap process first, then run `./factory-reset-linux.sh` from the Church Cap folder and type `RESET`. Start Church Cap normally afterward. Use the separate password-reset option or `scripts/reset-operator-password.sh` when you only need a new password and want to keep settings and downloads.

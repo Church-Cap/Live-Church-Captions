@@ -6,13 +6,13 @@ This document describes the current browser-first architecture.
 
 ## Current Release
 
-Version: `v0.8.0`
+Version: `v0.9.0`
 
-Status: release candidate. The final Apple Silicon macOS and Windows x64 applications have passed project-owner clean-machine testing. Church Cap is open-source software, not a compliance-certified service, and churches remain responsible for their own privacy, safeguarding, accessibility, copyright, and operational policies.
+Status: in development. The latest completed public installers remain v0.8.0 until v0.9.0 completes platform packaging and clean-machine testing. Church Cap is open-source software, not a compliance-certified service, and churches remain responsible for their own privacy, safeguarding, accessibility, copyright, and operational policies.
 
 ## Deployment Model
 
-Church Cap v0.8.0 adds a modular desktop distribution layer around the shared FastAPI application and browser UI. A stable dual-port engine entry point, typed source/packaged platform contracts, immutable resource boundary, and thin native supervisor provide lifecycle, recovery, update, and installer integration without forking the caption product. Deterministic Service Context and optional translated audio remain part of the shared browser application.
+Church Cap v0.9.0 builds on the modular desktop distribution introduced for v0.8.0. A stable dual-port engine entry point, typed source/packaged platform contracts, immutable resource boundary, and thin native supervisor provide lifecycle, recovery, update, installer integration, and bounded factory reset without forking the caption product. Deterministic Service Context, optional translated audio, and presentation outputs remain part of the shared browser application.
 
 Translated audio is an optional accessibility layer, not a replacement for captions. Operators choose, install, check and enable it from **Languages → Spoken translated audio**. Normal setup downloads no voice weights; the GUI shows per-pack and selected-total size estimates before an authenticated operator starts installation while captions are stopped. It remains disabled when no reviewed voice pack is installed, never appears for English, is suppressed during Sensitive moment mode, and does not store generated audio or translated wording. Audience playback uses one explicitly activated HTML media element so mobile browsers can retain playback permission and expose native media controls where supported. Invalid or silent generated samples are not delivered. See [Local translated audio](../translated-audio.md) and [Optional Spoken-Language Model Notices](../legal/SPOKEN_LANGUAGE_MODELS.md).
 
@@ -26,7 +26,7 @@ This keeps one codebase while allowing the appliance shell, kiosk setup, and upd
 
 Roadmap detail: [ROADMAP_TO_V1.md](ROADMAP_TO_V1.md).
 
-v0.8.0 implementation record: [V0.8.0_IMPLEMENTATION.md](V0.8.0_IMPLEMENTATION.md). Cross-platform boundaries: [CROSS_PLATFORM_ARCHITECTURE.md](CROSS_PLATFORM_ARCHITECTURE.md). Release procedure: [DESKTOP_UPDATE_RELEASE_RUNBOOK.md](DESKTOP_UPDATE_RELEASE_RUNBOOK.md).
+Current v0.9.0 implementation record: [V0.9.0_IMPLEMENTATION.md](V0.9.0_IMPLEMENTATION.md). Cross-platform boundaries: [CROSS_PLATFORM_ARCHITECTURE.md](CROSS_PLATFORM_ARCHITECTURE.md). Release procedure: [DESKTOP_UPDATE_RELEASE_RUNBOOK.md](DESKTOP_UPDATE_RELEASE_RUNBOOK.md).
 
 The current product retains the shared Room Display/OBS presentation policy, focused security and translation-installation hardening, and the optional translated-audio layer. Service metrics use schema 12 for privacy-safe audio-callback recovery counts and schema 13 for text-free Service Context mode, hint, prompt-token, reference, and correction counts. TTS readiness and text-free queue/latency state remain available only through authenticated diagnostics.
 
@@ -59,14 +59,16 @@ Church microphones
 - `/operator` — password-protected operator dashboard.
 - `/display` — large-screen caption display using the shared polished two-line presentation renderer.
 - `/obs` — transparent OBS browser-source overlay using the same polished two-line presentation renderer and wrapping width as Room Display.
+- `/propresenter` — the same overlay addressed for ProPresenter Web objects; reports as a ProPresenter output. Older `/obs?integration=propresenter` addresses keep working.
 - `/obs/help` — operator-only OBS setup guide.
+- `/propresenter/help` — operator-only ProPresenter setup guide.
 - `/setup/network` — operator-only local network and hostname guide.
 - `/docs/privacy` — operator-only privacy notes.
 - `/docs/church-notice` — operator-only suggested church notice wording.
 - `/docs/disclaimer` — operator-only disclaimer notes.
 - Operator **Diagnostics** section — operator-only local support export with confirmation, system specs, runtime status, metrics, and redacted updater/CUDA logs.
 - Diagnostics include audio-callback stall, stream-restart, and failed-restart counts in service-metrics schema 12, plus text-free Service Context comparison fields in schema 13. Schema 9, 10, 11, and 12 summaries remain readable after upgrade. The broader diagnostics export also includes the redacted update log, which the update-failure panel directs operators to download. Reports contain numeric counts, bounded non-identifying modes, and distributions only; they never retain audio, recognition spans, word times or confidence, device metadata, captions, translations, transcripts, sermon notes, context terms, glossary contents, paths, network identifiers, or operator data.
-- Operator **Updates** section — operator-only GitHub release-tag check, confirmation, integrity-checked in-place update, rollback backup, restart, and reconnect flow.
+- Operator **Updates** section — operator-only and local-computer-only. Linux runs `update-linux.sh --check`, then a confirmed, integrity-checked in-place update with rollback backup, restart, and reconnect. Installed Mac and Windows apps hand the check to the desktop app (Settings → Check for updates), which installs through its signed Tauri updater.
 - `/service-leader` — restricted service-leader controls reached through a one-use QR pairing flow on the operator port.
 - `/api/diagnostics/export` — local diagnostics JSON export, operator login and local computer required.
 - `/api/diagnostics/download-handoff` — temporary diagnostics handoff QR for appliance support, operator login and local computer required.

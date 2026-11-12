@@ -11,11 +11,11 @@ Mac, Windows, and Linux artifacts are published together in one `vX.Y.Z` GitHub 
 
 ```text
 python3 scripts/release/generate-desktop-update-manifest.py \
-  --version 0.8.1 \
+  --version 0.9.0 \
   --target darwin-aarch64 \
-  --artifact-url https://github.com/Church-Cap/Live-Church-Captions/releases/download/v0.8.1/Church-Cap-v0.8.1-macOS-Apple-Silicon.app.tar.gz \
-  --signature-file dist/Church-Cap-v0.8.1-macOS-Apple-Silicon.app.tar.gz.sig \
-  --notes-file docs/project/V0.8.1_RELEASE_NOTES.md
+  --artifact-url https://github.com/Church-Cap/Live-Church-Captions/releases/download/v0.9.0/Church-Cap-v0.9.0-macOS-Apple-Silicon.app.tar.gz \
+  --signature-file dist/Church-Cap-v0.9.0-macOS-Apple-Silicon.app.tar.gz.sig \
+  --notes-file docs/project/V0.9.0_RELEASE_NOTES.md
 ```
 
-Commit and publish the generated platform manifest only after its referenced GitHub Release asset is downloadable. Until a manifest exists, v0.8.0 deliberately reports that the signed update channel has not yet been published.
+Commit and publish each generated platform manifest only after its referenced GitHub Release asset is anonymously downloadable and its checksum and updater signature have been reverified. The public v0.8.0 desktop channels have no manifest and trust the retired updater key, so v0.8.0 users must install v0.9.0 manually once. Publishing verified v0.9.0 manifests signed by replacement key `25BF3CCF4B6CBB01` activates automatic discovery for v0.9.0 and later installations; it cannot activate the v0.8.0 launcher.

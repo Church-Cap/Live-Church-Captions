@@ -34,5 +34,7 @@ scripts/linux-system-packages.sh
 scripts/list-audio-devices.py
 scripts/report-install-progress.py
 scripts/reset-operator-password.sh
+scripts/factory-reset.py
+factory-reset-linux.sh
 scripts/run-dual.py
 scripts/update-unix.sh

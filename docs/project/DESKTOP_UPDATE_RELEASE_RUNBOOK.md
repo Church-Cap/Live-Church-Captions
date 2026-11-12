@@ -1,6 +1,6 @@
 # Church Cap Desktop Update Release Runbook
 
-Last updated: 2026-08-25
+Last updated: 2026-10-21
 
 Church Cap uses Tauri's mandatory updater signature independently of operating-system signing. Apple Developer ID and notarization remain required for the Mac release. Windows Authenticode is recommended for reputation and SmartScreen, but the user accepted deferring it for v0.8.0; a Tauri signature is still mandatory before Church Cap may install a Windows package through its in-app updater.
 
@@ -12,15 +12,15 @@ Church Cap uses Tauri's mandatory updater signature independently of operating-s
 - Linux CLI uses the same release's `Church-Cap-Linux-CLI.tar.gz` and `.sha256` assets through its CLI updater, not Tauri.
 - Appliance remains a Linux deployment profile unless a separately installed image is introduced later.
 
-The version inside every build remains normal semantic version text such as `0.8.1`, and the matching public release tag is `v0.8.1`. Mac and Windows retain independent signed manifests even though their artifacts share one release. Publish each manifest only after its platform artifact is anonymously downloadable and verified. A platform manifest may remain on the previous tested version if that platform's new artifact is not ready; never point it at a missing or unverified asset.
+The version inside every build remains normal semantic version text such as `0.9.0`, and the matching public release tag is `v0.9.0`. Mac and Windows retain independent signed manifests even though their artifacts share one release. Publish each manifest only after its platform artifact is anonymously downloadable and verified. A platform manifest may remain on the previous tested version if that platform's new artifact is not ready; never point it at a missing or unverified asset.
 
 ## Updater signing key
 
 The committed public key is `packaging/updater/church-cap-updater-public.key` and is embedded in `desktop/src-tauri/tauri.conf.json`. The private key must never enter the repository, a release asset, normal logs, diagnostics, or a shared project folder.
 
-On the current release Mac, the encrypted private key is stored outside this project and its password is protected by the macOS Keychain service `Church Cap Tauri Updater Signing Key`. Before the first public v0.8 release:
+On the current release Mac, the encrypted private key is stored outside this project in an owner-only release folder and its password is protected by the macOS Keychain service `Church Cap Tauri Updater Signing Key`.
 
-The updater key pair was rotated on 2026-08-25, before any public desktop update manifest was published, after the original encrypted key password could not be recovered. The active public key ID is `BF1E020A4490108A`. Every Mac or Windows candidate containing the earlier public key is superseded and must not be published; Linux CLI releases are unaffected.
+The v0.8.0 updater key pair used public-key ID `BF1E020A4490108A`. Its encrypted private-key file could not be recovered even though its password remained in Keychain. On 21 September 2026, before publishing v0.9.0, the updater trust root was deliberately rotated to public-key ID `A4BFB5872F60E7CF`. Existing v0.8.0 desktop applications cannot verify artifacts signed by the replacement key, so v0.8.0 users require one manual DMG or Windows-installer upgrade. On 21 October 2026, still before v0.9.0 was published, replacement key `A4BFB5872F60E7CF` was itself retired: its encrypted private-key file was intact, but no recorded password unlocked it. No released application ever trusted that key. The current trust root is public-key ID `25BF3CCF4B6CBB01`, created on the release Mac with an immediate signature and tamper-rejection probe, both with the password typed and read from Keychain. v0.9.0 and later releases use `25BF3CCF4B6CBB01` for automatic signed updates. Every v0.9.0 Mac or Windows candidate containing the v0.8.0 public key or `A4BFB5872F60E7CF` is superseded and must not be published; Linux CLI releases are unaffected.
 
 1. Back up the encrypted private key to an independently encrypted, access-controlled location.
 2. Back up the password in the project owner's password manager, separately from the key backup.
@@ -44,11 +44,11 @@ CI should receive the private key and password only through protected release-en
 
 The v0.8.0 release Mac has a user-verified `Developer ID Application` identity for Team ID `VCFSA9YLF5`, certificate fingerprint `27744BF4CE7F2729EE04284CEB4579E6244ED9C3`, and a validated `Church Cap Notary` Keychain profile. Certificate names and fingerprints are public release metadata; no private key, certificate export, Apple password, or app-specific password belongs in this project or its logs.
 
-The updater-key-rotation replacement app submission is `df80ba51-a1cd-40b7-a02a-36547a6c980b` and the replacement DMG submission is `beb94c82-f603-458e-a6da-ec3c1965a382`. Apple marked both `Accepted` and `Ready for distribution` with no issues. These identifiers are release evidence, not credentials.
+Notarization submissions `4b5840ab-f1e6-445b-b2c0-93bf6452afb2` (app) and `d1c1608c-a4aa-4a79-9098-c80eef3351df` (DMG) belong to earlier updater-key-rotation candidates built before the final v0.9.0 source; they are superseded evidence and must not be published. The final v0.9.0 submission identifiers are recorded with the release evidence, not here. Submission identifiers are release evidence, not credentials.
 
 ## Windows release order
 
-Use the matching order on a clean Windows x64 builder: frozen-engine verification, NSIS build, Authenticode signing and verification when required, Tauri `.sig`, clean-machine tests, upload to the shared `vX.Y.Z` release, confirm the asset URL, then publish `updates/desktop/windows-x86_64/latest.json` in a later commit. The shared-core and wrapper source-of-truth rules are in `CROSS_PLATFORM_ARCHITECTURE.md`; current release status is recorded in `V0.8.0_IMPLEMENTATION.md`.
+Use the matching order on a clean Windows x64 builder: frozen-engine verification, NSIS build, Authenticode signing and verification when required, Tauri `.sig`, clean-machine tests, upload to the shared `vX.Y.Z` release, confirm the asset URL, then publish `updates/desktop/windows-x86_64/latest.json` in a later commit. The shared-core and wrapper source-of-truth rules are in `CROSS_PLATFORM_ARCHITECTURE.md`; the current native build procedure is in `WINDOWS_V0.9.0_BUILD_HANDOFF.md`.
 
 ## Linux release order
 
@@ -74,4 +74,6 @@ A release is not complete until the previous installed version:
 - installs, relaunches, passes compatible `/health`, and reports the new running version;
 - recovers honestly from network loss, full disk, locked files, installer failure, and failed post-update health.
 
-Until a platform manifest is published, v0.8.0 displays “Update channel not published yet” and keeps running normally. Publishing a valid v0.8.0 manifest after the v0.8.0 assets are live makes the initial installations report “Church Cap is up to date” and establishes the channel before v0.8.1.
+As of 20 September 2026, both public desktop manifest URLs return HTTP 404. Keep them unpublished for v0.8.0 because that release trusts the retired key and cannot verify a replacement-key signature. Operators must install v0.9.0 manually once; the unchanged `org.churchcap.desktop` identifier and v0.9.0's one-time legacy-root migration preserve existing application data. After each matching v0.9.0 artifact is live and verified, publish that platform's signed manifest at the existing endpoint. That activates automatic discovery for v0.9.0 and later installations. Never publish a placeholder manifest or one that names a draft, missing, unsigned, wrong-key, or superseded artifact.
+
+v0.8.0 applications poll the same manifest endpoints. Once a v0.9.0 or later manifest is published, an installed v0.8.0 app that checks for updates will be offered that version, show the manifest `notes`, and then refuse the download at signature verification without replacing the installed app. Because tauri-plugin-updater 2.10.1 reports download completion before it verifies the signature, the v0.8.0 app downloads the full archive, may briefly show "Update signature verified.", and then reports that it could not download or verify the update; the installed app is unchanged. Every manifest published while v0.8.0 installations may remain must therefore be generated with `--notes-file` text that tells v0.8.0 users to download and run the release installer manually. A suitable note is: "Church Cap v0.9.0 uses a new updater signing key. If you are using v0.8.0, download and run the v0.9.0 installer from the GitHub release page; in-app installation from v0.8.0 cannot verify this update and will not change your installation."

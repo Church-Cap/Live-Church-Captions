@@ -33,5 +33,9 @@ for path in paths:
         print(f"No auth file found at {path}")
 if not deleted:
     print("No stored operator password files were found.")
+else:
+    marker = app_support_dir() / "data" / "operator_password_recovery.flag"
+    marker.write_text("password-reset\n", encoding="utf-8")
+    print("Existing caption, language, and performance settings will be preserved.")
 print("Restart Church Cap and open /operator to create a new password.")
 PY

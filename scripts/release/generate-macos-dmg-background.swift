@@ -182,7 +182,7 @@ NSColor(calibratedRed: 0.10, green: 0.37, blue: 0.71, alpha: 0.94).setStroke()
 arrow.stroke()
 
 drawCentred("DRAG TO INSTALL", y: 223, font: .systemFont(ofSize: 11, weight: .bold), colour: NSColor(calibratedRed: 0.10, green: 0.37, blue: 0.71, alpha: 1))
-drawCentred("Church Cap v0.8.0", y: 27, font: .systemFont(ofSize: 11, weight: .medium), colour: NSColor(calibratedRed: 0.31, green: 0.37, blue: 0.45, alpha: 1))
+drawCentred("churchcap.org", y: 27, font: .systemFont(ofSize: 11, weight: .medium), colour: NSColor(calibratedRed: 0.31, green: 0.37, blue: 0.45, alpha: 1))
 
 graphics.flushGraphics()
 NSGraphicsContext.restoreGraphicsState()

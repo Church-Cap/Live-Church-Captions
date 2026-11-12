@@ -27,6 +27,7 @@ from app.metrics import (
     update_metrics,
 )
 from app.models import CaptionSegment, RecognitionSpan
+from app.paths import model_data_dir
 from app.text_cleanup import clean_caption_text, collapse_repeated_phrase
 from app.transcription.base import Transcriber
 from app.transcription.audio_watchdog import AudioStreamWatchdog
@@ -126,7 +127,11 @@ class WhisperLiveTranscriber(AudioStreamWatchdog, Transcriber):
             started = time.monotonic()
             try:
                 import whisper
-                self._model = whisper.load_model(self.model_name, device=self.device)
+                self._model = whisper.load_model(
+                    self.model_name,
+                    device=self.device,
+                    download_root=str(model_data_dir() / "whisper" / "openai-whisper"),
+                )
             except Exception as exc:
                 if self.device not in {"cuda", "mps"}:
                     raise
@@ -138,7 +143,11 @@ class WhisperLiveTranscriber(AudioStreamWatchdog, Transcriber):
                     error=f"{failed_device.upper()} model load failed; fell back to CPU: {exc}",
                 )
                 import whisper
-                self._model = whisper.load_model(self.model_name, device=self.device)
+                self._model = whisper.load_model(
+                    self.model_name,
+                    device=self.device,
+                    download_root=str(model_data_dir() / "whisper" / "openai-whisper"),
+                )
             update_metrics(model_loaded=True, model_load_seconds=time.monotonic() - started)
         return self._model
 

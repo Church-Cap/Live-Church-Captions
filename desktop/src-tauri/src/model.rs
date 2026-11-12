@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const ENGINE_PROTOCOL_VERSION: u16 = 2;
 pub const ENGINE_EVENT_PREFIX: &str = "CHURCH_CAP_ENGINE_EVENT=";
+pub const ENGINE_REQUEST_PREFIX: &str = "CHURCH_CAP_ENGINE_REQUEST=";
 pub const ENGINE_COMMAND_PREFIX: &str = "CHURCH_CAP_ENGINE_COMMAND=";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -76,6 +77,20 @@ impl EngineEvent {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngineRequest {
+    pub request: String,
+    pub protocol_version: u16,
+    pub pid: u32,
+}
+
+impl EngineRequest {
+    pub fn parse(line: &str) -> Option<Self> {
+        serde_json::from_str(line.strip_prefix(ENGINE_REQUEST_PREFIX)?).ok()
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct EngineCommand<'a> {
     pub command: &'a str,
@@ -102,11 +117,24 @@ mod tests {
     #[test]
     fn parses_versioned_engine_events() {
         let event = EngineEvent::parse(
-            "CHURCH_CAP_ENGINE_EVENT={\"state\":\"ready\",\"app_version\":\"0.8.0\",\"protocol_version\":2,\"viewer_url\":\"http://127.0.0.1:8080/\",\"operator_url\":\"http://127.0.0.1:9090/operator\",\"detail\":\"\",\"pid\":42}",
+            "CHURCH_CAP_ENGINE_EVENT={\"state\":\"ready\",\"app_version\":\"0.9.0\",\"protocol_version\":2,\"viewer_url\":\"http://127.0.0.1:8080/\",\"operator_url\":\"http://127.0.0.1:9090/operator\",\"detail\":\"\",\"pid\":42}",
         )
         .expect("event should parse");
         assert_eq!(event.protocol_version, ENGINE_PROTOCOL_VERSION);
         assert_eq!(event.pid, 42);
+    }
+
+    #[test]
+    fn parses_only_well_formed_engine_requests() {
+        let line = "CHURCH_CAP_ENGINE_REQUEST={\"request\":\"open_updates\",\"protocol_version\":2,\"pid\":42}";
+        let request = EngineRequest::parse(line).expect("request should parse");
+        assert_eq!(request.request, "open_updates");
+        assert_eq!(request.protocol_version, ENGINE_PROTOCOL_VERSION);
+        assert_eq!(request.pid, 42);
+        assert!(EngineRequest::parse("CHURCH_CAP_ENGINE_EVENT={}").is_none());
+        assert!(EngineRequest::parse("CHURCH_CAP_ENGINE_REQUEST=not-json").is_none());
+        assert!(EngineRequest::parse("CHURCH_CAP_ENGINE_REQUEST={\"request\":\"open_updates\",\"protocol_version\":2,\"pid\":42,\"extra\":true}").is_none());
+        assert!(EngineRequest::parse("CHURCH_CAP_ENGINE_REQUEST={\"request\":\"open_updates\",\"protocol_version\":2,\"pid\":\"42\"}").is_none());
     }
 
     #[test]
@@ -121,7 +149,7 @@ mod tests {
     fn parses_caption_lifecycle_events() {
         for state in ["captions_live", "captions_idle"] {
             let line = format!(
-                "CHURCH_CAP_ENGINE_EVENT={{\"state\":\"{state}\",\"app_version\":\"0.8.0\",\"protocol_version\":2,\"viewer_url\":\"http://127.0.0.1:8080/\",\"operator_url\":\"http://127.0.0.1:9090/operator\",\"detail\":\"caption transition\",\"pid\":42}}"
+                "CHURCH_CAP_ENGINE_EVENT={{\"state\":\"{state}\",\"app_version\":\"0.9.0\",\"protocol_version\":2,\"viewer_url\":\"http://127.0.0.1:8080/\",\"operator_url\":\"http://127.0.0.1:9090/operator\",\"detail\":\"caption transition\",\"pid\":42}}"
             );
             assert_eq!(EngineEvent::parse(&line).unwrap().state, state);
         }

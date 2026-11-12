@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_PATH="${CHURCH_CAP_MACOS_APP:-$PROJECT_ROOT/dist/macos-arm64/Church Cap.app}"
-OUTPUT_PATH="${CHURCH_CAP_MACOS_DMG:-$PROJECT_ROOT/dist/Church-Cap-v0.8.0-macOS-Apple-Silicon-internal.dmg}"
+OUTPUT_PATH="${CHURCH_CAP_MACOS_DMG:-$PROJECT_ROOT/dist/Church-Cap-v0.9.0-macOS-Apple-Silicon-internal.dmg}"
 DMG_KIND="${CHURCH_CAP_MACOS_DMG_KIND:-internal}"
 BACKGROUND_PATH="$PROJECT_ROOT/packaging/macos/dmg/church-cap-dmg-background.png"
 BACKGROUND_2X_PATH="$PROJECT_ROOT/packaging/macos/dmg/church-cap-dmg-background@2x.png"

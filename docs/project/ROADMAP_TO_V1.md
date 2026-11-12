@@ -17,6 +17,7 @@ Shared captioning, audio, translation, security, update, and browser UI code rem
 - Improve installation and recovery guidance from clean-machine feedback without duplicating browser behaviour across platforms.
 - Continue testing macOS, Windows CPU, Windows NVIDIA, Linux CPU, Linux NVIDIA, and the explicit appliance profiles.
 - Keep Windows Authenticode signing as a post-v0.8.0 improvement; v0.8.0 remains clearly labelled as unsigned and checksum-verifiable on Windows.
+- Guide new installations through password/security, local hardware recommendations, optional translated-caption setup, conservative capacity limits, and visible installation progress.
 
 ## v0.9.x Public Candidate
 
@@ -38,4 +39,4 @@ Shared captioning, audio, translation, security, update, and browser UI code rem
 - Privacy, safeguarding, legal, accessibility, and third-party notices are complete and easy to find.
 - Automated tests and clean-machine acceptance cover every supported release path.
 
-Implementation details are maintained in the [cross-platform architecture](CROSS_PLATFORM_ARCHITECTURE.md), [v0.8.0 implementation record](V0.8.0_IMPLEMENTATION.md), and [desktop update release runbook](DESKTOP_UPDATE_RELEASE_RUNBOOK.md).
+Implementation details are maintained in the [cross-platform architecture](CROSS_PLATFORM_ARCHITECTURE.md), current [v0.9.0 implementation record](V0.9.0_IMPLEMENTATION.md), retained [v0.8.1 implementation record](V0.8.1_IMPLEMENTATION.md), and [desktop update release runbook](DESKTOP_UPDATE_RELEASE_RUNBOOK.md).

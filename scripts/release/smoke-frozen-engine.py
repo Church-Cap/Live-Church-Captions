@@ -167,7 +167,7 @@ def run_smoke(engine: Path, viewer_port: int, operator_port: int, timeout: float
             checks["health"] = (
                 health_status == 200
                 and health.get("ok") is True
-                and health.get("app_version") == "0.8.0"
+                and health.get("app_version") == "0.9.0"
                 and health.get("runtime_mode") == "packaged"
                 and health.get("engine_protocol_version") == 2
             )
@@ -186,6 +186,14 @@ def run_smoke(engine: Path, viewer_port: int, operator_port: int, timeout: float
                 operator_status == 303
                 and {key.lower(): value for key, value in operator_headers.items()}.get("location") == "/setup"
             )
+            if os.name == "nt":
+                setup_status, _, setup_body = _request(f"{operator}/setup")
+                checks["windows_cpu_pytorch_label"] = (
+                    setup_status == 200
+                    and b"PyTorch compatibility (CPU)" in setup_body
+                    and b"CPU fallback" in setup_body
+                    and b"CUDA verified" not in setup_body
+                )
             if not all(checks.values()):
                 raise RuntimeError(f"One or more route checks failed: {checks}")
         finally:

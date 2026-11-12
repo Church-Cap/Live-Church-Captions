@@ -243,7 +243,8 @@ class TranslationProviderRoutingTests(unittest.TestCase):
 
     def test_restricted_mode_exposes_requestable_languages(self):
         source = Path("app/broadcast.py").read_text(encoding="utf-8")
-        self.assertIn("requestable_languages = sorted(provider_languages - self.translation_allowed_languages - {self.source_language})", source)
+        self.assertIn("sorted(provider_languages - self.translation_allowed_languages - {self.source_language})", source)
+        self.assertIn("if self.translation_language_requests_enabled", source)
         self.assertIn('"requestable_languages": requestable_languages', source)
 
     def test_translation_timing_mode_uses_responsive_stable_english(self):

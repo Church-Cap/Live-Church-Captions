@@ -36,7 +36,7 @@ bash setup-linux.sh
 
 Distro package mappings live only in `scripts/linux-system-packages.sh`. Keep new distro work in that file rather than adding branches throughout the application.
 
-Ubuntu 26.04's Python 3.14 is deliberately not used for Church Cap v0.8.0 because every pinned ML wheel is not yet available for it. No separate Python installation step is required: the verified managed Python 3.12 path handles this automatically and stays local to Church Cap. The updater preserves `.tools` along with `.venv` and user data.
+Ubuntu 26.04's Python 3.14 is deliberately not used because every pinned Church Cap ML wheel is not yet available for it. No separate Python installation step is required: the verified managed Python 3.12 path handles this automatically and stays local to Church Cap. The updater preserves `.tools` along with `.venv` and user data.
 
 If setup reports `Disk quota exceeded`, free space owned by the current Linux account or ask its administrator to raise the quota. A failed attempt may leave a partial `.venv`. Rerun `bash setup-linux.sh`; when that environment is partial or incompatible, setup offers to remove only the Church Cap `.venv` and recreate it after explicit confirmation.
 

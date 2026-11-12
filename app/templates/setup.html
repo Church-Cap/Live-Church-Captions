@@ -3,96 +3,284 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Church Cap · Set operator password</title>
+  <title>Church Cap · Welcome</title>
   <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
-  <link rel="stylesheet" href="/static/styles.css">
-  <script src="/static/setup-password.js?v=0.8.0-2" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.0-onboarding-24">
+  <script src="/static/setup-theme.js?v=0.9.0-onboarding-22" defer></script>
+  <script src="/static/setup-onboarding.js?v=0.9.0-onboarding-22" defer></script>
 </head>
-<body class="auth-page glass-page">
-  <main class="auth-shell">
-    <section class="auth-card glass-card">
-      <div class="auth-brand">
+<body class="auth-page glass-page onboarding-page" data-factory-reset="{{ 'true' if factory_reset_requested else 'false' }}">
+  <script>
+    (() => {
+      try {
+        const stored = localStorage.getItem('operatorTheme');
+        const manual = localStorage.getItem('operatorThemeManual') === '1';
+        const systemLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
+        if ((manual && stored === 'light') || (!manual && systemLight)) document.body.classList.add('light-mode');
+      } catch (_) {}
+    })();
+  </script>
+  <main class="auth-shell onboarding-shell">
+    <header class="onboarding-topbar">
+      <div class="auth-brand onboarding-brand">
         <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
         <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
       </div>
-      <p class="eyebrow">Local-first live captions for church</p>
-      <h1>Set operator password</h1>
-      <p class="muted">Create the password used to access the Church Cap control station. Public caption viewers will not need this password.</p>
-      {% if error %}<p class="error-banner">{{ error }}</p>{% endif %}
-      <form method="post" action="/setup" class="stacked-form" id="setupPasswordForm" novalidate>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="password">New password</label>
-        <input id="password" name="password" type="password" minlength="8" required autofocus autocomplete="new-password" aria-describedby="passwordRequirements passwordValidationMessage">
-        <label for="confirm_password">Confirm password</label>
-        <input id="confirm_password" name="confirm_password" type="password" minlength="8" required autocomplete="new-password" aria-describedby="passwordRequirements passwordValidationMessage">
-
-        <div class="password-requirements" id="passwordRequirements">
-          <strong>Password requirements</strong>
-          <ul>
-            <li id="passwordLengthRequirement">At least 8 characters</li>
-            <li id="passwordMatchRequirement">Both password entries must match</li>
-          </ul>
-          <small>A longer, unique passphrase is recommended. Uppercase letters, numbers and symbols are optional.</small>
+    </header>
+    <div class="onboarding-stage">
+      <aside class="onboarding-hero" aria-live="polite">
+        <p class="eyebrow">First-time setup</p>
+        <h2 id="onboardingHeroTitle">Set up clear captions.</h2>
+        <p id="onboardingHeroCopy">A guided setup for secure controls, suitable performance and the right language coverage for your church.</p>
+        <div class="onboarding-hero-notes">
+          <div><strong>Private by design</strong><span>Hardware checks, passwords and caption processing stay on this computer.</span></div>
+          <div><strong>Change it later</strong><span>Performance and language settings remain available from the Operator page.</span></div>
         </div>
-        <p class="error-banner password-validation-message" id="passwordValidationMessage" role="alert" aria-live="assertive" hidden></p>
+        <button type="button" class="onboarding-theme-toggle" id="onboardingThemeToggle" aria-label="Switch to light mode">
+          <span class="onboarding-theme-glyph" id="onboardingThemeGlyph" aria-hidden="true">☀︎</span>
+          <span id="onboardingThemeLabel">Light mode</span>
+        </button>
+      </aside>
+      <section class="auth-card glass-card onboarding-card" data-recommended-active-languages="{{ onboarding.recommended_active_languages }}" data-recommended-performance="{{ onboarding.performance_label }} · {{ onboarding.model_label }}">
 
-        <fieldset class="security-mode-fieldset">
-          <legend>Choose first-run security mode</legend>
+      <form method="post" action="/setup" class="stacked-form onboarding-form" id="setupPasswordForm" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" id="setupThemePreference" name="setup_theme" value="{{ form_values.get('setup_theme', 'system') }}">
+        {% if error %}<p class="error-banner onboarding-error" role="alert">{{ error }}</p>{% endif %}
 
-          <div class="setup-choice-card recommended">
-            <input id="securityModeSecure" type="radio" name="security_mode" value="secure_operator" checked>
-            <label class="setup-choice-copy" for="securityModeSecure">
-              <span class="setup-choice-title"><strong>Secure operator mode</strong><span class="security-mode-badge recommended-badge">Recommended</span></span>
-              <small>Audience captions use the local network, while operator controls stay on the Church Cap computer.</small>
-            </label>
+        <section class="onboarding-step" data-onboarding-step="1" aria-labelledby="onboardingWelcomeTitle">
+          <p class="eyebrow">First-time setup</p>
+          <h1 id="onboardingWelcomeTitle" tabindex="-1">Welcome to Church Cap</h1>
+          <p class="onboarding-lead">Let’s prepare this computer for clear English captions and, if your church needs them, local translated captions.</p>
+          <div class="onboarding-intro-grid">
+            <article data-setup-overview-step="security"><span class="onboarding-feature-icon" aria-hidden="true">1</span><strong>Secure the controls</strong><small>Password and operator access.</small></article>
+            <article data-setup-overview-step="sound"><span class="onboarding-feature-icon" aria-hidden="true">2</span><strong>Choose the sound input</strong><small>Microphone, mixer or audio interface.</small></article>
+            <article data-setup-overview-step="computer"><span class="onboarding-feature-icon" aria-hidden="true">3</span><strong>Tune this computer</strong><small>Recommended caption performance.</small></article>
+            <article data-setup-overview-step="languages"><span class="onboarding-feature-icon" aria-hidden="true">4</span><strong>Choose caption languages</strong><small>English or optional translations.</small></article>
+            <article data-setup-overview-step="voices"><span class="onboarding-feature-icon" aria-hidden="true">5</span><strong>Add spoken audio</strong><small>Optional visitor voice packs.</small></article>
+            <article data-setup-overview-step="review"><span class="onboarding-feature-icon" aria-hidden="true">6</span><strong>Review and finish</strong><small>Check and save your choices.</small></article>
           </div>
+          <p class="fine-print">Setup uses local, open-source runtime checks. It does not upload device details, captions or passwords.</p>
+        </section>
 
-          <div class="setup-choice-card caution">
-            <input id="securityModeEasyOffline" type="radio" name="security_mode" value="easy_offline">
-            <label class="setup-choice-copy" for="securityModeEasyOffline">
-              <span class="setup-choice-title"><strong>Easy offline mode</strong><span class="security-mode-badge caution-badge">Caution</span></span>
-              <small>Audience captions and operator sign-in are available on the local network.</small>
-            </label>
-            <button type="button" class="security-mode-info-button" id="easyOfflineInfoButton" aria-label="Advantages and disadvantages of Easy offline mode" aria-haspopup="dialog" aria-controls="easyOfflineInfoDialog">i</button>
+        <section class="onboarding-step" data-onboarding-step="2" aria-labelledby="onboardingSecurityTitle" hidden>
+          <p class="eyebrow">Security</p>
+          <h1 id="onboardingSecurityTitle" tabindex="-1">Protect operator controls</h1>
+          <p class="muted">Public caption viewers will not need this password.</p>
+          <label for="password">New operator password</label>
+          <input id="password" name="password" type="password" minlength="8" required autocomplete="new-password" aria-describedby="passwordRequirements passwordValidationMessage">
+          <label for="confirm_password">Confirm password</label>
+          <input id="confirm_password" name="confirm_password" type="password" minlength="8" required autocomplete="new-password" aria-describedby="passwordRequirements passwordValidationMessage">
+          <div class="password-requirements" id="passwordRequirements">
+            <strong>Password requirements</strong>
+            <ul><li id="passwordLengthRequirement">At least 8 characters</li><li id="passwordMatchRequirement">Both password entries must match</li></ul>
+            <small>A longer, unique passphrase is recommended. Uppercase letters, numbers and symbols are optional.</small>
           </div>
+          <p class="error-banner password-validation-message" id="passwordValidationMessage" role="alert" aria-live="assertive" hidden></p>
+          <fieldset class="security-mode-fieldset">
+            <legend>Who should reach operator controls?</legend>
+            <div class="setup-choice-card recommended">
+              <input id="securityModeSecure" type="radio" name="security_mode" value="secure_operator" {% if form_values.get('security_mode', 'secure_operator') == 'secure_operator' %}checked{% endif %}>
+              <label class="setup-choice-copy" for="securityModeSecure"><span class="setup-choice-title"><strong>Only this computer</strong><span class="security-mode-badge recommended-badge">Recommended</span></span><small>Audience captions use the local network while operator controls remain on this computer.</small></label>
+            </div>
+            <div class="setup-choice-card caution">
+              <input id="securityModeEasyOffline" type="radio" name="security_mode" value="easy_offline" {% if form_values.get('security_mode') == 'easy_offline' %}checked{% endif %}>
+              <label class="setup-choice-copy" for="securityModeEasyOffline"><span class="setup-choice-title"><strong>Trusted devices on this network</strong><span class="security-mode-badge caution-badge">Caution</span></span><small>Other computers or tablets on the same private network can reach operator sign-in.</small></label>
+              <button type="button" class="security-mode-info-button" id="easyOfflineInfoButton" aria-label="Advantages and disadvantages of network operator access" aria-haspopup="dialog" aria-controls="easyOfflineInfoDialog">i</button>
+            </div>
+            <div class="setup-choice-card">
+              <input id="securityModeManagedHttps" type="radio" name="security_mode" value="managed_https" {% if form_values.get('security_mode') == 'managed_https' %}checked{% endif %}>
+              <label class="setup-choice-copy" for="securityModeManagedHttps"><span class="setup-choice-title"><strong>Managed church devices</strong></span><small>For church-owned devices where a local certificate authority is installed and trusted in advance.</small></label>
+            </div>
+          </fieldset>
+        </section>
 
-          <div class="setup-choice-card">
-            <input id="securityModeManagedHttps" type="radio" name="security_mode" value="managed_https">
-            <label class="setup-choice-copy" for="securityModeManagedHttps">
-              <span class="setup-choice-title"><strong>Managed-device HTTPS mode</strong></span>
-              <small>For church-owned devices where a local certificate authority can be installed and trusted in advance.</small>
-            </label>
+        <section class="onboarding-step" data-onboarding-step="3" aria-labelledby="onboardingAudioInputTitle" hidden>
+          <p class="eyebrow">Sound input</p>
+          <h1 id="onboardingAudioInputTitle" tabindex="-1">Choose what Church Cap should listen to</h1>
+          <p class="muted">Select the microphone, church mixer or USB audio interface that will carry the service audio.</p>
+          <div class="onboarding-audio-device-card">
+            <span class="onboarding-audio-device-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><rect x="8" y="3" width="8" height="12" rx="4"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7"></path></svg></span>
+            <div>
+              <label for="setupAudioDevice">Microphone or audio interface</label>
+              <select id="setupAudioDevice" name="audio_device">
+                <option value="" {% if not audio_input.selected %}selected{% endif %}>System default input{% if audio_input.default_name %} · {{ audio_input.default_name }}{% endif %}</option>
+                {% for device in audio_input.devices %}
+                <option value="{{ device.value }}" data-review-label="{{ device.name }}" {% if audio_input.selected == device.value or audio_input.selected == device.name %}selected{% endif %}>{{ device.label }}{% if device.id == audio_input.default_input %} · System default{% endif %}</option>
+                {% endfor %}
+              </select>
+              <small id="setupAudioDeviceHelp">{{ audio_input.devices|length }} input device{% if audio_input.devices|length != 1 %}s{% endif %} detected locally. Choose System default if you are unsure.</small>
+            </div>
           </div>
-        </fieldset>
+          {% if not audio_input.ok %}<p class="warning-panel slim-warning"><strong>Detection needs attention:</strong> {{ audio_input.error }}</p>{% endif %}
+          {% if audio_input.ok and not audio_input.devices %}<p class="warning-panel slim-warning"><strong>No input devices were found.</strong> Connect the mixer or microphone, then restart setup—or continue with System default and choose it later from Performance.</p>{% endif %}
+          <p class="onboarding-ready-note"><strong>Nothing is recorded during this step.</strong> Church Cap saves only the selected device. Test it with the real sound-desk feed after setup.</p>
+        </section>
 
-        <p class="warning-panel slim-warning">
-          Fully offline trusted HTTPS on visitor phones is not possible unless their device already trusts the certificate.
-        </p>
+        <section class="onboarding-step" data-onboarding-step="4" aria-labelledby="onboardingPerformanceTitle" hidden>
+          <p class="eyebrow">This computer</p>
+          <h1 id="onboardingPerformanceTitle" tabindex="-1">Start with suitable settings</h1>
+          <div class="onboarding-detection-card"><span class="onboarding-detection-mark" aria-hidden="true">✓</span><div><strong>{{ onboarding.hardware_title }}</strong><p>{{ onboarding.hardware_detail }}</p></div></div>
+          <fieldset class="onboarding-choice-fieldset">
+            <legend>Caption performance</legend>
+            <label class="setup-choice-card recommended" for="performanceRecommended">
+              <input id="performanceRecommended" type="radio" name="performance_setup" value="recommended" {% if form_values.get('performance_setup', 'recommended') != 'later' %}checked{% endif %}>
+              <span class="setup-choice-copy"><span class="setup-choice-title"><strong>{{ onboarding.performance_label }} · {{ onboarding.model_label }}</strong><span class="security-mode-badge recommended-badge">Recommended</span></span><small>{{ onboarding.performance_reason }}</small></span>
+            </label>
+            <label class="setup-choice-card" for="performanceLater">
+              <input id="performanceLater" type="radio" name="performance_setup" value="later" {% if form_values.get('performance_setup') == 'later' %}checked{% endif %}>
+              <span class="setup-choice-copy"><span class="setup-choice-title"><strong>Decide later</strong></span><small>Keep the current defaults. Performance can be changed and benchmarked from the Operator page.</small></span>
+            </label>
+          </fieldset>
+          <p class="warning-panel slim-warning"><strong>Before a live service:</strong> run a microphone test and a short benchmark with the actual sound-desk connection. A recommendation cannot measure room audio quality.</p>
+        </section>
 
-        <button type="submit" class="primary-button full-width" id="saveOperatorPassword" form="setupPasswordForm">Save operator password</button>
+        <section class="onboarding-step" data-onboarding-step="5" aria-labelledby="onboardingLanguagesTitle" hidden>
+          {% set selected_packs = form_values.get('language_packs') or onboarding.default_language_packs %}
+          <p class="eyebrow">Language pack</p>
+          <h1 id="onboardingLanguagesTitle" tabindex="-1">Choose your caption coverage</h1>
+          <p class="muted">English is always included. Add either local translation pack, or select both for automatic fallback between them.</p>
+          {% if onboarding.nvidia_detected %}
+          <p class="onboarding-gpu-notice"><strong>NVIDIA GPU detected.</strong>
+            {% if not onboarding.translation_available %}This setup is configured for English captions only; translated language packs are unavailable.
+            {% elif onboarding.recommended_language_pack == 'compatibility' %}PyTorch can use its CUDA acceleration, so the PyTorch language pack is recommended for this computer.
+            {% elif onboarding.pytorch_cuda_ready %}PyTorch can use CUDA, but this computer has limited memory. Start with English captions and test translation later.
+            {% elif onboarding.windows_packaged_cpu_torch %}This Windows installer includes CPU-only PyTorch. When CUDA is ready, both packs are selected for Automatic mode: Broad/CTranslate2 uses the GPU first and PyTorch remains a CPU fallback. You can change this selection here or later in Settings.
+            {% else %}PyTorch GPU support has not been verified yet. The PyTorch pack may use the CPU until it is ready.{% endif %}
+          </p>
+          {% endif %}
+          <div class="onboarding-local-check"><span aria-hidden="true">✓</span><div><strong>{{ onboarding.local_check_summary }}</strong><small>{{ onboarding.language_pack_reason }} No device profile is sent online.</small></div></div>
+          <div class="onboarding-pack-toolbar">
+            <strong id="onboardingPackHeading">Caption language packs</strong>
+            <button type="button" class="security-mode-info-button language-pack-info-button" id="languagePackInfoButton" aria-label="Compare the available language packs" aria-haspopup="dialog" aria-controls="languagePackInfoDialog">i</button>
+            <button type="button" class="onboarding-select-all-button" id="selectAllLanguagePacks">Select all packs</button>
+          </div>
+          <fieldset class="onboarding-choice-fieldset onboarding-pack-fieldset{% if onboarding.recommended_language_pack == 'compatibility' %} pytorch-first{% endif %}">
+            <legend class="sr-only">Caption language packs</legend>
+            <label class="setup-choice-card onboarding-pack-card{% if onboarding.recommended_language_pack == 'english' %} recommended{% endif %}" for="languagePackEnglish" data-pack-label="English captions only">
+              <input id="languagePackEnglish" type="checkbox" name="language_packs" value="english" autocomplete="off" {% if 'english' in selected_packs %}checked{% endif %}>
+              <span class="onboarding-pack-icon" aria-hidden="true">EN</span>
+              <span class="setup-choice-copy"><span class="setup-choice-title"><strong>English captions only</strong>{% if onboarding.recommended_language_pack == 'english' %}<span class="security-mode-badge recommended-badge">Recommended</span>{% else %}<span class="security-mode-badge">Lightest</span>{% endif %}</span><small>No language download and the lowest live resource use. Add translated captions later if needed.</small></span>
+            </label>
+            <label class="setup-choice-card onboarding-pack-card{% if onboarding.recommended_language_pack == 'efficient' %} recommended{% endif %}{% if not onboarding.translation_available %} is-disabled{% endif %}" for="languagePackEfficient" data-pack-label="Broad language pack">
+              <input id="languagePackEfficient" type="checkbox" name="language_packs" value="efficient" autocomplete="off" {% if 'efficient' in selected_packs %}checked{% endif %} {% if not onboarding.translation_available %}disabled{% endif %}>
+              <span class="onboarding-pack-icon globe" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.8 12h16.4M12 3.5c2.1 2.3 3.2 5.1 3.2 8.5S14.1 18.2 12 20.5M12 3.5C9.9 5.8 8.8 8.6 8.8 12s1.1 6.2 3.2 8.5"></path></svg></span>
+              <span class="setup-choice-copy"><span class="setup-choice-title"><strong>Broad language pack</strong>{% if onboarding.recommended_language_pack == 'efficient' %}<span class="security-mode-badge recommended-badge">Recommended</span>{% else %}<span class="security-mode-badge beta-pill">Beta</span>{% endif %}</span><small>Broad translated-caption coverage, including Tigrinya, using the more efficient local engine. Best balance for most capable computers.</small><span class="onboarding-pack-meta">About 2.5 GB temporary space during setup · one shared local download</span></span>
+            </label>
+            <details class="onboarding-advanced-pack{% if onboarding.show_pytorch_pack %} onboarding-pytorch-promoted{% endif %}" {% if onboarding.show_pytorch_pack or 'compatibility' in selected_packs %}open{% endif %}>
+              <summary>{% if onboarding.recommended_language_pack == 'compatibility' %}Recommended for this NVIDIA GPU{% elif onboarding.windows_packaged_cpu_torch %}PyTorch compatibility (CPU){% elif onboarding.show_pytorch_pack %}NVIDIA PyTorch option detected{% else %}Advanced compatibility option{% endif %}</summary>
+              <label class="setup-choice-card onboarding-pack-card{% if onboarding.recommended_language_pack == 'compatibility' %} recommended{% endif %}{% if not onboarding.translation_available %} is-disabled{% endif %}" for="languagePackCompatibility" data-pack-label="PyTorch SMaLL-100 language pack">
+                <input id="languagePackCompatibility" type="checkbox" name="language_packs" value="compatibility" autocomplete="off" {% if 'compatibility' in selected_packs %}checked{% endif %} {% if not onboarding.translation_available %}disabled{% endif %}>
+                <span class="onboarding-pack-icon" aria-hidden="true">PT</span>
+                <span class="setup-choice-copy"><span class="setup-choice-title"><strong>PyTorch SMaLL-100 language pack</strong>{% if onboarding.recommended_language_pack == 'compatibility' %}<span class="security-mode-badge recommended-badge">Recommended</span>{% else %}<span class="security-mode-badge{% if onboarding.pytorch_cuda_ready %} cuda-ready-badge{% endif %}">{{ onboarding.pytorch_pack_badge }}</span>{% endif %}</span><small>{{ onboarding.pytorch_pack_detail }}</small><span class="onboarding-pack-meta">Approximately 1.2 GB download · does not include Tigrinya</span></span>
+              </label>
+            </details>
+          </fieldset>
+          {% if not onboarding.translation_available %}<p class="warning-panel slim-warning"><strong>Translation is unavailable:</strong> {{ onboarding.translation_message }}</p>{% endif %}
+          <div id="translatedLanguageSetup" class="translated-language-setup" {% if selected_packs|length == 1 and 'english' in selected_packs %}hidden{% endif %}>
+            <div class="onboarding-language-limit-card">
+              <div><label for="translationMaxActiveLanguages">Simultaneous translated languages</label><small>Recommended for this computer: {{ onboarding.recommended_active_languages }}. This controls live workload, not how many languages are available in the pack.</small></div>
+              <div class="onboarding-language-limit-control">
+                <output id="translationMaxActiveLanguagesValue" for="translationMaxActiveLanguages" aria-live="polite">{{ form_values.get('translation_max_active_languages', onboarding.recommended_active_languages)|int }}</output>
+                <input class="premium-range onboarding-language-limit-range" id="translationMaxActiveLanguages" name="translation_max_active_languages" type="range" min="1" max="{{ onboarding.maximum_active_languages }}" step="1" value="{{ form_values.get('translation_max_active_languages', onboarding.recommended_active_languages)|int }}" aria-describedby="translationLanguageLimitScale">
+                <div class="onboarding-language-limit-scale" id="translationLanguageLimitScale"><span>1</span><span>Up to {{ onboarding.maximum_active_languages }}</span></div>
+              </div>
+            </div>
+            <p class="warning-panel slim-warning"><strong>Performance:</strong> each active translated language adds CPU and memory work and may increase delay. Start with the recommendation and test before production.</p>
+          </div>
+          <details class="onboarding-pack-details"><summary>Open-source and local processing details</summary><p>The Broad pack uses SMaLL-100 with CTranslate2, plus OPUS-MT for Tigrinya. The PyTorch pack uses the original SMaLL-100 model and only claims NVIDIA acceleration when the installed PyTorch runtime reports CUDA is available. Software and model licences are documented with Church Cap; live translation runs locally after the selected pack is downloaded.</p></details>
+          <p class="fine-print">If you add translated captions, the next optional step can also prepare spoken translated audio.</p>
+        </section>
+
+        <section class="onboarding-step" data-onboarding-step="6" aria-labelledby="onboardingSpokenAudioTitle" hidden>
+          {% set selected_voices = form_values.get('spoken_audio_packages') or [] %}
+          {% set spoken_choice = form_values.get('spoken_audio_setup', 'skip') %}
+          <p class="eyebrow">Spoken translated audio · Optional</p>
+          <h1 id="onboardingSpokenAudioTitle" tabindex="-1">Let visitors listen in their language</h1>
+          <p class="muted">This reads translated captions aloud on a visitor’s own device. It is separate from captions and can be skipped now.</p>
+          <div class="onboarding-local-check"><span aria-hidden="true">♫</span><div><strong>Runs locally after download</strong><small>Only the selected open-source voice packs are downloaded. Live caption text and audio stay on this computer and the local network.</small></div></div>
+          <fieldset class="onboarding-choice-fieldset spoken-audio-choice-fieldset">
+            <legend>Set up spoken audio?</legend>
+            <label class="setup-choice-card recommended" for="spokenAudioSkip">
+              <input id="spokenAudioSkip" type="radio" name="spoken_audio_setup" value="skip" {% if spoken_choice != 'install' %}checked{% endif %}>
+              <span class="setup-choice-copy"><span class="setup-choice-title"><strong>Skip for now</strong><span class="security-mode-badge recommended-badge">Easy to add later</span></span><small>Translated captions will still work. Add voice packs later from Spoken Translated Audio.</small></span>
+            </label>
+            <label class="setup-choice-card" for="spokenAudioInstall">
+              <input id="spokenAudioInstall" type="radio" name="spoken_audio_setup" value="install" {% if spoken_choice == 'install' %}checked{% endif %}>
+              <span class="setup-choice-copy"><span class="setup-choice-title"><strong>Install spoken languages</strong></span><small>Choose only the languages your church is likely to use. More voices use more download time and storage.</small></span>
+            </label>
+          </fieldset>
+          <div class="onboarding-spoken-options" id="spokenAudioOptions" {% if spoken_choice != 'install' %}hidden{% endif %}>
+            <div class="onboarding-pack-toolbar">
+              <strong>Voice packs</strong>
+              <button type="button" class="onboarding-select-all-button" id="selectAllSpokenAudio">Select all voices</button>
+            </div>
+            <fieldset class="onboarding-voice-grid" id="spokenAudioPackages">
+              <legend class="sr-only">Spoken translated audio languages</legend>
+              {% for voice in voice_catalog %}
+              <label class="onboarding-voice-card" for="spokenAudioPackage{{ voice.id }}" data-voice-label="{{ voice.label }}">
+                <input id="spokenAudioPackage{{ voice.id }}" type="checkbox" name="spoken_audio_packages" value="{{ voice.id }}" {% if voice.id in selected_voices %}checked{% endif %}>
+                <span><strong>{{ voice.label }}</strong><small>{{ voice.download_label }} download</small></span>
+              </label>
+              {% endfor %}
+            </fieldset>
+            <p class="error-banner password-validation-message" id="spokenAudioValidationMessage" role="alert" aria-live="assertive" hidden></p>
+            <p class="warning-panel slim-warning"><strong>Installation order:</strong> Church Cap installs caption languages first, then voice packs. This avoids two large installers competing and affecting setup reliability.</p>
+            <p class="fine-print">All voices together are {{ voice_catalog_total_download_label }}. Spoken audio is machine-generated; test pronunciation and device playback before a service.</p>
+          </div>
+        </section>
+
+        <section class="onboarding-step" data-onboarding-step="7" aria-labelledby="onboardingReviewTitle" hidden>
+          <p class="eyebrow">Review</p>
+          <h1 id="onboardingReviewTitle" tabindex="-1">Ready to set up Church Cap</h1>
+          <div class="onboarding-review-list">
+            <article><span>Security</span><strong id="reviewSecurity">Only this computer</strong></article>
+            <article><span>Sound input</span><strong id="reviewAudioInput">System default input</strong></article>
+            <article><span>Caption performance</span><strong id="reviewPerformance">{{ onboarding.performance_label }} · {{ onboarding.model_label }}</strong></article>
+            <article><span>Language packs</span><strong id="reviewLanguages">English captions only</strong></article>
+            <article id="reviewLanguageLimitRow" hidden><span>Simultaneous translation limit</span><strong id="reviewLanguageLimit">{{ onboarding.recommended_active_languages }}</strong></article>
+            <article id="reviewSpokenAudioRow" hidden><span>Spoken translated audio</span><strong id="reviewSpokenAudio">Skip for now</strong></article>
+          </div>
+          <p id="reviewInstallNotice" class="onboarding-ready-note">Setup will save the password and settings. No language download will start.</p>
+          <p class="fine-print">You can revisit the sound input, performance and languages from the Operator page. Translated captions are machine-generated and should be tested carefully for Scripture, names, theology and pastoral content.</p>
+        </section>
+
+        <div class="onboarding-actions">
+          <button type="button" class="secondary-button" id="onboardingBack" hidden>Back</button>
+          <button type="button" class="primary-button" id="onboardingNext">Get started</button>
+          <button type="submit" class="primary-button" id="saveOperatorPassword" hidden>Finish setup</button>
+        </div>
+        <div class="onboarding-progress" aria-label="Setup progress">
+          <div class="onboarding-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Setup completion"><span id="onboardingProgressBar"></span></div>
+          <ol class="onboarding-step-indicators">
+            <li data-step-indicator="1" aria-current="step"><span aria-hidden="true">•</span><small>Welcome</small></li><li data-step-indicator="2"><span>1</span><small>Security</small></li><li data-step-indicator="3"><span>2</span><small>Sound</small></li><li data-step-indicator="4"><span>3</span><small>Computer</small></li><li data-step-indicator="5"><span>4</span><small>Languages</small></li><li data-step-indicator="6" data-spoken-step hidden><span>5</span><small>Voices</small></li><li data-step-indicator="7"><span>6</span><small>Review</small></li>
+          </ol>
+          <span class="onboarding-progress-percent" id="onboardingProgressPercent">0%</span>
+        </div>
       </form>
 
       <dialog class="security-mode-info-dialog glass-card" id="easyOfflineInfoDialog" aria-labelledby="easyOfflineInfoTitle" aria-describedby="easyOfflineInfoSummary">
-        <form method="dialog"><button type="submit" class="dialog-close" aria-label="Close Easy offline mode information">×</button></form>
-        <p class="eyebrow caution-eyebrow">Easy offline mode · Caution</p>
-        <h2 id="easyOfflineInfoTitle">Convenient, but less isolated</h2>
-        <p class="muted" id="easyOfflineInfoSummary">Operator controls can be reached from other devices on the same LAN. A password is still required, but exposing the sign-in page to the network increases the security risk.</p>
-        <div class="security-mode-tradeoffs">
-          <section class="security-mode-advantage">
-            <strong>Advantage</strong>
-            <p>Trusted operators can control Church Cap from another computer or tablet on the church network.</p>
-          </section>
-          <section class="security-mode-disadvantage">
-            <strong>Disadvantage</strong>
-            <p>Every device on that LAN can reach the operator sign-in page. Use a strong password and only a trusted, private network.</p>
-          </section>
-        </div>
+        <form method="dialog"><button type="submit" class="dialog-close" aria-label="Close network access information">×</button></form>
+        <p class="eyebrow caution-eyebrow">Network operator access · Caution</p><h2 id="easyOfflineInfoTitle">Convenient, but less isolated</h2>
+        <p class="muted" id="easyOfflineInfoSummary">Operator controls can be reached from other devices on the same LAN. A password is still required, but exposing sign-in increases the security risk.</p>
+        <div class="security-mode-tradeoffs"><section class="security-mode-advantage"><strong>Advantage</strong><p>Trusted operators can control Church Cap from another computer or tablet.</p></section><section class="security-mode-disadvantage"><strong>Disadvantage</strong><p>Every device on that LAN can reach operator sign-in. Use only a trusted private network.</p></section></div>
         <form method="dialog" class="security-mode-dialog-actions"><button type="submit" class="primary-button">I understand</button></form>
       </dialog>
-
-      <p class="fine-print">Use a password shared only with trusted operators and AV volunteers.</p>
-      <p class="auth-footer">{{ app_version_label }}</p>
-    </section>
+      <dialog class="security-mode-info-dialog language-pack-info-dialog glass-card" id="languagePackInfoDialog" aria-labelledby="languagePackInfoTitle" aria-describedby="languagePackInfoSummary">
+        <form method="dialog"><button type="submit" class="dialog-close" aria-label="Close language pack information">×</button></form>
+        <p class="eyebrow">Language packs · Local and optional</p><h2 id="languagePackInfoTitle">Which packs should I install?</h2>
+        <p class="muted" id="languagePackInfoSummary">Start with Broad unless you have a specific compatibility reason. Installing both uses more storage, but Automatic mode still tries the efficient provider first.</p>
+        <div class="language-pack-comparison">
+          <section><strong>English only</strong><p>No model download and the lowest resource use.</p></section>
+          <section><strong>Broad · Recommended</strong><p>Efficient CTranslate2 translation with broad coverage and separate Tigrinya support.</p></section>
+          <section><strong>PyTorch SMaLL-100</strong><p>{% if onboarding.windows_packaged_cpu_torch %}A heavier CPU fallback in this small Windows installer. The optional CUDA download does not accelerate this PyTorch build.{% else %}A heavier compatibility path that may benefit from a verified NVIDIA PyTorch CUDA runtime.{% endif %}</p></section>
+          <section><strong>Both · Automatic</strong><p>Installs the packs one at a time, then lets Church Cap try the best available local provider in a safe fallback order.</p></section>
+        </div>
+        <p class="fine-print">Extra installed packs increase download time and storage. Simultaneous viewer languages—not the number of installed packs—usually have the greatest effect on live translation workload.</p>
+        <form method="dialog" class="security-mode-dialog-actions"><button type="submit" class="primary-button">Done</button></form>
+      </dialog>
+      </section>
+    </div>
   </main>
 </body>
 </html>

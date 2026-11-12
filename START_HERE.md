@@ -2,15 +2,17 @@
 
 Church Cap is a local live-caption app for churches. It runs on the caption computer, listens to the church sound desk or USB audio interface, and gives visitors a QR code so they can read captions on their phones.
 
-Developers continuing the native desktop work should begin with [docs/project/CROSS_PLATFORM_ARCHITECTURE.md](docs/project/CROSS_PLATFORM_ARCHITECTURE.md), the [v0.8.0 implementation status](docs/project/V0.8.0_IMPLEMENTATION.md), and the [desktop update release runbook](docs/project/DESKTOP_UPDATE_RELEASE_RUNBOOK.md). The browser application has one shared source in `app/`; macOS, Windows, and Linux must not maintain separate copies of its pages or behaviour.
+Developers should use the permanent `church-cap/` checkout and begin with [the v0.9.0 implementation record](docs/project/V0.9.0_IMPLEMENTATION.md), [cross-platform architecture](docs/project/CROSS_PLATFORM_ARCHITECTURE.md), and the [desktop update release runbook](docs/project/DESKTOP_UPDATE_RELEASE_RUNBOOK.md). The browser application has one shared source in `app/`; macOS, Windows, and Linux must not maintain separate copies of its pages or behaviour.
 
 ## Recommended Downloads
 
-- [Mac — Apple Silicon](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0): install the notarized DMG in Applications.
-- [Windows — 64-bit](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0): run the setup executable. The current Windows release is unsigned, so verify its published SHA-256 before accepting any SmartScreen warning.
-- [Linux — 64-bit CLI](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0): verify and extract `Church-Cap-Linux-CLI.tar.gz`, then run `bash setup-linux.sh`.
+- [Mac — Apple Silicon](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0): install the notarized DMG in Applications.
+- [Windows — 64-bit](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0): run the setup executable. The v0.9.0 Windows installer is not Authenticode-signed, so verify its published SHA-256 before accepting any SmartScreen warning.
+- [Linux — 64-bit CLI](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0): verify and extract `Church-Cap-Linux-CLI.tar.gz`, then run `bash setup-linux.sh`.
 
 Mac, Windows, and Linux downloads are published as assets of the same versioned release.
+
+Already using v0.8.0 on Mac or Windows? Install v0.9.0 once from the download above. The v0.8.0 in-app updater cannot verify v0.9.0 because the updater signing key was replaced; your settings and local data are kept. Later updates can be installed from inside Church Cap.
 
 The source-folder instructions below remain available for contributors and advanced installations. Mac and Windows users should normally use the native downloads above.
 
@@ -19,7 +21,7 @@ The source-folder instructions below remain available for contributors and advan
 Open Terminal, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.8.0"
+cd "$HOME/Documents/church-cap"
 ```
 
 Run setup. Use `bash` for this first command because the setup script may not be executable yet. The setup script repairs permissions for the other Church Cap scripts automatically.
@@ -28,14 +30,14 @@ Run setup. Use `bash` for this first command because the setup script may not be
 bash setup-macos.sh
 ```
 
-Setup may take a while. It installs the local Python environment and audio dependencies. It can also install common Base package / Argos packs, all Base packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skip translation resources until later.
+Setup may take a while. It installs the local Python environment and audio dependencies. When Church Cap first opens, the browser setup assistant recommends caption performance and friendly language-pack choices using checks performed on that computer. English-only setup stays lightweight and goes directly to Review. Broad and PyTorch SMaLL-100 may be installed separately or together; selecting both enables Automatic mode and installs them one at a time with visible combined progress. If translation is selected, a separate optional step offers reviewed spoken-audio voices or **Skip for now**. Voice packs install only after caption-language packs finish. Individual caption languages no longer need to be selected during onboarding.
 
 ## First-Time Setup On Windows
 
 Open PowerShell, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```powershell
-cd "$HOME\Documents\Live-Church-Captions-0.8.0"
+cd "$HOME\Documents\church-cap"
 ```
 
 Run setup:
@@ -44,7 +46,7 @@ Run setup:
 .\setup-windows.cmd
 ```
 
-If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12. Setup also checks for CUDA/GPU support. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU.
+If Python is missing and Windows Package Manager is available, setup can offer to install Python 3.12. Setup also checks for CUDA/GPU support. If an NVIDIA GPU is visible but CUDA is not ready for faster-whisper, setup can offer to install or force reinstall local CUDA 12 runtime packages into Church Cap's `.venv`. The force reinstall bypasses pip's cache and downloads fresh CUDA runtime wheels. If CUDA is not ready, Church Cap falls back to CPU. The first-run browser assistant then guides performance and optional caption-language setup without requiring model knowledge.
 
 You can also run the optional GPU runtime installer later:
 
@@ -59,7 +61,7 @@ If Windows says `UnauthorizedAccess`, scripts are disabled, or the file came fro
 Open a terminal, then go to the downloaded and extracted Church Cap folder. This example assumes the folder has been moved into Documents.
 
 ```bash
-cd "$HOME/Documents/Live-Church-Captions-0.8.0"
+cd "$HOME/Documents/church-cap"
 bash setup-linux.sh
 ```
 
@@ -138,9 +140,15 @@ Their phone/tablet receives a simpler page for start, stop, blank, resume, audio
 
 The service leader can share the audience QR code by generating a temporary phone-download QR, then save it for ProPresenter, EasyWorship, FreeShow, slides, or printed notices without opening the full operator page. On an appliance, **Operator → Congregation → Join Live Captions** uses the same handoff for its QR buttons.
 
+## Optional ProPresenter Output
+
+Open **Operator → Congregation → ProPresenter** to create a local Web-object address for English or any installed caption language. Paste it into a ProPresenter Prop by using the globe/Web object in the Prop editor. Church Cap reports when the active Web object has connected. A translated output requests its selected language without increasing the congregation viewer count. Enabling Props in a ProPresenter Look and showing the Prop are separate actions; complete both, then start captions and rehearse the selected Audience output with the real audio feed before a service. If the Web object is unreliable, use the full guide's OBS composite fallback.
+
+**Congregation → OBS Live Stream** provides the same one-language selection for an OBS browser source. Changing either output selector creates a new address; copy it into the relevant source and refresh any source that is already open.
+
 ## Optional Translated Audio Pilot
 
-A visitor can select **Listen** after the church installs a reviewed voice pack. In **Operator → Languages → Spoken Translated Audio**, stop captions, choose only the language packs the church needs, review the estimated size, and select **Install selected languages**. Normal setup downloads no voice weights. The same section reports readiness and lets the operator make spoken audio available to visitors. English never shows the control, and ordinary text captions continue if speech generation is unavailable. Traditional Chinese currently uses Mandarin speech, not Cantonese. See [docs/translated-audio.md](docs/translated-audio.md) and the [voice-model notices](docs/legal/SPOKEN_LANGUAGE_MODELS.md) before live use.
+A visitor can select **Listen** after the church installs a reviewed voice pack. The optional spoken-audio onboarding step appears only after a translated-caption pack is chosen and defaults to **Skip for now**. You can also use **Operator → Languages → Spoken Translated Audio** later: stop captions, choose only the packs the church needs, review the estimated size, and select **Install selected languages**. The same section reports readiness and lets the operator make spoken audio available to visitors. English never shows the control, and ordinary text captions continue if speech generation is unavailable. Traditional Chinese currently uses Mandarin speech, not Cantonese. See [docs/translated-audio.md](docs/translated-audio.md) and the [voice-model notices](docs/legal/SPOKEN_LANGUAGE_MODELS.md) before live use.
 
 ## If Something Goes Wrong
 

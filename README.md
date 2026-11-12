@@ -1,6 +1,6 @@
 # Church Cap
 
-Version: **v0.8.0**
+Version: **v0.9.0**
 
 ![Church Cap logo](assets/branding/church-cap-wide-dark.png)
 
@@ -12,13 +12,19 @@ For a non-technical setup guide, start with [START_HERE.md](START_HERE.md).
 
 ## Download Church Cap
 
-- [Mac — Apple Silicon](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0): download the notarized DMG, drag Church Cap to Applications, then open it.
-- [Windows — 64-bit](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0): download and run the setup executable. The v0.8.0 Windows build is currently unsigned, so Windows may show a SmartScreen warning.
-- [Linux — 64-bit CLI](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.8.0): download `Church-Cap-Linux-CLI.tar.gz`, verify its published SHA-256 file, extract it, and run `bash setup-linux.sh`.
+- [Mac — Apple Silicon](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0): download the notarized DMG, drag Church Cap to Applications, then open it.
+- [Windows — 64-bit](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0): download and run the setup executable. The v0.9.0 Windows build is not Authenticode-signed, so Windows may show a SmartScreen warning.
+- [Linux — 64-bit CLI](https://github.com/Church-Cap/Live-Church-Captions/releases/tag/v0.9.0): download `Church-Cap-Linux-CLI.tar.gz`, verify its published SHA-256 file, extract it, and run `bash setup-linux.sh`.
+
+Upgrading a v0.8.0 Mac or Windows installation: download and run the v0.9.0 DMG or Windows installer once. v0.8.0 cannot install v0.9.0 through its in-app updater because v0.9.0 uses a replacement updater signing key; existing settings and local data are kept. Signed in-app updates resume from v0.9.0 onward. Linux updates are unaffected.
 
 All platform downloads are published together under one semantic-version GitHub Release and use the single shared browser application in `app/`. Source checkout instructions remain below for contributors and advanced installations.
 
 ## Project Layout
+
+Contributors: use the permanent `church-cap/` checkout and keep release installers
+outside Git. See [development layout and repository safety](docs/project/DEVELOPMENT_AND_RELEASE_LAYOUT.md)
+for local commit/push checks, platform handoffs and release storage.
 
 Most users should install Church Cap from the [latest GitHub release](https://github.com/Church-Cap/Live-Church-Captions/releases). The files below are primarily for contributors and source-based installations.
 
@@ -47,7 +53,7 @@ For source installation, see [START_HERE.md](START_HERE.md). Maintainers should 
 - Local FastAPI web server.
 - QR codes for audience access, including hostname and IP fallback links.
 - Mobile caption page with a viewport-bounded, internally scrollable accumulated Live feed for English and every translated language, plus an optional independently scrollable session transcript that starts closed on each visit. A word-timestamp-aware cue ledger shows safe English words immediately, briefly guards only a weak word at the live audio edge, and updates corrected wording in place before sealing it into the shared reader. The page also includes newest-first timestamps, font size, automatic system light/dark theme with local override, comfort/compact, pause, and local clear controls. Dismissing viewer notices returns their space to the caption panels without making the page longer.
-- Operator login, first-run password setup, and account/password page.
+- Operator login, operating-system-style first-run setup for security, hardware-aware caption performance and optional languages, plus the account/password page.
 - Same-origin request tokens for first-run setup, login, pairing, operator forms, and operator API changes, plus bounded password-attempt pauses with a clear operator-facing explanation.
 - Privacy-safe service measurements retained across restarts, with separate English operational-response and rolling-window estimates, stage timing, provider/scheduler outcomes, viewer-seconds, process/system resource aggregates, and a separate anonymised report.
 - One-use QR pairing for a restricted service-leader page with start/stop, private-moment, status, and multi-language controls.
@@ -61,10 +67,10 @@ For source installation, see [START_HERE.md](START_HERE.md). Maintainers should 
 - Bad-word censor for likely speech-to-text mistakes.
 - Sensitive blank/pause mode for private or pastoral moments, with audience notices rendered through the selected client UI language where available.
 - Transcript retention controls, encrypted local transcript cache, operator current-session transcript export as `.txt`, `.vtt`, `.srt`, and `.json`, plus restricted Service Leader TXT/VTT transcript export for appliance support after a privacy warning.
-- OBS browser-source overlay and setup guide. The `/display` and `/obs` surfaces now share one polished two-line presentation policy: finalized cues remain immediate, live English drafts expose only the server-confirmed prefix, unstable revisions retain the last good wording, and both outputs use the same line-planning policy and subtle motion while preserving their surface-specific styling.
+- OBS and ProPresenter presentation overlays with an operator-only setup guide. Each OBS browser source or ProPresenter Prop can use a generated one-language address (`/obs?integration=obs&lang=…` for OBS, `/propresenter?lang=…` for ProPresenter; older `/obs?integration=propresenter` Props keep working), report its connection state on the dashboard, and request translated captions without inflating the congregation viewer count. The `/display` and `/obs` surfaces share one polished two-line presentation policy: finalized cues remain immediate, live English drafts expose only the server-confirmed prefix, unstable revisions retain the last good wording, and both outputs use the same line-planning policy and subtle motion while preserving their surface-specific styling.
 - On Church Cap appliances, local Display and OBS previews stay on the appliance shell origin so the persistent Home/System controls remain available and failed preview routes can return to the local recovery environment.
 - Local multilingual support: phone UI labels use the lightweight catalogue in `app/locales/client_ui.json`, with Argos runtime fallback where needed. Experimental translated captions use package-style choices: **Recommended package** CTranslate2 INT8 / SMaLL-100, **Base package** Argos Translate, **Compatibility package** PyTorch SMaLL-100, or **Auto** mode across installed packages.
-- Optional local translated audio for installed and independently reviewed Sherpa-ONNX voice packs. **Languages → Spoken translated audio** lists optional packs, calculates their estimated download/storage use, and keeps installation, readiness and the visitor on/off control together. Normal setup downloads no voice weights. The catalogue covers Catalan, Spanish, French, Kazakh, Latvian, Nepali, Dutch, Slovenian, Swedish, Ukrainian and Mandarin for both Chinese caption scripts. A viewer can select **Listen** to hear finalized translated cues; one generated cue is shared by every listener using that language. English, unavailable voices, invalid/silent output and sensitive/private moments do not produce translated audio. See [spoken-language model notices](docs/legal/SPOKEN_LANGUAGE_MODELS.md).
+- Optional local translated audio for installed and independently reviewed Sherpa-ONNX voice packs. If translated captions are selected during first-run setup, a separate optional step can install one, several or all spoken-language packs; **Skip for now** remains the default, and English-only setup never asks. **Languages → Spoken translated audio** keeps later installation, estimated download/storage use, readiness and the visitor on/off control together. The catalogue covers Catalan, Spanish, French, Kazakh, Latvian, Nepali, Dutch, Slovenian, Swedish, Ukrainian and Mandarin for both Chinese caption scripts. A viewer can select **Listen** to hear finalized translated cues; one generated cue is shared by every listener using that language. English, unavailable voices, invalid/silent output and sensitive/private moments do not produce translated audio. See [spoken-language model notices](docs/legal/SPOKEN_LANGUAGE_MODELS.md).
 - Optional Service Context preparation with deterministic temporary corrections, independent Bible-reference formatting, and an explicitly enabled experimental Whisper-assistance mode limited to two selected terms.
 - Local HTTPS helper scripts for testing and managed-device deployments.
 - macOS, Windows, and Linux setup/start support, permission repair/password reset, and macOS LaunchAgent helper scripts.
@@ -108,7 +114,7 @@ bash setup-macos.sh
 ./start-macos.sh
 ```
 
-Use `bash setup-macos.sh` for the first run because the setup script may not be executable yet after download or unzip. The setup script repairs permissions for the other Church Cap scripts, prepares a local `.venv`, installs the app dependencies, creates `.env` if needed, can help set a friendly Bonjour hostname such as `church-cap.local`, and offers translation-resource choices for common Base package / Argos packs, all Base package / Argos packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skipping translation resources until later.
+Use `bash setup-macos.sh` for the first run because the setup script may not be executable yet after download or unzip. The setup script repairs permissions for the other Church Cap scripts, prepares a local `.venv`, installs the app dependencies, creates `.env` if needed, and can help set a friendly Bonjour hostname such as `church-cap.local`. Optional caption languages are then explained in the browser setup assistant. It recommends English-only or the Broad language pack from local processor/CUDA checks and can install the selected open-source local runtime; additional Base and compatibility controls remain available later from **Languages**.
 
 The normal start command opens the password setup page first. If a password already exists, Church Cap redirects you onward to the operator flow:
 
@@ -122,7 +128,7 @@ Audience viewers use the public viewer port, normally:
 http://church-cap.local:8080/
 ```
 
-On first run, create the operator password in the browser. Public caption viewers do not need the operator password.
+On first run, the browser assistant creates the operator password, recommends suitable caption performance, and offers optional translated-caption setup. Choosing a translated-caption pack reveals a separate, skippable spoken-audio step; choosing English-only proceeds directly to Review. Public caption viewers do not need the operator password.
 
 ## Quick Start On Windows
 
@@ -140,7 +146,7 @@ powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1
 .\start-windows.ps1
 ```
 
-The setup script prepares `.venv`, installs the app dependencies, checks CUDA/GPU support, creates `.env` if needed, and offers translation-resource choices for common Base package / Argos packs, all Base package / Argos packs, optional Recommended package / CTranslate2 INT8, optional Compatibility package / PyTorch SMaLL-100, or skipping translation resources until later. If Python is missing and `winget` is available, it can offer to install Python 3.12 first.
+The setup script prepares `.venv`, installs the app dependencies, checks CUDA/GPU support, and creates `.env` if needed. If Python is missing and `winget` is available, it can offer to install Python 3.12 first. The browser assistant then recommends suitable caption performance and a friendly language pack using only local hardware information; additional Base and compatibility controls remain available later from **Languages**.
 
 The normal start command opens the password setup page first. If a password already exists, Church Cap redirects you onward to the operator flow:
 
@@ -169,9 +175,9 @@ bash setup-linux.sh
 ./start-linux.sh
 ```
 
-The setup script detects `apt`, `dnf`, `yum`, `zypper`, `pacman`, or `apk`, installs build/audio prerequisites through that package manager, and keeps all Python packages inside `.venv`. It is intended for AlmaLinux, Rocky Linux, RHEL-family systems, Fedora, Ubuntu, Debian, openSUSE, Arch Linux, Alpine Linux, and close derivatives.
+The setup script detects `apt`, `dnf`, `yum`, `zypper`, `pacman`, or `apk`, installs build/audio prerequisites through that package manager, and keeps all Python packages inside `.venv`. The browser assistant handles optional language setup after the first start. It is intended for AlmaLinux, Rocky Linux, RHEL-family systems, Fedora, Ubuntu, Debian, openSUSE, Arch Linux, Alpine Linux, and close derivatives.
 
-The v0.8.0 runtime requires Python 3.10-3.13 and at least 8 GiB of installation headroom. Setup prefers a compatible installed Python. If the distribution only supplies Python 3.14 or newer—as Ubuntu 26.04 does—it downloads a pinned `uv` bootstrap for the detected x86_64/ARM64 and glibc/musl platform, verifies its SHA-256, and installs Python 3.12 under Church Cap's own `.tools` directory. It does not replace or reconfigure the system Python. Pip's persistent cache is disabled to reduce temporary disk usage. If setup reports `Disk quota exceeded`, free space for the current Linux account or ask the administrator to raise its quota, then rerun setup; it can offer to recreate only an incompatible partial Church Cap `.venv`.
+The current pinned runtime requires Python 3.10-3.13 and at least 8 GiB of installation headroom. Setup prefers a compatible installed Python. If the distribution only supplies Python 3.14 or newer—as Ubuntu 26.04 does—it downloads a pinned `uv` bootstrap for the detected x86_64/ARM64 and glibc/musl platform, verifies its SHA-256, and installs Python 3.12 under Church Cap's own `.tools` directory. It does not replace or reconfigure the system Python. Pip's persistent cache is disabled to reduce temporary disk usage. If setup reports `Disk quota exceeded`, free space for the current Linux account or ask the administrator to raise its quota, then rerun setup; it can offer to recreate only an incompatible partial Church Cap `.venv`.
 
 On AlmaLinux, Church Cap prefers an available Python 3.12 or 3.11 because the operating system's default `python3` may be too old. The installer does not enable extra repositories automatically. If `dnf` cannot find PortAudio development packages, enable the normal AppStream/CRB repositories according to your system policy and rerun setup. When active `firewalld` or UFW is detected, setup recommends an audience-only TCP rule and requires explicit confirmation before adding it. The rule uses the configured viewer port, normally 8080, and never opens operator port 9090.
 
@@ -299,8 +305,10 @@ Performance adjustments save automatically when captions are stopped. Stop capti
 ```text
 /                  phone/tablet live captions
 /display           large display page for screens, using the smooth audience-caption renderer
-/obs               OBS browser-source overlay, using the same smoother caption pacing
+/obs               transparent OBS overlay; fixed language with ?lang=code
+/propresenter      the same overlay for ProPresenter Web objects; fixed language with ?lang=code
 /obs/help          OBS setup guide, operator login required
+/propresenter/help ProPresenter setup guide, operator login required
 /operator          operator controls, login required
 /service-leader    restricted service-leader controls, one-use pairing required
 /feedback          feedback email guidance, login required
@@ -327,7 +335,7 @@ The operator dashboard shows a steady loading notice while captions start and th
 
 Translated captions are separate, experimental, and resource-heavy. Whisper performs speech-to-text; it does not translate one English caption stream into every viewer language by itself. Real translated captions require a translation provider. Church Cap supports **Recommended package / CTranslate2 INT8 SMaLL-100**, **Base package / Argos Translate**, **Compatibility package / PyTorch SMaLL-100**, and **Auto / Recommended + Base + Compatibility** modes.
 
-The first-time setup scripts can install common Base package / Argos packs, all available Base package / Argos packs, Base plus the Recommended package / CTranslate2 INT8, or Base plus the Compatibility package / PyTorch SMaLL-100. The operator **Languages** page can also install common Base package / Argos packs, install all Base package / Argos packs, or use **Improve translation performance** to install the faster local translation engine without running commands. The Compatibility package / PyTorch SMaLL-100 remains available as a fallback option. Normal desktop installs keep the full Languages page available. On `appliance_cpu`, the page is available as an advanced option with a confirmation warning and a hard cap of three active translated languages. On `appliance_gpu`, translated captions require the GPU/CUDA runtime to be ready. To rerun common Base setup manually:
+First-time terminal setup installs no optional translation model. The browser assistant offers **English captions only**, **Broad language pack**, and an Advanced **PyTorch SMaLL-100 language pack** fallback, with a local hardware-based recommendation and conservative active-language limit. Broad and PyTorch may be selected together; **Select all packs** enables Automatic provider mode and installs the selected model packs sequentially with combined progress. A plain-language information dialog explains the storage, performance and compatibility tradeoffs. If translation is selected, a separate optional page can install selected spoken-audio voices; **Skip for now** is the default. Voice installation waits until caption-language installation has completed so the large installers do not compete. On NVIDIA systems the PyTorch option is promoted into view, but it is labelled CUDA-verified only when the locally installed open-source PyTorch runtime reports that CUDA is available; a Windows installer CUDA selection is shown as pending until runtime verification succeeds. The operator **Languages** page can additionally install common Base package / Argos packs, install all Base package / Argos packs, or repair the broad and compatibility runtimes. Normal desktop installs keep the full Languages page available. On `appliance_cpu`, the page is available as an advanced option with a confirmation warning and a hard cap of three active translated languages. On `appliance_gpu`, translated captions require the GPU/CUDA runtime to be ready. To rerun common Base setup manually:
 
 ```bash
 ./scripts/install-translation-models-argos.sh
@@ -444,7 +452,11 @@ Remove it with:
 
 ## Updates
 
-The operator page includes an **Updates** section. It checks the latest GitHub release tag, reports when Church Cap is already up to date, asks for confirmation before updating, replaces this folder in place, and restarts Church Cap.
+The operator page includes an **Updates** section. **Check for updates** works differently on each platform:
+
+- **Installed Mac and Windows app:** Church Cap brings the desktop app forward on its **Settings** tab and runs its signed-updater **Check for updates**. Review and install the update there. The operator page never installs desktop updates itself.
+- **Linux:** Church Cap runs `./update-linux.sh --check`, reports the result, and asks for confirmation before running the same script to replace this folder in place and restart.
+- **Mac and Windows source folders:** Church Cap checks the latest GitHub release tag and asks for confirmation before running the update script below.
 
 The scripts below provide the same in-place update flow. They preserve `.env`, `.venv`, `data/`, `logs/`, `certs/`, `config/glossary.csv`, and `config/profanity_filter.txt`. The displayed version is code-owned so a stale `APP_VERSION` in `.env` cannot keep Windows showing an older release. Legacy update scripts may still refresh `APP_VERSION` for compatibility, and app-owned defaults such as `FEEDBACK_EMAIL` are refreshed where appropriate.
 
@@ -474,6 +486,18 @@ On Linux:
 ./update-linux.sh
 ```
 
+## Factory Reset
+
+The installed macOS and Windows application has **Settings → Updates and recovery → Factory reset Church Cap**. This separate, strongly confirmed action stops the local server, removes the operator account, settings, transcripts, service measurements, logs, in-app exports, and downloaded caption/voice models, then restarts into the complete first-time setup. It does not uninstall Church Cap. The existing password-reset action remains available when settings and models should be preserved.
+
+Linux has the same reset boundary without a native application shell. Stop Church Cap, run the following command from its folder, type `RESET`, and then start Church Cap again:
+
+```bash
+./factory-reset-linux.sh
+```
+
+Factory reset is intentionally not exposed as an ordinary browser-dashboard button: stopping the engine before deleting model and data files is safer and more reliable on Windows, macOS and Linux.
+
 ## Docker
 
 Docker is useful for web-only server-style testing. Native audio operation is supported on macOS, Windows, and common Linux distributions. For a container smoke test:
@@ -496,7 +520,7 @@ cp env.example .env
 ./scripts/run-dev.sh
 ```
 
-Recommended Python version: **3.12**. Church Cap v0.8.0's pinned dependency set supports Python 3.10 through 3.13.
+Recommended Python version: **3.12**. The current pinned dependency set supports Python 3.10 through 3.13.
 
 Run the core checks:
 

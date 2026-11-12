@@ -28,7 +28,7 @@ TRANSLATION_PROVIDER=argos
 
 Base package uses Argos Translate language packs. It can be useful as a fallback for installed packs, but it is usually more literal than the Recommended package. It runs locally after packs are installed, but package installation requires internet access.
 
-The macOS, Windows, and Linux setup scripts offer to install common Base package / Argos packs, install all available English-to-target Base package / Argos packs, install common Base plus the Recommended package / CTranslate2 INT8, install common Base plus the Compatibility package / PyTorch SMaLL-100, or skip translation resources. Operators can also install common Base package / Argos packs or all Base package / Argos packs later from the **Languages** page.
+The macOS, Windows, and Linux terminal setup scripts install no optional translation model. On first start, the browser assistant offers friendly English-only, Broad, and Advanced Compatibility language-pack choices. Its recommendation uses local processor, platform and CUDA/runtime checks and does not upload a hardware profile. Operators can install common Base package / Argos packs or all Base package / Argos packs later from the **Languages** page.
 
 To rerun common Base installation manually on macOS or Linux:
 

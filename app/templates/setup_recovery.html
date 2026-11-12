@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Church Cap · Restore operator access</title>
+  <link rel="icon" type="image/png" href="/static/branding/church-cap-square-dark.png">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.0-onboarding-24">
+  <script src="/static/setup-password.js?v=0.9.0-onboarding-21" defer></script>
+</head>
+<body class="auth-page glass-page">
+  <main class="auth-shell">
+    <section class="auth-card glass-card">
+      <div class="auth-brand">
+        <img src="/static/branding/church-cap-wide-dark.png" alt="Church Cap" class="theme-logo theme-dark auth-logo-wide">
+        <img src="/static/branding/church-cap-wide-light.png" alt="Church Cap" class="theme-logo theme-light auth-logo-wide">
+      </div>
+      <p class="eyebrow">Operator access recovery</p>
+      <h1>Create a replacement password</h1>
+      <p class="muted">Your caption model, languages, downloads and performance settings will stay unchanged.</p>
+      {% if error %}<p class="error-banner" role="alert">{{ error }}</p>{% endif %}
+
+      <form method="post" action="/setup" class="stacked-form" id="setupPasswordForm" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="password">New operator password</label>
+        <input id="password" name="password" type="password" minlength="8" required autofocus autocomplete="new-password" aria-describedby="passwordRequirements passwordValidationMessage">
+        <label for="confirm_password">Confirm password</label>
+        <input id="confirm_password" name="confirm_password" type="password" minlength="8" required autocomplete="new-password" aria-describedby="passwordRequirements passwordValidationMessage">
+        <div class="password-requirements" id="passwordRequirements">
+          <strong>Password requirements</strong>
+          <ul><li id="passwordLengthRequirement">At least 8 characters</li><li id="passwordMatchRequirement">Both password entries must match</li></ul>
+          <small>A longer, unique passphrase is recommended. Uppercase letters, numbers and symbols are optional.</small>
+        </div>
+        <p class="error-banner password-validation-message" id="passwordValidationMessage" role="alert" aria-live="assertive" hidden></p>
+
+        <fieldset class="security-mode-fieldset">
+          <legend>Who should reach operator controls?</legend>
+          <div class="setup-choice-card recommended">
+            <input id="securityModeSecure" type="radio" name="security_mode" value="secure_operator" {% if form_values.get('security_mode') == 'secure_operator' %}checked{% endif %}>
+            <label class="setup-choice-copy" for="securityModeSecure"><span class="setup-choice-title"><strong>Only this computer</strong><span class="security-mode-badge recommended-badge">Recommended</span></span><small>Audience captions use the local network while operator controls remain on this computer.</small></label>
+          </div>
+          <div class="setup-choice-card caution">
+            <input id="securityModeEasyOffline" type="radio" name="security_mode" value="easy_offline" {% if form_values.get('security_mode') == 'easy_offline' %}checked{% endif %}>
+            <label class="setup-choice-copy" for="securityModeEasyOffline"><span class="setup-choice-title"><strong>Trusted devices on this network</strong><span class="security-mode-badge caution-badge">Caution</span></span><small>Other computers or tablets on the same private network can reach operator sign-in.</small></label>
+            <button type="button" class="security-mode-info-button" id="easyOfflineInfoButton" aria-label="Advantages and disadvantages of network operator access" aria-haspopup="dialog" aria-controls="easyOfflineInfoDialog">i</button>
+          </div>
+          <div class="setup-choice-card">
+            <input id="securityModeManagedHttps" type="radio" name="security_mode" value="managed_https" {% if form_values.get('security_mode') == 'managed_https' %}checked{% endif %}>
+            <label class="setup-choice-copy" for="securityModeManagedHttps"><span class="setup-choice-title"><strong>Managed church devices</strong></span><small>For church-owned devices where a local certificate authority is installed and trusted in advance.</small></label>
+          </div>
+        </fieldset>
+
+        <p class="onboarding-ready-note"><strong>Only access details will change.</strong> Live-caption and translation configuration will not be reapplied.</p>
+        <button type="submit" class="primary-button full-width" id="saveOperatorPassword">Restore operator access</button>
+      </form>
+
+      <dialog class="security-mode-info-dialog glass-card" id="easyOfflineInfoDialog" aria-labelledby="easyOfflineInfoTitle" aria-describedby="easyOfflineInfoSummary">
+        <form method="dialog"><button type="submit" class="dialog-close" aria-label="Close network access information">×</button></form>
+        <p class="eyebrow caution-eyebrow">Network operator access · Caution</p>
+        <h2 id="easyOfflineInfoTitle">Convenient, but less isolated</h2>
+        <p class="muted" id="easyOfflineInfoSummary">Operator controls can be reached from other devices on the same LAN. A password is still required, but exposing sign-in increases the security risk.</p>
+        <div class="security-mode-tradeoffs"><section class="security-mode-advantage"><strong>Advantage</strong><p>Trusted operators can control Church Cap from another computer or tablet.</p></section><section class="security-mode-disadvantage"><strong>Disadvantage</strong><p>Every device on that LAN can reach operator sign-in. Use only a trusted private network.</p></section></div>
+        <form method="dialog" class="security-mode-dialog-actions"><button type="submit" class="primary-button">I understand</button></form>
+      </dialog>
+    </section>
+  </main>
+</body>
+</html>

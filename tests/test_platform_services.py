@@ -18,7 +18,10 @@ from engine.protocol import (
     EngineCommand,
     EngineCommandName,
     EngineEvent,
+    EngineRequest,
+    EngineRequestName,
     EngineState,
+    REQUEST_PREFIX,
 )
 
 
@@ -108,6 +111,20 @@ class EngineProtocolTests(unittest.TestCase):
         self.assertEqual(EngineCommand.parse(line), EngineCommand(EngineCommandName.SHUTDOWN))
         self.assertIsNone(EngineCommand.parse(COMMAND_PREFIX + '{"command":"run","protocol_version":2}'))
         self.assertIsNone(EngineCommand.parse(COMMAND_PREFIX + '{"command":"shutdown","protocol_version":1}'))
+
+    def test_engine_update_request_is_versioned_and_allow_listed(self):
+        line = EngineRequest(EngineRequestName.OPEN_UPDATES, pid=4321).line()
+        self.assertTrue(line.startswith(REQUEST_PREFIX))
+        self.assertFalse(line.startswith(EVENT_PREFIX))
+        self.assertEqual(
+            line,
+            REQUEST_PREFIX + '{"pid":4321,"protocol_version":2,"request":"open_updates"}',
+        )
+        self.assertEqual(EngineRequest.parse(line), EngineRequest(EngineRequestName.OPEN_UPDATES, pid=4321))
+        self.assertIsNone(EngineRequest.parse(REQUEST_PREFIX + '{"pid":4321,"protocol_version":2,"request":"install_update"}'))
+        self.assertIsNone(EngineRequest.parse(REQUEST_PREFIX + '{"pid":4321,"protocol_version":1,"request":"open_updates"}'))
+        self.assertIsNone(EngineRequest.parse(REQUEST_PREFIX + '{"pid":0,"protocol_version":2,"request":"open_updates"}'))
+        self.assertIsNone(EngineRequest.parse(REQUEST_PREFIX + '{"pid":4321,"protocol_version":2,"request":"open_updates","url":"x"}'))
 
     def test_engine_interrupt_is_a_successful_supervisor_stop(self):
         from engine.entrypoint import main

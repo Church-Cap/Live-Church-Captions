@@ -14,10 +14,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use url::{Host, Url};
 
 use crate::model::{
-    ENGINE_PROTOCOL_VERSION, EngineCommand, EngineEvent, SupervisorPhase, SupervisorSnapshot,
+    ENGINE_PROTOCOL_VERSION, EngineCommand, EngineEvent, EngineRequest, SupervisorPhase,
+    SupervisorSnapshot,
 };
 
 const STATUS_EVENT: &str = "church-cap://supervisor-status";
+const OPEN_UPDATES_EVENT: &str = "church-cap://open-updates";
+const OPEN_UPDATES_DEBOUNCE: Duration = Duration::from_secs(3);
 const MAX_LOG_LINES: usize = 120;
 const MAX_LOG_LINE_CHARS: usize = 2_000;
 const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(20);
@@ -102,19 +105,29 @@ impl EngineSupervisor {
         let engine_dir = engine_path
             .parent()
             .ok_or_else(|| "The engine path has no parent directory.".to_string())?;
-        let data_dir = app
-            .path()
-            .app_local_data_dir()
-            .map_err(|error| error.to_string())?;
+        let data_dir = church_cap_data_dir(app)?;
         fs::create_dir_all(&data_dir).map_err(|error| {
             format!("Church Cap could not create its application-data directory: {error}")
         })?;
+        // v0.8.0 wrappers kept their data in Tauri's identifier-derived folder.
+        // Carry an existing installation across once, before the engine can
+        // decide the empty canonical folder means first-time setup.
+        if let Some(legacy_dir) = legacy_tauri_data_dir(app) {
+            crate::recovery::migrate_legacy_app_data(&legacy_dir, &data_dir)?;
+        }
 
         let mut command = Command::new(&engine_path);
+        let cache_dir = data_dir.join("cache");
+        let huggingface_cache = cache_dir.join("huggingface");
         command
             .current_dir(engine_dir)
             .env("CHURCH_CAP_RUNTIME_MODE", "packaged")
             .env("CHURCH_CAP_DATA_DIR", &data_dir)
+            // Keep model downloads inside Church Cap's bounded data tree so a
+            // factory reset never has to remove caches shared by other apps.
+            .env("XDG_CACHE_HOME", &cache_dir)
+            .env("HF_HOME", &huggingface_cache)
+            .env("HUGGINGFACE_HUB_CACHE", huggingface_cache.join("hub"))
             .env("CHURCH_CAP_SUPERVISOR_PID", std::process::id().to_string())
             .env("PYTHONUNBUFFERED", "1")
             .stdin(Stdio::piped())
@@ -276,6 +289,55 @@ impl EngineSupervisor {
     }
 }
 
+/// The data directory every desktop build before v0.9.0's `9a3ec57` used.
+/// It must be resolved with the same Tauri call those builds made so the
+/// path matches on each platform; a resolution failure just means there is
+/// nothing to migrate.
+fn legacy_tauri_data_dir(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_local_data_dir().ok()
+}
+
+fn church_cap_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    {
+        app.path()
+            .home_dir()
+            .map(|home| {
+                home.join("Library")
+                    .join("Application Support")
+                    .join("Church Cap")
+            })
+            .map_err(|error| {
+                format!("Church Cap could not locate the current user's home directory: {error}")
+            })
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(roaming) = std::env::var_os("APPDATA") {
+            return Ok(PathBuf::from(roaming).join("Church Cap"));
+        }
+        app
+            .path()
+            .home_dir()
+            .map(|home| home.join("AppData").join("Roaming").join("Church Cap"))
+            .map_err(|error| format!("Church Cap could not locate the current user's application-data directory: {error}"))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        if let Some(xdg_data) = std::env::var_os("XDG_DATA_HOME") {
+            return Ok(PathBuf::from(xdg_data).join("church-cap"));
+        }
+        app.path()
+            .home_dir()
+            .map(|home| home.join(".local").join("share").join("church-cap"))
+            .map_err(|error| {
+                format!("Church Cap could not locate the current user's data directory: {error}")
+            })
+    }
+}
+
 fn ensure_update_install_is_safe(snapshot: &SupervisorSnapshot) -> Result<(), String> {
     if snapshot.captions_live || snapshot.phase == SupervisorPhase::CaptionsLive {
         return Err(
@@ -319,6 +381,30 @@ fn ensure_password_reset_is_safe(snapshot: &SupervisorSnapshot) -> Result<(), St
         }
         SupervisorPhase::RecoveryRequired | SupervisorPhase::Error => Err(
             "Church Cap must finish stopping its local server before the password can be reset."
+                .into(),
+        ),
+        SupervisorPhase::CaptionsLive => unreachable!(),
+    }
+}
+
+fn ensure_factory_reset_is_safe(snapshot: &SupervisorSnapshot) -> Result<(), String> {
+    if snapshot.captions_live || snapshot.phase == SupervisorPhase::CaptionsLive {
+        return Err(
+            "Live captions are active. Stop captions before factory resetting Church Cap.".into(),
+        );
+    }
+    match snapshot.phase {
+        SupervisorPhase::Ready | SupervisorPhase::Stopped => Ok(()),
+        SupervisorPhase::Error | SupervisorPhase::RecoveryRequired if snapshot.pid.is_none() => Ok(()),
+        SupervisorPhase::Starting | SupervisorPhase::Stopping => Err(
+            "Church Cap is changing server state. Wait until it is ready or stopped, then try factory reset again."
+                .into(),
+        ),
+        SupervisorPhase::Updating => {
+            Err("Church Cap cannot be factory reset while an update is in progress.".into())
+        }
+        SupervisorPhase::RecoveryRequired | SupervisorPhase::Error => Err(
+            "Church Cap must finish stopping its local server before factory reset can begin."
                 .into(),
         ),
         SupervisorPhase::CaptionsLive => unreachable!(),
@@ -470,11 +556,31 @@ fn spawn_output_reader<R: std::io::Read + Send + 'static>(
     parse_events: bool,
 ) {
     thread::spawn(move || {
+        let mut last_open_updates = None;
         for line in reader.lines().map_while(Result::ok) {
             supervisor.record_output(&line);
             if parse_events {
                 if let Some(event) = EngineEvent::parse(&line) {
                     apply_engine_event(&app, &supervisor, event);
+                } else if let Some(request) = EngineRequest::parse(&line)
+                    && accepts_engine_request(&supervisor.snapshot(), &request)
+                {
+                    let now = Instant::now();
+                    if last_open_updates.is_none_or(|last: Instant| {
+                        now.duration_since(last) >= OPEN_UPDATES_DEBOUNCE
+                    }) {
+                        last_open_updates = Some(now);
+                        if let Err(error) = crate::window::show_control_window(&app) {
+                            supervisor.record_output(&format!(
+                                "Could not show control window for update check: {error}"
+                            ));
+                        }
+                        if let Err(error) = app.emit(OPEN_UPDATES_EVENT, ()) {
+                            supervisor.record_output(&format!(
+                                "Could not dispatch update check: {error}"
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -526,6 +632,12 @@ fn apply_engine_event(app: &AppHandle, supervisor: &EngineSupervisor, event: Eng
 
 fn event_belongs_to_owned_engine(snapshot: &SupervisorSnapshot, event_pid: u32) -> bool {
     snapshot.pid == Some(event_pid)
+}
+
+fn accepts_engine_request(snapshot: &SupervisorSnapshot, request: &EngineRequest) -> bool {
+    event_belongs_to_owned_engine(snapshot, request.pid)
+        && request.protocol_version == ENGINE_PROTOCOL_VERSION
+        && request.request == "open_updates"
 }
 
 fn apply_runtime_state(status: &mut SupervisorSnapshot, state: &str, detail: String) {
@@ -1025,21 +1137,36 @@ pub fn restart_engine(
     supervisor.request_stop(&app, allow_live_interrupt)?;
     let owned = supervisor.inner().clone();
     let app_handle = app.clone();
-    thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(25);
-        while Instant::now() < deadline {
-            if owned.snapshot().phase == SupervisorPhase::Stopped {
-                thread::sleep(Duration::from_millis(250));
-                let _ = owned.start(&app_handle);
-                return;
+    thread::Builder::new()
+        .name("church-cap-manual-restart".into())
+        .spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(25);
+            while Instant::now() < deadline {
+                if owned.snapshot().phase == SupervisorPhase::Stopped {
+                    owned.publish(&app_handle, |status| status.restart_attempts = 0);
+                    if let Err(error) = owned.start(&app_handle) {
+                        owned.publish(&app_handle, |status| {
+                            status.phase = SupervisorPhase::RecoveryRequired;
+                            status.detail = format!(
+                                "Church Cap stopped safely but could not restart its local server: {error}"
+                            );
+                            status.pid = None;
+                            status.captions_live = false;
+                            status.health_confirmed = false;
+                        });
+                    }
+                    return;
+                }
+                thread::sleep(Duration::from_millis(100));
             }
-            thread::sleep(Duration::from_millis(100));
-        }
-        owned.publish(&app_handle, |status| {
-            status.phase = SupervisorPhase::RecoveryRequired;
-            status.detail = "Church Cap could not restart after the engine failed to stop.".into();
-        });
-    });
+            owned.publish(&app_handle, |status| {
+                status.phase = SupervisorPhase::RecoveryRequired;
+                status.detail =
+                    "Church Cap could not restart because its previous server did not stop safely."
+                        .into();
+            });
+        })
+        .map_err(|error| format!("Church Cap could not schedule its server restart: {error}"))?;
     Ok(supervisor.snapshot())
 }
 
@@ -1048,10 +1175,7 @@ pub fn reset_operator_password(
     app: AppHandle,
     supervisor: State<'_, EngineSupervisor>,
 ) -> Result<SupervisorSnapshot, String> {
-    let data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("Church Cap could not locate its application data: {error}"))?;
+    let data_dir = church_cap_data_dir(&app)?;
     ensure_password_reset_is_safe(&supervisor.snapshot())?;
 
     if supervisor.snapshot().phase.engine_is_running() {
@@ -1108,6 +1232,76 @@ pub fn reset_operator_password(
         eprintln!(
             "The operator password was reset, but Church Cap could not schedule the setup page: {error}"
         );
+    }
+    Ok(started)
+}
+
+#[tauri::command]
+pub fn factory_reset_application(
+    app: AppHandle,
+    supervisor: State<'_, EngineSupervisor>,
+) -> Result<SupervisorSnapshot, String> {
+    let data_dir = church_cap_data_dir(&app)?;
+    ensure_factory_reset_is_safe(&supervisor.snapshot())?;
+
+    if supervisor.snapshot().phase.engine_is_running() {
+        supervisor.request_stop(&app, false)?;
+        let deadline = Instant::now() + Duration::from_secs(25);
+        while Instant::now() < deadline && supervisor.snapshot().pid.is_some() {
+            thread::sleep(Duration::from_millis(100));
+        }
+        if supervisor.snapshot().pid.is_some() {
+            return Err(
+                "Church Cap could not stop its local server safely, so no factory reset was performed."
+                    .into(),
+            );
+        }
+    }
+
+    supervisor.publish(&app, |status| {
+        status.phase = SupervisorPhase::Updating;
+        status.detail = "Factory resetting Church Cap…".into();
+        status.captions_live = false;
+        status.health_confirmed = false;
+    });
+
+    if let Err(error) = crate::recovery::factory_reset_app_data(&data_dir) {
+        if let Err(restart_error) = supervisor.start(&app) {
+            supervisor.publish(&app, |status| {
+                status.phase = SupervisorPhase::RecoveryRequired;
+                status.detail = format!(
+                    "{error} Church Cap also could not restart its local server: {restart_error}"
+                );
+            });
+        }
+        return Err(error);
+    }
+    // The canonical reset marker is already in place, so the engine will run
+    // first-time setup whatever happens here. Clearing the pre-v0.9.0 folder
+    // keeps an old password file and downloaded models from outliving a reset.
+    let legacy_warning = legacy_tauri_data_dir(&app).and_then(|legacy_dir| {
+        crate::recovery::clear_legacy_app_data(&legacy_dir, &data_dir).err()
+    });
+
+    let started = supervisor.start(&app).map_err(|error| {
+        supervisor.publish(&app, |status| {
+            status.phase = SupervisorPhase::RecoveryRequired;
+            status.detail =
+                format!("Factory reset completed, but Church Cap could not restart: {error}");
+        });
+        format!(
+            "Factory reset completed, but Church Cap could not restart its local server: {error}"
+        )
+    })?;
+    let engine_pid = started.pid.ok_or_else(|| {
+        "Factory reset completed, but Church Cap restarted without an engine process identifier."
+            .to_string()
+    })?;
+    schedule_operator_open_when_ready(app, supervisor.inner().clone(), engine_pid)?;
+    if let Some(warning) = legacy_warning {
+        return Err(format!(
+            "Factory reset completed and Church Cap restarted, but its previous data folder could not be fully cleared: {warning}"
+        ));
     }
     Ok(started)
 }
@@ -1257,6 +1451,29 @@ mod tests {
     }
 
     #[test]
+    fn update_requests_require_owned_pid_protocol_and_exact_request() {
+        let snapshot = SupervisorSnapshot {
+            pid: Some(42),
+            ..SupervisorSnapshot::default()
+        };
+        let mut request = EngineRequest::parse("CHURCH_CAP_ENGINE_REQUEST={\"request\":\"open_updates\",\"protocol_version\":2,\"pid\":42}").unwrap();
+        assert!(accepts_engine_request(&snapshot, &request));
+        request.pid = 41;
+        assert!(!accepts_engine_request(&snapshot, &request));
+        request.pid = 42;
+        request.protocol_version = 1;
+        assert!(!accepts_engine_request(&snapshot, &request));
+        request.protocol_version = ENGINE_PROTOCOL_VERSION;
+        request.request = "install_update".into();
+        assert!(!accepts_engine_request(&snapshot, &request));
+        request.request = "open_updates".into();
+        assert!(!accepts_engine_request(
+            &SupervisorSnapshot::default(),
+            &request
+        ));
+    }
+
+    #[test]
     fn automatic_restart_policy_is_bounded_and_skips_intentional_exits() {
         assert_eq!(
             automatic_restart_delay(SupervisorPhase::Ready, false, 0),
@@ -1380,6 +1597,34 @@ mod tests {
             ..SupervisorSnapshot::default()
         };
         assert!(ensure_password_reset_is_safe(&ready).is_ok());
+    }
+
+    #[test]
+    fn factory_reset_requires_a_stable_non_live_server_state() {
+        let live = SupervisorSnapshot {
+            phase: SupervisorPhase::CaptionsLive,
+            captions_live: true,
+            pid: Some(42),
+            ..SupervisorSnapshot::default()
+        };
+        assert!(
+            ensure_factory_reset_is_safe(&live)
+                .unwrap_err()
+                .contains("Stop captions")
+        );
+        for phase in [
+            SupervisorPhase::Starting,
+            SupervisorPhase::Stopping,
+            SupervisorPhase::Updating,
+        ] {
+            let transitional = SupervisorSnapshot {
+                phase,
+                pid: Some(42),
+                ..SupervisorSnapshot::default()
+            };
+            assert!(ensure_factory_reset_is_safe(&transitional).is_err());
+        }
+        assert!(ensure_factory_reset_is_safe(&SupervisorSnapshot::default()).is_ok());
     }
 
     #[test]

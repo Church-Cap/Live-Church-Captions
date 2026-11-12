@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>Church Cap</title>
-  <link rel="stylesheet" href="desktop.css?v=0.8.0-desktop-4">
-  <script src="main.js?v=0.8.0-desktop-4" defer></script>
+  <link rel="stylesheet" href="desktop.css?v=0.9.0-desktop-5">
+  <script src="main.js?v=0.9.0-desktop-5" defer></script>
 </head>
 <body>
   <main class="app-shell">
@@ -80,7 +80,7 @@
       <details class="glass-card technical-card">
         <summary>Service details</summary>
         <dl>
-          <div><dt>Supervisor</dt><dd id="supervisorVersion">v0.8.0</dd></div>
+          <div><dt>Supervisor</dt><dd id="supervisorVersion">v0.9.0</dd></div>
           <div><dt>Engine</dt><dd id="engineVersion">Not connected</dd></div>
           <div><dt>Protocol</dt><dd id="protocolVersion">2</dd></div>
           <div><dt>Process</dt><dd id="enginePid">Not running</dd></div>
@@ -107,12 +107,6 @@
         </div>
         <div class="maintenance-list">
           <button type="button" id="checkUpdates"><span><strong>Check for updates</strong><small>Signed application updates from the Church Cap GitHub repository</small></span><span aria-hidden="true">↻</span></button>
-          <button type="button" id="resetOperatorPassword"><span><strong>Reset password or change security mode</strong><small>Reopen account setup to choose how operator access is protected</small></span><span aria-hidden="true">›</span></button>
-          <button type="button" disabled><span><strong>Diagnostics</strong><small>Privacy-aware logs and repair status</small></span><span aria-hidden="true">›</span></button>
-        </div>
-        <div class="setting-row compact-setting-row">
-          <div><strong>Automatically check for updates</strong><small>Opt in to a check when the desktop manager opens. Updates are never installed automatically.</small></div>
-          <label class="switch" aria-label="Automatically check for updates"><input type="checkbox" id="automaticUpdateChecks"><span></span></label>
         </div>
         <div class="update-panel" id="updatePanel" role="status" aria-live="polite">
           <strong id="updateHeading">Application updates</strong>
@@ -120,6 +114,15 @@
           <progress id="updateProgress" max="100" value="0" hidden></progress>
           <details id="updateNotesPanel" hidden><summary>What changed</summary><p id="updateNotes"></p></details>
           <button type="button" class="primary-action update-install" id="installUpdate" hidden>Download and install</button>
+        </div>
+        <div class="maintenance-list maintenance-recovery-list">
+          <button type="button" id="resetOperatorPassword"><span><strong>Reset password or change security mode</strong><small>Reopen account setup to choose how operator access is protected</small></span><span aria-hidden="true">›</span></button>
+          <button type="button" id="factoryResetApplication"><span><strong>Factory reset Church Cap</strong><small>Erase local settings and downloads, then reopen complete first-time setup</small></span><span aria-hidden="true">›</span></button>
+          <button type="button" disabled><span><strong>Diagnostics</strong><small>Privacy-aware logs and repair status</small></span><span aria-hidden="true">›</span></button>
+        </div>
+        <div class="setting-row compact-setting-row">
+          <div><strong>Automatically check for updates</strong><small>Opt in to a check when the desktop manager opens. Updates are never installed automatically.</small></div>
+          <label class="switch" aria-label="Automatically check for updates"><input type="checkbox" id="automaticUpdateChecks"><span></span></label>
         </div>
         <p class="availability-note" id="resetPasswordStatus" aria-live="polite">Account recovery removes the stored operator password, signs out existing operator sessions, and reopens setup so you can create a password and choose a security mode.</p>
         <p class="availability-note">Diagnostics remain disabled until their narrow native supervisor contract is implemented and tested.</p>
@@ -133,11 +136,28 @@
         <p class="eyebrow">Church Cap Desktop</p>
         <h1>Making Church Easier to Follow</h1>
         <p class="muted">The desktop application keeps the Church Cap server available when browser windows are closed. The full Operator interface remains in your normal web browser.</p>
-        <div class="about-meta"><span>v0.8.0</span><span>MIT licensed</span></div>
+        <div class="about-meta"><span>v0.9.0</span><span>MIT licensed</span></div>
         <p class="small-print">Captions can contain mistakes. A person should monitor important names, safeguarding information and pastoral content.</p>
         <button type="button" class="legal-button" id="showLegalInformation">Legal information</button>
       </article>
     </section>
+
+    <dialog class="legal-dialog reset-dialog" id="updateInstallDialog" aria-labelledby="updateInstallDialogTitle" aria-describedby="updateInstallDialogDescription">
+      <div class="legal-dialog-content">
+        <div class="section-heading legal-heading">
+          <div>
+            <p class="eyebrow">Application update</p>
+            <h2 id="updateInstallDialogTitle">Install Church Cap update?</h2>
+          </div>
+          <form method="dialog"><button type="submit" class="dialog-close" aria-label="Cancel update">×</button></form>
+        </div>
+        <p id="updateInstallDialogDescription"></p>
+        <div class="reset-dialog-actions">
+          <form method="dialog"><button type="submit">Cancel</button></form>
+          <button type="button" class="primary-action" id="confirmUpdateInstall">Download and install</button>
+        </div>
+      </div>
+    </dialog>
 
     <dialog class="legal-dialog" id="legalDialog" aria-labelledby="legalDialogTitle">
       <div class="legal-dialog-content">
@@ -194,6 +214,36 @@
         <div class="reset-dialog-actions">
           <form method="dialog"><button type="submit">Cancel</button></form>
           <button type="button" class="danger-action" id="confirmPasswordReset">Continue to account setup</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="legal-dialog reset-dialog" id="factoryResetDialog" aria-labelledby="factoryResetDialogTitle" aria-describedby="factoryResetDialogDescription">
+      <div class="legal-dialog-content">
+        <div class="section-heading legal-heading">
+          <div>
+            <p class="eyebrow">Factory reset</p>
+            <h2 id="factoryResetDialogTitle">Erase Church Cap's local data?</h2>
+          </div>
+          <form method="dialog"><button type="submit" class="dialog-close" aria-label="Cancel factory reset">×</button></form>
+        </div>
+        <p id="factoryResetDialogDescription">Church Cap will stop its local server, erase its local operator account and configuration, restart, and open the complete first-time setup.</p>
+        <section>
+          <h3>This will remove</h3>
+          <ul class="security-mode-summary">
+            <li>Operator credentials and every Church Cap setting.</li>
+            <li>Saved transcripts, service measurements, logs and files exported inside Church Cap's application-data folder.</li>
+            <li>Downloaded caption-translation and spoken-audio models. They will need to be downloaded again if selected during setup.</li>
+          </ul>
+        </section>
+        <p class="reset-warning"><strong>This cannot be undone.</strong> The installed Church Cap application is kept, but its local data is not.</p>
+        <label class="factory-reset-confirmation" for="factoryResetConfirmation">
+          <span>Type <strong>RESET</strong> to confirm</span>
+          <input id="factoryResetConfirmation" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        </label>
+        <div class="reset-dialog-actions">
+          <form method="dialog"><button type="submit">Keep my data</button></form>
+          <button type="button" class="danger-action" id="confirmFactoryReset" disabled>Erase data and restart</button>
         </div>
       </div>
     </dialog>

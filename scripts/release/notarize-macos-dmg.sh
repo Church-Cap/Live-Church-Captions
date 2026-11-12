@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$PROJECT_ROOT/scripts/release/macos-signing-identity.sh"
-DMG_PATH="${1:-$PROJECT_ROOT/dist/Church-Cap-v0.8.0-macOS-Apple-Silicon.dmg}"
+DMG_PATH="${1:-$PROJECT_ROOT/dist/Church-Cap-v0.9.0-macOS-Apple-Silicon.dmg}"
 IDENTITY="${CHURCH_CAP_CODESIGN_IDENTITY:-}"
 IDENTITY_SHA1="${CHURCH_CAP_CODESIGN_IDENTITY_SHA1:-}"
 NOTARY_PROFILE="${CHURCH_CAP_NOTARY_PROFILE:-}"

@@ -22,6 +22,20 @@ TIGRINYA_REVISION = "72f1e40b4b60ff4863407f90792b4fac517562ec"
 COMMON_ARGOS_TARGETS = ("es", "fr", "pt", "pl", "uk", "ar", "fa", "zh", "zt")
 
 
+def validate_tokenizer_save_paths(tokenizer: object, save_directory: Path) -> None:
+    """Reject named chat templates that could escape a tokenizer save directory."""
+    templates = getattr(tokenizer, "chat_template", None)
+    if not isinstance(templates, dict):
+        return
+    template_root = (Path(save_directory) / "chat_templates").resolve()
+    for name in templates:
+        if not isinstance(name, str):
+            raise RuntimeError("The pinned tokenizer contains an invalid chat-template name.")
+        target = (template_root / f"{name}.jinja").resolve()
+        if target.parent != template_root:
+            raise RuntimeError("The pinned tokenizer contains an unsafe chat-template path.")
+
+
 def validate_packaged_installer_runtime() -> None:
     """Fail before a large download if signed installer resources are incomplete."""
     write_install_progress(3, "runtime-check", "Checking the packaged language installer before downloading.", indeterminate=True)
@@ -111,6 +125,7 @@ def install_tigrinya() -> None:
     if not ctranslate2.contains_model(str(model_dir)) or not all((tokenizer_dir / name).is_file() for name in required):
         write_install_progress(82, "tigrinya-downloading", "Downloading the pinned English-to-Tigrinya model.", indeterminate=True)
         tokenizer = AutoTokenizer.from_pretrained(TIGRINYA_MODEL, revision=TIGRINYA_REVISION)
+        validate_tokenizer_save_paths(tokenizer, tokenizer_dir)
         tokenizer.save_pretrained(tokenizer_dir)
         write_install_progress(90, "tigrinya-converting", "Converting the Tigrinya model to INT8.", indeterminate=True)
         TransformersConverter(TIGRINYA_MODEL, revision=TIGRINYA_REVISION, trust_remote_code=False).convert(

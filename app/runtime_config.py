@@ -6,6 +6,10 @@ choose an audio device and privacy defaults from the web UI without editing .env
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+import time
+from pathlib import Path
 from threading import Lock
 from typing import Any
 
@@ -13,7 +17,9 @@ from app.i18n import MAX_TRANSLATION_LANGUAGES
 from app.paths import data_path, migrate_project_data
 
 CONFIG_PATH = data_path("runtime_config.json")
+BACKUP_PATH = CONFIG_PATH.with_name("runtime_config.backup.json")
 _lock = Lock()
+_REPLACE_RETRY_SECONDS = (0.02, 0.05, 0.1)
 
 DEFAULTS: dict[str, Any] = {
     "audio_device": None,
@@ -43,23 +49,60 @@ DEFAULTS: dict[str, Any] = {
     "profanity_filter_enabled": True,
     "security_mode": "secure_operator",
     "lock_operator_to_localhost": True,
+    "operator_theme": "system",
 }
 
 
 def load_runtime_config() -> dict[str, Any]:
     migrate_project_data("runtime_config.json", CONFIG_PATH)
     with _lock:
-        if not CONFIG_PATH.exists():
-            return dict(DEFAULTS)
-        try:
-            loaded = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception:
+        loaded = _read_config_file(CONFIG_PATH)
+        if loaded is None:
+            loaded = _read_config_file(BACKUP_PATH)
+        if loaded is None:
             return dict(DEFAULTS)
         cfg = dict(DEFAULTS)
         cfg.update({k: v for k, v in loaded.items() if k in DEFAULTS})
         if cfg.get("translation_timing_mode") in {"contextual", "extended"}:
             cfg["translation_timing_mode"] = "responsive"
         return cfg
+
+
+def _read_config_file(path: Path) -> dict[str, Any] | None:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _atomic_write_config(path: Path, config: dict[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(config, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if os.name == "posix":
+            temporary.chmod(0o600)
+        for attempt in range(len(_REPLACE_RETRY_SECONDS) + 1):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                if attempt >= len(_REPLACE_RETRY_SECONDS):
+                    raise
+                time.sleep(_REPLACE_RETRY_SECONDS[attempt])
+    finally:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
 
 
 def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -121,13 +164,22 @@ def save_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
                 cfg[key] = default
         if cfg.get("security_mode") not in {"easy_offline", "secure_operator", "managed_https"}:
             cfg["security_mode"] = "secure_operator"
+        if cfg.get("operator_theme") not in {"system", "light", "dark"}:
+            cfg["operator_theme"] = "system"
         allowed = cfg.get("translation_allowed_languages") or ["en"]
         if not isinstance(allowed, list):
             allowed = ["en"]
         cfg["translation_allowed_languages"] = sorted(set(str(x).lower().strip() for x in allowed if str(x).strip())) or ["en"]
         if "en" not in cfg["translation_allowed_languages"]:
             cfg["translation_allowed_languages"].insert(0, "en")
-        CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        _atomic_write_config(CONFIG_PATH, cfg)
+        try:
+            _atomic_write_config(BACKUP_PATH, cfg)
+        except OSError:
+            # The primary save is authoritative. Antivirus/indexers can hold a
+            # backup briefly on Windows; do not report a failed operator save
+            # after the requested settings are already durable.
+            pass
         return cfg
 
 
@@ -216,4 +268,11 @@ def set_security_config(security_mode: str, lock_operator_to_localhost: bool | N
         cfg["lock_operator_to_localhost"] = security_mode in {"secure_operator", "managed_https"}
     else:
         cfg["lock_operator_to_localhost"] = bool(lock_operator_to_localhost)
+    return save_runtime_config(cfg)
+
+
+def set_operator_theme(theme: str) -> dict[str, Any]:
+    """Persist the first-run/operator colour preference on this computer."""
+    cfg = load_runtime_config()
+    cfg["operator_theme"] = theme if theme in {"system", "light", "dark"} else "system"
     return save_runtime_config(cfg)

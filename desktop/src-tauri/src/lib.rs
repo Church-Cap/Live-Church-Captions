@@ -29,6 +29,7 @@ pub fn run() {
             lifecycle::stop_engine,
             lifecycle::restart_engine,
             lifecycle::reset_operator_password,
+            lifecycle::factory_reset_application,
             lifecycle::quit_application,
             startup::get_start_at_login,
             startup::set_start_at_login,
@@ -50,11 +51,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "control" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+            if window.label() == "control"
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event
+            {
+                api.prevent_close();
+                let _ = window.hide();
             }
         });
 

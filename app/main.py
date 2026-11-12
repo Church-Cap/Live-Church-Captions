@@ -75,7 +75,19 @@ from app.deployment import deployment_context
 from app.profanity_filter import ProfanityFilter
 from app.settings import get_settings
 from app.networking import default_base_url, detected_local_hostname, local_hostname_is_configured, local_ip
-from app.runtime_config import load_runtime_config, set_audio_device, set_performance_config, set_privacy_config, set_profanity_filter_config, set_translation_config, set_translated_audio_config, set_security_config
+from app.onboarding import (
+    build_onboarding_recommendation,
+    clamp_onboarding_active_limit,
+    clear_factory_reset_request,
+    clear_password_recovery_request,
+    factory_reset_requested,
+    local_pytorch_cuda_available,
+    onboarding_language_pack_for_runtime,
+    onboarding_language_packs_config,
+    password_recovery_requested,
+    validate_onboarding_language_packs,
+)
+from app.runtime_config import load_runtime_config, set_audio_device, set_operator_theme, set_performance_config, set_privacy_config, set_profanity_filter_config, set_translation_config, set_translated_audio_config, set_security_config
 from app.i18n import LANGUAGE_BY_CODE, SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, normalise_language
 from app.localisation import get_client_ui_language_strings, get_client_ui_sources, get_client_ui_strings, get_runtime_translated_client_ui_strings
 from app.paths import app_support_dir, resource_root, runtime_mode
@@ -90,8 +102,8 @@ from app.tts_catalog import (
     normalise_voice_package_selection,
     public_voice_catalog,
 )
-from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, poll_update_process_state, update_script_for_system, version_label
-from engine.protocol import ENGINE_PROTOCOL_VERSION
+from app.updater import fetch_remote_version, is_remote_newer, launch_update_process, poll_update_process_state, run_update_check_script, update_script_for_system, version_label
+from engine.protocol import ENGINE_PROTOCOL_VERSION, EngineRequest, EngineRequestName
 
 try:
     import sounddevice as sd
@@ -317,6 +329,7 @@ hub.configure_translation(
     allowed_languages=runtime_config.get("translation_allowed_languages", (settings.translation_allowed_languages or "en").split(",")),
     max_active_languages=startup_translation_max_active,
     language_policy=runtime_config.get("translation_language_policy", "automatic"),
+    language_requests_enabled=bool(runtime_config.get("translation_language_requests_enabled", True)),
     priority_mode=runtime_config.get("translation_priority_mode", "most_viewers"),
     timing_mode=runtime_config.get("translation_timing_mode", "responsive"),
 )
@@ -348,6 +361,8 @@ _transcription_task: asyncio.Task | None = None
 _transcriber = None
 _update_state = {"status": "idle"}
 _update_process: subprocess.Popen | None = None
+_desktop_update_request_at = 0.0
+DESKTOP_UPDATE_REQUEST_INTERVAL_SECONDS = 3.0
 _client_ui_runtime_translation_cache: dict[tuple[str, str], dict[str, str]] = {}
 _cuda_runtime_install_state = {"status": "idle"}
 _cuda_runtime_install_process: subprocess.Popen | None = None
@@ -355,6 +370,7 @@ _translation_install_state = {"status": "idle"}
 _translation_install_process: subprocess.Popen | None = None
 _tts_install_state = {"status": "idle"}
 _tts_install_process: subprocess.Popen | None = None
+_onboarding_tts_queue = {"status": "idle", "package_ids": []}
 _language_requests: dict[str, dict[str, object]] = {}
 CUDA_RUNTIME_LOG_LABEL = "logs/cuda-runtime-install.log"
 CUDA_RUNTIME_REQUEST_MARKER = "cuda-install-requested.flag"
@@ -490,6 +506,75 @@ def _reveal_transcript_path(folder: Path, file_path: Path) -> None:
 def selected_audio_device():
     runtime = load_runtime_config()
     return runtime.get("audio_device") if runtime.get("audio_device") is not None else settings.audio_device
+
+
+def setup_audio_input_context(selected: str | int | None = None) -> dict:
+    """Return local input-device choices for first-run setup."""
+    selected_value = "" if selected is None else str(selected)
+    if sd is None:
+        return {
+            "ok": False,
+            "selected": selected_value,
+            "default_input": None,
+            "default_name": None,
+            "devices": [],
+            "error": "Audio-device detection is unavailable. Church Cap can still use the system default input.",
+        }
+    try:
+        devices = [
+            {**_device_to_api(index, device), "value": str(device.get("name", f"Device {index}"))}
+            for index, device in enumerate(sd.query_devices())
+            if int(device.get("max_input_channels", 0)) > 0
+        ]
+        default_input = None
+        try:
+            default_input = int(sd.default.device[0])
+        except Exception:
+            pass
+        default_device = next((device for device in devices if device["id"] == default_input), None)
+        return {
+            "ok": True,
+            "selected": selected_value,
+            "default_input": default_input,
+            "default_name": default_device["name"] if default_device else None,
+            "devices": devices,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "selected": selected_value,
+            "default_input": None,
+            "default_name": None,
+            "devices": [],
+            "error": f"Church Cap could not list audio inputs: {exc}",
+        }
+
+
+def validate_setup_audio_device(value: str | int | None) -> str | int | None:
+    """Normalise and validate an audio input selected during onboarding."""
+    device: str | int | None = value
+    if isinstance(device, str):
+        device = device.strip()
+        if device.isdigit():
+            device = int(device)
+        elif device in {"", "default"}:
+            device = None
+    if isinstance(device, bool) or not isinstance(device, (int, str, type(None))):
+        raise ValueError("Choose a valid microphone or audio interface.")
+    if device is None:
+        return None
+    if sd is None:
+        raise ValueError("That audio input cannot be checked. Choose System default input and continue.")
+    try:
+        info = sd.query_devices(device)
+    except Exception as exc:
+        raise ValueError(
+            f"That audio input is no longer available: {exc}. Reconnect it or choose System default input."
+        ) from exc
+    if int(info.get("max_input_channels", 0)) <= 0:
+        raise ValueError("That device is not an audio input. Choose a microphone or USB audio interface.")
+    return device
 
 
 PERFORMANCE_PRESETS = {
@@ -632,10 +717,13 @@ def clamp_translation_max_for_deployment(value: int, deployment: dict) -> int:
     return min(value, limit) if limit else value
 
 def auth_config():
+    reset_requested = factory_reset_requested()
     return get_auth_config(
         max_age_seconds=settings.session_max_age_seconds,
-        env_password=settings.operator_password,
-        env_secret=settings.session_secret,
+        # A deliberate factory reset must open complete setup even when an old
+        # source installation still has legacy credentials in .env.
+        env_password=None if reset_requested else settings.operator_password,
+        env_secret=None if reset_requested else settings.session_secret,
     )
 
 
@@ -861,7 +949,7 @@ def _request_port(request: Request) -> int | None:
 
 
 PUBLIC_PREFIXES = ("/static/",)
-PUBLIC_EXACT_PATHS = {"/", "/display", "/obs", "/qr.png", "/qr-ip.png", "/health", "/api/languages", "/api/language-requests"}
+PUBLIC_EXACT_PATHS = {"/", "/display", "/obs", "/propresenter", "/qr.png", "/qr-ip.png", "/health", "/api/languages", "/api/language-requests"}
 PUBLIC_WS_PATHS = {"/ws/captions", "/ws/translation-audio"}
 REMOTE_SERVICE_LEADER_PREFIXES = ("/service-leader/", "/download-handoff/", "/download-handoff-qr/", "/static/")
 
@@ -905,16 +993,44 @@ def security_state(request: Request | None = None) -> dict:
     }
 
 
+def desktop_shell_manages_updates(system: str | None = None) -> bool:
+    """Packaged macOS/Windows builds update through the desktop app's signed updater."""
+    return (
+        (system or platform.system()) in {"Darwin", "Windows"}
+        and runtime_mode().value == "packaged"
+        and bool(os.environ.get("CHURCH_CAP_SUPERVISOR_PID", "").strip())
+    )
+
+
+def request_desktop_update_check() -> bool:
+    """Ask the desktop supervisor to show Settings and check for updates.
+
+    The engine's stdout is the supervisor's lifecycle channel. Returns False
+    when a request was sent moments ago, so repeated clicks do not queue up
+    several checks.
+    """
+    global _desktop_update_request_at
+    now = time.monotonic()
+    if _desktop_update_request_at and now - _desktop_update_request_at < DESKTOP_UPDATE_REQUEST_INTERVAL_SECONDS:
+        return False
+    _desktop_update_request_at = now
+    print(EngineRequest(request=EngineRequestName.OPEN_UPDATES).line(), flush=True)
+    return True
+
+
 def update_capability_state() -> dict:
     global _update_state
     system = platform.system()
     script = update_script_for_system(PROJECT_ROOT, system)
     state = poll_update_process_state(_update_state, _update_process, UPDATE_LOG_LABEL)
     _update_state = {key: value for key, value in state.items() if key != "log"}
+    desktop_managed = desktop_shell_manages_updates(system)
+    script_supported = bool(script and script.exists())
     return {
         "system": system,
-        "supported": bool(script and script.exists()),
-        "script": script.name if script else None,
+        "supported": desktop_managed or script_supported,
+        "managed_by": "desktop" if desktop_managed else ("script" if script_supported else None),
+        "script": None if desktop_managed else (script.name if script else None),
         "current_version": settings.app_version,
         "current_version_label": settings.app_version_label,
         "state": state,
@@ -1851,18 +1967,27 @@ async def index(request: Request):
 async def display(request: Request):
     return _no_cache(template_response(
         "display.html",
-        {"request": request, "church_name": settings.church_name},
+        {
+            **base_template_context(request),
+            "languages": SUPPORTED_LANGUAGES,
+            "translation_state": public_translation_state(),
+        },
     ))
 
 
 @app.get("/obs", response_class=HTMLResponse)
+@app.get("/propresenter", response_class=HTMLResponse)
 async def obs_overlay(request: Request):
+    # /propresenter is the same transparent overlay; client.js reports it as a
+    # ProPresenter output. Older /obs?integration=propresenter Props still work.
     return_to_operator = request.query_params.get("return") in {"1", "true", "operator"}
     return _no_cache(template_response(
         "obs.html",
         {
             **base_template_context(request),
             "return_to_operator": return_to_operator,
+            "languages": SUPPORTED_LANGUAGES,
+            "translation_state": public_translation_state(),
         },
     ))
 
@@ -1871,12 +1996,15 @@ async def obs_overlay(request: Request):
 async def obs_help(request: Request, _: None = Depends(require_operator)):
     return template_response(
         "obs_help.html",
-        {
-            **base_template_context(request),
-            "obs_url": f"{base_url(request)}/obs",
-            "obs_ip_url": f"{ip_base_url(request)}/obs",
-            "system_ip": local_ip(),
-        },
+        base_template_context(request),
+    )
+
+
+@app.get("/propresenter/help", response_class=HTMLResponse)
+async def propresenter_help(request: Request, _: None = Depends(require_operator)):
+    return template_response(
+        "propresenter_help.html",
+        base_template_context(request),
     )
 
 
@@ -1914,7 +2042,83 @@ async def setup_page(request: Request):
     config = auth_config()
     if not config.needs_setup:
         return RedirectResponse("/operator", status_code=303)
-    return _render_auth_page(request, "setup.html", {"error": None})
+    if password_recovery_requested():
+        return _render_auth_page(request, "setup_recovery.html", password_recovery_setup_context())
+    return _render_auth_page(request, "setup.html", first_run_setup_context())
+
+
+def first_run_setup_context(*, error: str | None = None, form_values: dict | None = None) -> dict:
+    values = dict(form_values or {})
+    performance = performance_status()
+    # This is a local OS query used only to avoid recommending a sizeable
+    # translation runtime to a memory-constrained computer.
+    performance["total_memory_bytes"] = _total_memory_bytes()
+    try:
+        cuda_runtime_requested = _cuda_runtime_request_marker_path().is_file()
+    except OSError:
+        cuda_runtime_requested = False
+    hardware = dict(performance.get("hardware_acceleration") or {})
+    performance["cuda_runtime_requested"] = cuda_runtime_requested
+    performance["windows_packaged_cpu_torch"] = (
+        platform.system() == "Windows" and runtime_mode().value == "packaged"
+    )
+    should_check_pytorch = bool(
+        hardware.get("cuda_available")
+        or hardware.get("nvidia_smi_available")
+        or hardware.get("nvidia_driver_status") == "detected"
+        or hardware.get("cuda_device_count", 0)
+        or cuda_runtime_requested
+    )
+    performance["pytorch_cuda_available"] = local_pytorch_cuda_available() if should_check_pytorch else False
+    deployment = safe_deployment_context(performance.get("hardware_acceleration") or {})
+    recommendation = build_onboarding_recommendation(performance, deployment)
+    voice_catalog = [
+        {
+            **package,
+            "download_label": f"{max(1, round(int(package['download_bytes']) / 1_000_000))} MB",
+        }
+        for package in public_voice_catalog()
+    ]
+    return {
+        "error": error,
+        "form_values": values,
+        "factory_reset_requested": factory_reset_requested(),
+        "onboarding": recommendation,
+        "audio_input": setup_audio_input_context(
+            values["audio_device"] if "audio_device" in values else selected_audio_device()
+        ),
+        "voice_catalog": voice_catalog,
+        "voice_catalog_total_download_label": _voice_download_label(ALL_VOICE_PACKAGE_IDS),
+    }
+
+
+def password_recovery_setup_context(*, error: str | None = None, form_values: dict | None = None) -> dict:
+    values = dict(form_values or {})
+    values.setdefault("security_mode", load_runtime_config().get("security_mode", "secure_operator"))
+    return {"error": error, "form_values": values}
+
+
+def setup_error_response(
+    request: Request,
+    *,
+    error: str,
+    status_code: int,
+    recovering: bool,
+    form_values: dict | None = None,
+):
+    if recovering:
+        return _render_auth_page(
+            request,
+            "setup_recovery.html",
+            password_recovery_setup_context(error=error, form_values=form_values),
+            status_code=status_code,
+        )
+    return _render_auth_page(
+        request,
+        "setup.html",
+        first_run_setup_context(error=error, form_values=form_values),
+        status_code=status_code,
+    )
 
 
 @app.post("/setup")
@@ -1923,29 +2127,209 @@ async def setup_operator(
     password: str = Form(...),
     confirm_password: str = Form(...),
     security_mode: str = Form("secure_operator"),
+    performance_setup: str = Form("recommended"),
+    audio_device: str = Form(""),
+    language_packs: list[str] | None = Form(None),
+    translation_max_active_languages: int = Form(1),
+    spoken_audio_setup: str = Form("skip"),
+    spoken_audio_packages: list[str] | None = Form(None),
+    setup_theme: str = Form("system"),
     csrf_token: str = Form(""),
 ):
     config = auth_config()
     if not config.needs_setup:
         return RedirectResponse("/operator", status_code=303)
+    recovering = password_recovery_requested()
     if not _auth_form_is_valid(request, csrf_token):
-        return _render_auth_page(
+        return setup_error_response(
             request,
-            "setup.html",
-            {"error": "This setup page expired or came from another site. Refresh Church Cap and try again."},
+            error="This setup page expired or came from another site. Refresh Church Cap and try again.",
             status_code=403,
+            recovering=recovering,
         )
     if password != confirm_password:
-        return _render_auth_page(request, "setup.html", {"error": "Passwords do not match."}, status_code=400)
+        return setup_error_response(
+            request,
+            error="Passwords do not match.",
+            status_code=400,
+            recovering=recovering,
+            form_values={"security_mode": security_mode},
+        )
+    if len(password) < 8:
+        return setup_error_response(
+            request,
+            error="Password must be at least 8 characters long.",
+            status_code=400,
+            recovering=recovering,
+            form_values={"security_mode": security_mode},
+        )
+
+    if recovering:
+        try:
+            set_security_config(security_mode)
+            set_operator_password(password)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return setup_error_response(
+                request,
+                error=str(exc),
+                status_code=400,
+                recovering=True,
+                form_values={"security_mode": security_mode},
+            )
+        clear_password_recovery_request()
+        fresh_config = auth_config()
+        response = RedirectResponse("/operator", status_code=303)
+        response.delete_cookie(AUTH_FORM_CSRF_COOKIE_NAME, path="/")
+        response.set_cookie(
+            COOKIE_NAME,
+            create_session_token(fresh_config),
+            httponly=True,
+            samesite="strict",
+            max_age=fresh_config.max_age_seconds,
+            secure=request.url.scheme == "https",
+        )
+        return response
+
+    audio_device_value = audio_device if isinstance(audio_device, (str, int)) else ""
+    spoken_audio_choice_value = spoken_audio_setup if isinstance(spoken_audio_setup, str) else "skip"
+    spoken_audio_package_values = (
+        list(spoken_audio_packages)
+        if isinstance(spoken_audio_packages, (list, tuple))
+        else []
+    )
+    setup_values = {
+        "security_mode": security_mode,
+        "performance_setup": performance_setup,
+        "audio_device": audio_device_value,
+        "language_packs": list(language_packs or ["english"]),
+        "translation_max_active_languages": translation_max_active_languages,
+        "spoken_audio_setup": spoken_audio_choice_value,
+        "spoken_audio_packages": spoken_audio_package_values,
+        "setup_theme": setup_theme,
+    }
     try:
-        set_operator_password(password)
+        setup_context = first_run_setup_context()
+        recommendation = setup_context["onboarding"]
+        chosen_audio_device = validate_setup_audio_device(audio_device_value)
+        chosen_packs = validate_onboarding_language_packs(
+            language_packs,
+            translation_available=bool(recommendation["translation_available"]),
+        )
+        pack_config = onboarding_language_packs_config(chosen_packs)
+        configure_languages = bool(pack_config["enabled"])
+        spoken_audio_choice = spoken_audio_choice_value.strip().lower()
+        if spoken_audio_choice not in {"skip", "install"}:
+            raise ValueError("Choose whether to install spoken translated audio or skip it for now.")
+        if not configure_languages:
+            spoken_audio_choice = "skip"
+        voice_package_ids = (
+            normalise_voice_package_selection(spoken_audio_package_values)
+            if spoken_audio_choice == "install"
+            else ()
+        )
+        active_limit = clamp_onboarding_active_limit(
+            translation_max_active_languages,
+            maximum=int(recommendation["maximum_active_languages"]),
+            selected_count=len(pack_config["languages"]) - 1,
+        )
+        if performance_setup == "recommended":
+            set_performance_config(dict(recommendation["performance_config"]))
         set_security_config(security_mode)
-    except ValueError as exc:
-        return _render_auth_page(request, "setup.html", {"error": str(exc)}, status_code=400)
-    response = RedirectResponse("/login", status_code=303)
-    response.delete_cookie(COOKIE_NAME)
+        set_audio_device(chosen_audio_device)
+        set_operator_theme(setup_theme)
+        # First-run language availability is Automatic: visitors may choose any
+        # language the installed pack validates, and the active-language limit
+        # manages load. Restricted is the operator's deliberate lock-down, so it
+        # must start empty rather than pre-ticked with the whole pack; an
+        # all-languages Restricted list also made "selected languages first"
+        # degrade to alphabetical priority.
+        translation_cfg = set_translation_config(
+            configure_languages,
+            [SOURCE_LANGUAGE],
+            active_limit,
+            pack_config["provider"],
+            "automatic",
+            "most_viewers",
+            True,
+            "responsive",
+        )
+        hub.configure_translation(
+            enabled=bool(translation_cfg["translation_enabled"]),
+            provider=translation_cfg["translation_provider"],
+            allowed_languages=translation_cfg["translation_allowed_languages"],
+            max_active_languages=int(translation_cfg["translation_max_active_languages"]),
+            language_policy=translation_cfg["translation_language_policy"],
+            language_requests_enabled=bool(translation_cfg.get("translation_language_requests_enabled", True)),
+            priority_mode=translation_cfg["translation_priority_mode"],
+            timing_mode=translation_cfg["translation_timing_mode"],
+        )
+        set_operator_password(password)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return setup_error_response(
+            request,
+            error=str(exc),
+            form_values=setup_values,
+            status_code=400,
+            recovering=False,
+        )
+
+    clear_factory_reset_request()
+    clear_onboarding_spoken_audio_install()
+    if voice_package_ids:
+        schedule_onboarding_spoken_audio_install(voice_package_ids)
+    if configure_languages and pack_config["installers"]:
+        try:
+            start_translation_installs(pack_config["installers"])
+        except (OSError, RuntimeError, ValueError):
+            block_onboarding_spoken_audio_install(
+                "Spoken audio was not started because the caption language pack needs attention. "
+                "Repair the language pack from Languages, then install voices there."
+            )
+            # The installer state carries a concise, non-sensitive error for the
+            # final setup screen. Password/security setup must remain usable.
+            pass
+
+    fresh_config = auth_config()
+    response = RedirectResponse("/setup/finish", status_code=303)
     response.delete_cookie(AUTH_FORM_CSRF_COOKIE_NAME, path="/")
+    response.set_cookie(
+        COOKIE_NAME,
+        create_session_token(fresh_config),
+        httponly=True,
+        samesite="strict",
+        max_age=fresh_config.max_age_seconds,
+        secure=request.url.scheme == "https",
+    )
     return response
+
+
+@app.get("/setup/finish", response_class=HTMLResponse)
+async def setup_finish_page(request: Request, _: None = Depends(require_operator)):
+    runtime = load_runtime_config()
+    install = translation_install_state()
+    install = {**install, "progress": dict(install.get("progress") or {})}
+    language_pack = onboarding_language_pack_for_runtime(runtime)
+    spoken_audio_install = onboarding_spoken_audio_install_state()
+    return _no_store(template_response(
+        "setup_finish.html",
+        {
+            **base_template_context(request),
+            "translation_enabled": bool(runtime.get("translation_enabled")),
+            "language_pack": language_pack,
+            "active_language_limit": int(runtime.get("translation_max_active_languages", 1)),
+            "translation_install": install,
+            "spoken_audio_install": spoken_audio_install,
+            "spoken_audio_requested": spoken_audio_install.get("status") != "idle",
+        },
+    ))
+
+
+@app.get("/api/setup/install-status")
+async def setup_install_status(_: None = Depends(require_operator)):
+    return {
+        "translation": translation_install_state(),
+        "spoken_audio": onboarding_spoken_audio_install_state(),
+    }
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -2220,6 +2604,7 @@ async def operator(request: Request, _: None = Depends(require_operator)):
             "display_ip_url": f"{ip_base_url(request)}/display",
             "obs_url": f"{base_url(request)}/obs",
             "obs_ip_url": f"{ip_base_url(request)}/obs",
+            "propresenter_ip_url": f"{ip_base_url(request)}/propresenter",
             "system_ip": system_ip,
             "detected_hostname": primary_host,
             "hostname_configured": bool(settings.public_base_url) or local_hostname_is_configured(),
@@ -2830,8 +3215,18 @@ async def check_for_update(request: Request, _: None = Depends(require_operator)
             {"status": "error", "error": f"Updates are not configured for {capability['system']}.", **capability},
             status_code=400,
         )
+    if capability["managed_by"] == "desktop":
+        sent = request_desktop_update_check()
+        return {
+            **capability,
+            "status": "desktop_requested" if sent else "desktop_already_requested",
+            "update_available": False,
+        }
     try:
-        remote_version = await asyncio.to_thread(fetch_remote_version)
+        if capability["system"] == "Linux":
+            remote_version = await asyncio.to_thread(run_update_check_script, PROJECT_ROOT)
+        else:
+            remote_version = await asyncio.to_thread(fetch_remote_version)
     except Exception as exc:
         return JSONResponse(
             {"status": "error", "error": f"Could not check GitHub for updates: {exc}", **capability},
@@ -2878,6 +3273,15 @@ async def start_update(request: Request, _: None = Depends(require_operator)):
         return JSONResponse(
             {"status": "error", "error": f"Updates are not configured for {capability['system']}.", **capability},
             status_code=400,
+        )
+    if capability["managed_by"] == "desktop":
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": "Install updates from the Church Cap desktop app: Settings → Check for updates.",
+                **capability,
+            },
+            status_code=409,
         )
     try:
         remote_version = await asyncio.to_thread(fetch_remote_version)
@@ -3197,9 +3601,11 @@ async def service_leader_update_languages(request: Request, session: ServiceLead
         allowed_languages=cfg["translation_allowed_languages"],
         max_active_languages=int(cfg["translation_max_active_languages"]),
         language_policy=cfg["translation_language_policy"],
+        language_requests_enabled=bool(cfg.get("translation_language_requests_enabled", True)),
         priority_mode=cfg["translation_priority_mode"],
         timing_mode=cfg["translation_timing_mode"],
     )
+    await hub.broadcast_viewer_meta()
     return {"status": "saved", **service_leader_language_context()}
 
 
@@ -3345,9 +3751,11 @@ async def update_translation(request: Request, _: None = Depends(require_operato
         allowed_languages=cfg["translation_allowed_languages"],
         max_active_languages=int(cfg["translation_max_active_languages"]),
         language_policy=cfg["translation_language_policy"],
+        language_requests_enabled=bool(cfg.get("translation_language_requests_enabled", True)),
         priority_mode=cfg["translation_priority_mode"],
         timing_mode=cfg["translation_timing_mode"],
     )
+    await hub.broadcast_viewer_meta()
     return {"status": "saved", **safe_translation_state()}
 
 
@@ -3404,6 +3812,7 @@ def accept_language_request_action(language: str) -> None:
         allowed_languages=cfg["translation_allowed_languages"],
         max_active_languages=int(cfg["translation_max_active_languages"]),
         language_policy=cfg["translation_language_policy"],
+        language_requests_enabled=bool(cfg.get("translation_language_requests_enabled", True)),
         priority_mode=cfg["translation_priority_mode"],
         timing_mode=cfg["translation_timing_mode"],
     )
@@ -3422,6 +3831,7 @@ async def service_leader_accept_language_request(
 ):
     require_service_leader_mutation(request, session)
     accept_language_request_action(language)
+    await hub.broadcast_viewer_meta()
     return {"status": "accepted", "translation": service_leader_language_context()}
 
 
@@ -3433,18 +3843,21 @@ async def service_leader_reject_language_request(
 ):
     require_service_leader_mutation(request, session)
     reject_language_request_action(language)
+    await hub.broadcast_viewer_meta()
     return {"status": "rejected", "translation": service_leader_language_context()}
 
 
 @app.post("/api/language-requests/{language}/accept")
 async def accept_language_request(language: str, _: None = Depends(require_operator)):
     accept_language_request_action(language)
+    await hub.broadcast_viewer_meta()
     return {"status": "accepted", "translation": safe_translation_state()}
 
 
 @app.post("/api/language-requests/{language}/reject")
 async def reject_language_request(language: str, _: None = Depends(require_operator)):
     reject_language_request_action(language)
+    await hub.broadcast_viewer_meta()
     return {"status": "rejected", "translation": safe_translation_state()}
 
 
@@ -3494,19 +3907,55 @@ def refresh_translation_resources() -> None:
 
 
 def translation_install_state() -> dict:
-    global _translation_install_state
+    global _translation_install_process, _translation_install_state
     if _translation_install_process is not None and _translation_install_state.get("status") == "installing":
         progress = _current_installer_progress("translation", _translation_install_state.get("progress"))
+        batch_kinds = tuple(_translation_install_state.get("batch_kinds") or (_translation_install_state.get("kind"),))
+        batch_index = max(1, int(_translation_install_state.get("batch_index") or 1))
+        batch_count = max(1, len(batch_kinds))
+        if batch_count > 1:
+            current_percent = max(0, min(100, int(progress.get("percent") or 0)))
+            progress = {
+                **progress,
+                "percent": round((((batch_index - 1) * 100) + current_percent) / batch_count),
+                "detail": f"Language pack {batch_index} of {batch_count}: {progress.get('detail') or 'Preparing local translation resources.'}",
+            }
         _translation_install_state = {**_translation_install_state, "progress": progress}
         code = _translation_install_process.poll()
         if code is not None:
             if code == 0:
                 refresh_translation_resources()
+                if batch_index < batch_count:
+                    _translation_install_process = None
+                    try:
+                        _launch_translation_install(
+                            batch_kinds[batch_index],
+                            batch_kinds=batch_kinds,
+                            batch_index=batch_index + 1,
+                            preserve_log=True,
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        _translation_install_state = {
+                            **_translation_install_state,
+                            "status": "error",
+                            "error": str(exc),
+                            "batch_kinds": list(batch_kinds),
+                            "batch_index": batch_index + 1,
+                        }
+                        block_onboarding_spoken_audio_install(
+                            "Spoken audio was not started because a caption language pack needs attention. "
+                            "Repair the language pack from Languages, then install voices there."
+                        )
+                    return _translation_install_state
             kind = str(_translation_install_state.get("kind") or "")
             success_message = (
-                "Recommended language bundle installed, including Tigrinya. Select the languages needed for this service and save."
-                if kind == "ct2small100"
-                else "Translation install finished."
+                "All selected language packs are installed. Church Cap will use Automatic mode to choose the best available local provider."
+                if batch_count > 1
+                else (
+                    "Recommended language bundle installed, including Tigrinya. Select the languages needed for this service and save."
+                    if kind == "ct2small100"
+                    else "Translation install finished."
+                )
             )
             _translation_install_state = {
                 **_translation_install_state,
@@ -3523,6 +3972,14 @@ def translation_install_state() -> dict:
                     detail=success_message if code == 0 else "Installation stopped before all resources were ready.",
                 ),
             }
+            _translation_install_process = None
+            if code == 0:
+                start_pending_onboarding_spoken_audio_install()
+            else:
+                block_onboarding_spoken_audio_install(
+                    "Spoken audio was not started because the caption language pack needs attention. "
+                    "Repair the language pack from Languages, then install voices there."
+                )
     return _translation_install_state
 
 
@@ -3555,7 +4012,7 @@ def _voice_download_label(package_ids: tuple[str, ...]) -> str:
 
 
 def tts_install_state() -> dict:
-    global _tts_install_state
+    global _tts_install_process, _tts_install_state
     if _tts_install_process is not None and _tts_install_state.get("status") == "installing":
         progress = _current_installer_progress("tts", _tts_install_state.get("progress"))
         _tts_install_state = {**_tts_install_state, "progress": progress}
@@ -3592,46 +4049,66 @@ def tts_install_state() -> dict:
                     ),
                 ),
             }
+            _tts_install_process = None
     return {**_tts_install_state, "catalog": public_voice_catalog()}
 
 
-@app.post("/api/translated-audio/install")
-async def install_translated_audio(request: Request, __: None = Depends(require_operator)):
+def clear_onboarding_spoken_audio_install() -> None:
+    global _onboarding_tts_queue
+    _onboarding_tts_queue = {"status": "idle", "package_ids": []}
+
+
+def schedule_onboarding_spoken_audio_install(package_ids: tuple[str, ...] | list[str]) -> dict:
+    """Queue first-run voices until the larger caption-language install finishes."""
+    global _onboarding_tts_queue
+    selected = normalise_voice_package_selection(package_ids)
+    _onboarding_tts_queue = {
+        "status": "waiting",
+        "package_ids": list(selected),
+        "package_labels": [str(VOICE_PACKAGES[package_id]["label"]) for package_id in selected],
+        "download_label": _voice_download_label(selected),
+        "message": "Spoken audio is waiting for the caption language pack to finish.",
+        "progress": {
+            "percent": 0,
+            "detail": "Queued after translated captions so the two large installers do not compete for system resources.",
+        },
+    }
+    return dict(_onboarding_tts_queue)
+
+
+def block_onboarding_spoken_audio_install(message: str) -> None:
+    global _onboarding_tts_queue
+    if _onboarding_tts_queue.get("status") != "waiting":
+        return
+    _onboarding_tts_queue = {
+        **_onboarding_tts_queue,
+        "status": "error",
+        "error": message,
+        "progress": {"percent": 0, "detail": message},
+    }
+
+
+def onboarding_spoken_audio_install_state() -> dict:
+    queue = dict(_onboarding_tts_queue)
+    package_ids = tuple(queue.get("package_ids") or ())
+    if queue.get("status") == "idle" or not package_ids:
+        return {"status": "idle", "package_ids": [], "progress": {}}
+    if queue.get("status") in {"waiting", "error"}:
+        return queue
+    install = tts_install_state()
+    if tuple(install.get("package_ids") or ()) == package_ids:
+        return install
+    return queue
+
+
+def _launch_tts_install(package_ids: tuple[str, ...]) -> dict:
     global _tts_install_process, _tts_install_state
-    if captions_are_running():
-        return JSONResponse(
-            {
-                "status": "error",
-                "error": "Stop captions before installing translated audio. Installation downloads and prepares local AI voices and could affect a live service.",
-            },
-            status_code=409,
-        )
-    state = tts_install_state()
-    if state.get("status") == "installing":
-        return {"status": "installing", "message": "Translated-audio installation is already running.", "install": state}
-    if runtime_mode().value != "packaged" and not (PROJECT_ROOT / ".venv").exists():
-        return JSONResponse(
-            {"status": "error", "error": "No local .venv was found. Run Church Cap setup first, then return to Languages."},
-            status_code=400,
-        )
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    requested = body.get("packages") if isinstance(body, dict) else None
-    if requested is None:
-        package_ids = ALL_VOICE_PACKAGE_IDS
-    elif not isinstance(requested, list) or len(requested) > len(ALL_VOICE_PACKAGE_IDS):
-        return JSONResponse({"status": "error", "error": "Select valid spoken-language packages."}, status_code=400)
-    else:
-        try:
-            package_ids = normalise_voice_package_selection(requested)
-        except ValueError as exc:
-            return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
     command = packaged_resource_install_command() if runtime_mode().value == "packaged" else tts_install_script(package_ids)
     script_path = PROJECT_ROOT / "scripts" / ("install-tts.ps1" if platform.system() == "Windows" else "install-tts.sh")
+    if runtime_mode().value != "packaged" and not (PROJECT_ROOT / ".venv").exists():
+        raise RuntimeError("No local .venv was found. Run Church Cap setup first, then return to Languages.")
     if runtime_mode().value != "packaged" and not script_path.exists():
-        return JSONResponse({"status": "error", "error": "The translated-audio installer script was not found."}, status_code=500)
+        raise RuntimeError("The translated-audio installer script was not found.")
     logs_dir = app_support_dir() / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / "translated-audio-install.log"
@@ -3666,7 +4143,7 @@ async def install_translated_audio(request: Request, __: None = Depends(require_
             )
     except Exception as exc:
         _tts_install_state = {"status": "error", "error": str(exc), "log": TTS_INSTALL_LOG_LABEL}
-        return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
+        raise RuntimeError(str(exc)) from exc
     _tts_install_state = {
         "status": "installing",
         "log": TTS_INSTALL_LOG_LABEL,
@@ -3679,6 +4156,63 @@ async def install_translated_audio(request: Request, __: None = Depends(require_
         "message": f"Installing {len(package_ids)} optional spoken-language packs ({_voice_download_label(package_ids)}). Internet is needed and this may take several minutes.",
         "install": tts_install_state(),
     }
+
+
+def start_pending_onboarding_spoken_audio_install() -> dict:
+    global _onboarding_tts_queue
+    if _onboarding_tts_queue.get("status") != "waiting":
+        return onboarding_spoken_audio_install_state()
+    package_ids = normalise_voice_package_selection(_onboarding_tts_queue.get("package_ids") or ())
+    try:
+        result = _launch_tts_install(package_ids)
+    except (OSError, RuntimeError, ValueError) as exc:
+        _onboarding_tts_queue = {
+            **_onboarding_tts_queue,
+            "status": "error",
+            "error": str(exc),
+            "progress": {"percent": 0, "detail": str(exc)},
+        }
+        return dict(_onboarding_tts_queue)
+    _onboarding_tts_queue = {**_onboarding_tts_queue, "status": "installing"}
+    return result
+
+
+@app.post("/api/translated-audio/install")
+async def install_translated_audio(request: Request, __: None = Depends(require_operator)):
+    if captions_are_running():
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": "Stop captions before installing translated audio. Installation downloads and prepares local AI voices and could affect a live service.",
+            },
+            status_code=409,
+        )
+    state = tts_install_state()
+    if state.get("status") == "installing":
+        return {"status": "installing", "message": "Translated-audio installation is already running.", "install": state}
+    if runtime_mode().value != "packaged" and not (PROJECT_ROOT / ".venv").exists():
+        return JSONResponse(
+            {"status": "error", "error": "No local .venv was found. Run Church Cap setup first, then return to Languages."},
+            status_code=400,
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    requested = body.get("packages") if isinstance(body, dict) else None
+    if requested is None:
+        package_ids = ALL_VOICE_PACKAGE_IDS
+    elif not isinstance(requested, list) or len(requested) > len(ALL_VOICE_PACKAGE_IDS):
+        return JSONResponse({"status": "error", "error": "Select valid spoken-language packages."}, status_code=400)
+    else:
+        try:
+            package_ids = normalise_voice_package_selection(requested)
+        except ValueError as exc:
+            return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+    try:
+        return _launch_tts_install(package_ids)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
 
 
 @app.post("/api/translated-audio/uninstall")
@@ -3735,45 +4269,49 @@ async def uninstall_translated_audio(request: Request, __: None = Depends(requir
     }
 
 
-@app.post("/api/translation/install")
-async def install_translation_resources(request: Request, _: None = Depends(require_operator)):
+def _launch_translation_install(
+    kind: str,
+    *,
+    batch_kinds: tuple[str, ...],
+    batch_index: int,
+    preserve_log: bool,
+) -> dict:
+    """Launch one member of a validated, sequential translation-install batch."""
     global _translation_install_process, _translation_install_state
-    allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
-    if not allowed_by_deployment:
-        return JSONResponse(
-            {"status": "error", "error": deployment["capabilities"].get("message") or "Translation resource installs are not enabled for this appliance profile."},
-            status_code=409,
-        )
-    body = await request.json()
-    kind = str(body.get("kind") or "argos")
-    if kind not in {"argos", "argos_all", "ct2small100", "small100"}:
-        return JSONResponse({"status": "error", "error": "Unknown translation install kind."}, status_code=400)
-    state = translation_install_state()
-    if state.get("status") == "installing":
-        return {"status": "installing", "message": "Translation install is already running.", "install": state}
     try:
         command = packaged_resource_install_command() if runtime_mode().value == "packaged" else translation_install_script(kind)
     except Exception as exc:
-        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+        _translation_install_state = {"status": "error", "error": str(exc), "log": TRANSLATION_INSTALL_LOG_LABEL}
+        raise RuntimeError(str(exc)) from exc
     if runtime_mode().value != "packaged" and not (PROJECT_ROOT / ".venv").exists():
-        return JSONResponse(
-            {
-                "status": "error",
-                "error": "No local .venv was found. Run setup first, then install translation resources from this page.",
-            },
-            status_code=400,
-        )
+        message = "No local .venv was found. Run source setup first, then install translation resources from Languages."
+        _translation_install_state = {"status": "error", "error": message, "log": TRANSLATION_INSTALL_LOG_LABEL}
+        raise RuntimeError(message)
     script_paths = [Path(part) for part in command if "install-" in part and part.endswith((".sh", ".ps1"))]
     if script_paths and not script_paths[0].exists():
-        return JSONResponse({"status": "error", "error": "Translation installer script was not found."}, status_code=500)
+        message = "Translation installer script was not found."
+        _translation_install_state = {"status": "error", "error": message, "log": TRANSLATION_INSTALL_LOG_LABEL}
+        raise RuntimeError(message)
     logs_dir = app_support_dir() / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / "translation-install.log"
-    rotate_log_file(log_path)
+    if not preserve_log:
+        rotate_log_file(log_path)
+    batch_count = max(1, len(batch_kinds))
     initial_progress = _initialise_installer_progress(
         "translation",
-        detail="Preparing the selected translation package.",
+        detail=(
+            f"Preparing language pack {batch_index} of {batch_count}."
+            if batch_count > 1
+            else "Preparing the selected translation package."
+        ),
     )
+    if batch_count > 1:
+        current_percent = max(0, min(100, int(initial_progress.get("percent") or 0)))
+        initial_progress = {
+            **initial_progress,
+            "percent": round((((batch_index - 1) * 100) + current_percent) / batch_count),
+        }
     try:
         with log_path.open("a", encoding="utf-8") as log_file:
             log_file.write(f"\n[{datetime.now(timezone.utc).isoformat()}] Starting {kind} translation install\n")
@@ -3795,10 +4333,12 @@ async def install_translation_resources(request: Request, _: None = Depends(requ
             )
     except Exception as exc:
         _translation_install_state = {"status": "error", "error": str(exc), "log": TRANSLATION_INSTALL_LOG_LABEL}
-        return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
+        raise RuntimeError(str(exc)) from exc
     _translation_install_state = {
         "status": "installing",
         "kind": kind,
+        "batch_kinds": list(batch_kinds),
+        "batch_index": batch_index,
         "log": TRANSLATION_INSTALL_LOG_LABEL,
         "progress": initial_progress,
     }
@@ -3808,11 +4348,52 @@ async def install_translation_resources(request: Request, _: None = Depends(requ
         "argos": "Installing common Base package / Argos Translate language packs.",
         "argos_all": "Installing all available Base package / Argos Translate language packs. Total storage varies and can reach several GB.",
     }
-    return {"status": "installing", "message": install_messages.get(kind, "Installing translation resources."), "install": _translation_install_state}
+    message = install_messages.get(kind, "Installing translation resources.")
+    if batch_count > 1:
+        message = f"Installing language pack {batch_index} of {batch_count}. Packs are installed one at a time to protect system performance."
+    return {"status": "installing", "message": message, "install": _translation_install_state}
+
+
+def start_translation_installs(kinds: list[str] | tuple[str, ...]) -> dict:
+    """Start one or more allow-listed translation installers sequentially."""
+    allowed = {"argos", "argos_all", "ct2small100", "small100"}
+    batch = tuple(dict.fromkeys(str(kind or "").strip() for kind in kinds if str(kind or "").strip()))
+    if not batch or any(kind not in allowed for kind in batch):
+        raise ValueError("Choose one or more supported translation packages.")
+    state = translation_install_state()
+    if state.get("status") == "installing":
+        return {"status": "installing", "message": "Translation install is already running.", "install": state}
+    return _launch_translation_install(batch[0], batch_kinds=batch, batch_index=1, preserve_log=False)
+
+
+def start_translation_install(kind: str) -> dict:
+    """Backward-compatible single-package installer entry point."""
+    return start_translation_installs((kind,))
+
+
+@app.post("/api/translation/install")
+async def install_translation_resources(request: Request, _: None = Depends(require_operator)):
+    allowed_by_deployment, deployment = translation_allowed_for_current_deployment()
+    if not allowed_by_deployment:
+        return JSONResponse(
+            {"status": "error", "error": deployment["capabilities"].get("message") or "Translation resource installs are not enabled for this appliance profile."},
+            status_code=409,
+        )
+    body = await request.json()
+    try:
+        return start_translation_install(str(body.get("kind") or "argos"))
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+    except (OSError, RuntimeError) as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
 
 
 @app.get("/api/languages")
-async def languages():
+async def languages(response: Response):
+    # This payload contains live operator policy. Audience browsers must not
+    # reuse an older Automatic/Restricted response after settings change.
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     return {
         "languages": SUPPORTED_LANGUAGES,
         "ui_strings": get_client_ui_strings(),
@@ -3848,8 +4429,19 @@ async def test_caption(_: None = Depends(require_operator)):
 @app.websocket("/ws/captions")
 async def ws_captions(websocket: WebSocket):
     language = normalise_language(websocket.query_params.get("lang"))
-    count_viewer = websocket.query_params.get("role") != "service-leader"
-    await hub.connect(websocket, language=language, count_viewer=count_viewer)
+    role = str(websocket.query_params.get("role") or "viewer").strip().lower()
+    is_presentation = role == "presentation"
+    count_viewer = role not in {"service-leader", "operator", "presentation"}
+    presentation_kind = str(websocket.query_params.get("presentation") or "").strip().lower()
+    if presentation_kind not in {"propresenter", "obs", "room-display"}:
+        presentation_kind = "presentation" if is_presentation else ""
+    await hub.connect(
+        websocket,
+        language=language,
+        count_viewer=count_viewer,
+        drives_translation=count_viewer or is_presentation,
+        presentation_kind=presentation_kind if is_presentation else None,
+    )
     try:
         while True:
             await websocket.receive_text()

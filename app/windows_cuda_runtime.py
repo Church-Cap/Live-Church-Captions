@@ -27,7 +27,7 @@ from app.paths import app_support_dir
 
 PYPI_HOST = "pypi.org"
 PYPI_FILE_HOST = "files.pythonhosted.org"
-USER_AGENT = "Church-Cap/0.8.0 CUDA-runtime-installer"
+USER_AGENT = "Church-Cap/0.9.0 CUDA-runtime-installer"
 MINIMUM_FREE_OVERHEAD_BYTES = 512 * 1024 * 1024
 
 

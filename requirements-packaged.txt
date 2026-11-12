@@ -1,3 +1,4 @@
+# Superset for .venv-packaging builds only; not installed alongside the runtime .venv.
 # Complete executable runtime used by the initial signed-desktop feasibility build.
 # Model weights remain external per-user resources and are not bundled here.
 -r requirements.txt

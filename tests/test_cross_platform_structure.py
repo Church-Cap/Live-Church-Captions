@@ -125,6 +125,45 @@ class CrossPlatformStructureTests(unittest.TestCase):
         self.assertNotIn("engine-macos-arm64", common_config)
         self.assertNotIn("engine-windows-x64", common_config)
 
+    def test_native_wrapper_uses_the_existing_cross_platform_data_locations(self) -> None:
+        lifecycle = (
+            ROOT / "desktop" / "src-tauri" / "src" / "lifecycle.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn('join("Application Support")', lifecycle)
+        self.assertIn('PathBuf::from(roaming).join("Church Cap")', lifecycle)
+        self.assertIn('join(".local").join("share").join("church-cap")', lifecycle)
+        # The engine must be pointed at the canonical root, never at Tauri's
+        # identifier-derived folder.
+        self.assertIn('.env("CHURCH_CAP_DATA_DIR", &data_dir)', lifecycle)
+        self.assertIn("let data_dir = church_cap_data_dir(app)?;", lifecycle)
+        self.assertNotIn("let data_dir = app\n            .path()\n            .app_local_data_dir()", lifecycle)
+
+    def test_native_wrapper_migrates_pre_v090_desktop_data_before_engine_start(self) -> None:
+        # Every desktop build before 9a3ec57 stored its data in Tauri's
+        # app_local_data_dir(). The legacy path must be resolved with that same
+        # call so it matches on each platform, and the move must happen before
+        # the engine can mistake an empty canonical folder for a fresh install.
+        lifecycle = (
+            ROOT / "desktop" / "src-tauri" / "src" / "lifecycle.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("app.path().app_local_data_dir().ok()", lifecycle)
+        start_body = lifecycle.split("let data_dir = church_cap_data_dir(app)?;", 1)[1]
+        self.assertLess(
+            start_body.index("crate::recovery::migrate_legacy_app_data(&legacy_dir, &data_dir)?;"),
+            start_body.index("let mut command = Command::new(&engine_path);"),
+        )
+        factory_reset = lifecycle.split("pub fn factory_reset_application(", 1)[1]
+        self.assertIn("crate::recovery::clear_legacy_app_data(&legacy_dir, &data_dir)", factory_reset)
+        recovery = (
+            ROOT / "desktop" / "src-tauri" / "src" / "recovery.rs"
+        ).read_text(encoding="utf-8")
+        for guard in (
+            "AUTH_PRIMARY_FILE).is_file()",
+            "FACTORY_RESET_MARKER).is_file()",
+            "LEGACY_MIGRATION_MARKER).is_file()",
+        ):
+            self.assertIn(guard, recovery.split("pub fn legacy_root_needs_migration(", 1)[1].split("pub fn migrate_legacy_app_data(", 1)[0])
+
     def test_public_updater_key_is_committable_without_weakening_secret_scan(self) -> None:
         gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
         workflow = (
@@ -143,6 +182,26 @@ class CrossPlatformStructureTests(unittest.TestCase):
         self.assertIn("../../dist/engine-windows-x64/church-cap-engine/", windows_config)
         self.assertIn('"engine/church-cap-engine/"', windows_config)
         self.assertNotIn('"app/"', windows_config)
+
+    def test_windows_small_engine_requires_hash_pinned_cpu_pytorch(self) -> None:
+        overlay = (
+            ROOT / "packaging" / "engine" / "requirements-windows-cpu.txt"
+        ).read_text(encoding="utf-8")
+        build = (ROOT / "scripts" / "release" / "build-engine-windows.ps1").read_text(encoding="utf-8")
+        handoff = (
+            ROOT / "docs" / "project" / "WINDOWS_V0.9.0_BUILD_HANDOFF.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "torch-2.13.0-cp312-cp312-win_amd64.whl"
+            "#sha256=024c6cc0c1b085f2f91f20a3dc27b0471d021c31ce84b81be3afdc39f791fd9d",
+            overlay,
+        )
+        self.assertIn('print(torch.__version__, torch.version.cuda)', build)
+        self.assertIn("$Torch -notmatch '^2\\.13\\.0(?:\\+cpu)? None$'", build)
+        self.assertLess(
+            handoff.index("pip install --no-cache-dir -r packaging\\engine\\requirements-windows-cpu.txt"),
+            handoff.index("pip install -r requirements-packaged.txt"),
+        )
 
 
 if __name__ == "__main__":

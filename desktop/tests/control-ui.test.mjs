@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile, stat} from 'node:fs/promises';
 import test from 'node:test';
+import {runInNewContext} from 'node:vm';
 
 const html = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
 const script = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
@@ -14,7 +15,8 @@ const browserStyles = await readFile(new URL('../../app/static/styles.css', impo
 const browserMain = await readFile(new URL('../../app/main.py', import.meta.url), 'utf8');
 const loginTemplate = await readFile(new URL('../../app/templates/login.html', import.meta.url), 'utf8');
 const setupTemplate = await readFile(new URL('../../app/templates/setup.html', import.meta.url), 'utf8');
-const setupPasswordScript = await readFile(new URL('../../app/static/setup-password.js', import.meta.url), 'utf8');
+const setupRecoveryTemplate = await readFile(new URL('../../app/templates/setup_recovery.html', import.meta.url), 'utf8');
+const setupPasswordScript = await readFile(new URL('../../app/static/setup-onboarding.js', import.meta.url), 'utf8');
 const dmgBuilder = await readFile(new URL('../../scripts/release/build-internal-macos-dmg.sh', import.meta.url), 'utf8');
 const publicDmgBuilder = await readFile(new URL('../../scripts/release/build-macos-dmg.sh', import.meta.url), 'utf8');
 const macSigner = await readFile(new URL('../../scripts/release/sign-macos-app.sh', import.meta.url), 'utf8');
@@ -32,7 +34,7 @@ const updaterPublicKeyText = Buffer.from(updaterPublicKey, 'base64').toString('u
 
 test('desktop identity and centred control window remain stable', () => {
   assert.equal(tauriConfig.productName, 'Church Cap');
-  assert.equal(tauriConfig.version, '0.8.0');
+  assert.equal(tauriConfig.version, packageConfig.version);
   assert.equal(tauriConfig.identifier, 'org.churchcap.desktop');
   const control = tauriConfig.app.windows.find((window) => window.label === 'control');
   assert.ok(control);
@@ -78,12 +80,19 @@ test('first-run security choices preserve readable card width', () => {
   const easyOfflineDialog = setupTemplate.indexOf('id="easyOfflineInfoDialog"');
   assert.ok(setupFormStart >= 0 && setupFormStart < saveButton && saveButton < setupFormEnd);
   assert.ok(setupFormEnd < easyOfflineDialog, 'the dialog must not introduce nested forms into setup');
-  assert.match(setupTemplate, /id="saveOperatorPassword" form="setupPasswordForm"/);
-  assert.match(setupTemplate, /Operator controls can be reached from other devices on the same LAN/);
-  assert.match(setupTemplate, />Advantage</);
-  assert.match(setupTemplate, />Disadvantage</);
+  assert.match(setupTemplate, /id="saveOperatorPassword"/);
+  assert.match(setupTemplate, /Other computers or tablets on the same private network/);
+  assert.match(setupTemplate, /data-onboarding-step="5"/);
+  assert.match(setupTemplate, /role="progressbar"/);
   assert.match(setupPasswordScript, /easyOfflineInfoButton\?\.addEventListener\('click'/);
   assert.match(setupPasswordScript, /easyOfflineInfoDialog\.showModal\(\)/);
+});
+
+test('password recovery preserves the existing language and performance setup', () => {
+  assert.match(rustRecovery, /operator_password_recovery\.flag/);
+  assert.match(rustRecovery, /password-reset\\n/);
+  assert.match(setupRecoveryTemplate, /performance settings will stay unchanged/);
+  assert.doesNotMatch(setupRecoveryTemplate, /name="language_setup"/);
 });
 
 test('desktop bundles the generated white-glass Church Cap icon set', async () => {
@@ -223,8 +232,8 @@ test('control window stays browser-first and exposes required lifecycle actions'
   assert.match(html, /Closing this window keeps Church Cap available/);
   assert.match(html, /Making Church Easier to Follow/);
   assert.doesNotMatch(html, /Local captions, browser first/);
-  assert.match(html, /<span>v0\.8\.0<\/span>/);
-  assert.doesNotMatch(html, /Version 0\.8\.0 development/);
+  assert.match(html, new RegExp(`<span>v${packageConfig.version.replaceAll('.', '\\.') }<\\/span>`));
+  assert.doesNotMatch(html, new RegExp(`Version ${packageConfig.version.replaceAll('.', '\\.')} development`));
   assert.match(html, /id="showLegalInformation"/);
   assert.match(html, /id="legalDialog"/);
   assert.match(html, /github\.com\/Church-Cap\/Live-Church-Captions/);
@@ -247,6 +256,72 @@ test('control window reconciles native status without a startup event gap', () =
   assert.match(script, /addEventListener\('focus', \(\) => refreshSupervisorStatus\(\)\)/);
   assert.match(script, /if \(!document\.hidden\) refreshSupervisorStatus\(\)/);
   assert.match(script, /finally \{[\s\S]*await refreshSupervisorStatus\(\)/);
+});
+
+test('operator update request opens Settings and checks once while busy', () => {
+  assert.match(script, /listen\('church-cap:\/\/open-updates', handleOpenUpdates\)/);
+  const handler = script.match(/function handleOpenUpdates\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(handler, 'update event handler must exist');
+  const calls = [];
+  const context = {
+    updateBusy: false,
+    selectTab: (tab) => calls.push(['tab', tab]),
+    checkForUpdates: (revealResult) => calls.push(['check', revealResult]),
+  };
+  runInNewContext(`${handler}\nhandleOpenUpdates();`, context);
+  context.updateBusy = true;
+  runInNewContext('handleOpenUpdates();', context);
+  assert.deepEqual(calls, [['tab', 'settings'], ['check', true], ['tab', 'settings']]);
+  assert.match(script, /async function checkForUpdates\(revealResult = false\) \{\s*if \(!invoke \|\| updateBusy\) return;/);
+  assert.match(script, /if \(revealResult\) \$\('#updatePanel'\)\.scrollIntoView\(\{block: 'nearest'\}\)/);
+  const checkButton = html.indexOf('id="checkUpdates"');
+  const resultPanel = html.indexOf('id="updatePanel"');
+  const recoveryButton = html.indexOf('id="resetOperatorPassword"');
+  assert.ok(checkButton < resultPanel && resultPanel < recoveryButton);
+  assert.doesNotMatch(handler, /install_update|installAvailableUpdate/);
+});
+
+test('update installation requires in-app consent and preserves progress handling', async () => {
+  assert.match(html, /<dialog[^>]*id="updateInstallDialog"[^>]*aria-labelledby="updateInstallDialogTitle"/);
+  assert.match(html, /id="updateInstallDialogDescription"/);
+  assert.match(html, /id="confirmUpdateInstall"/);
+  assert.match(html, /<form method="dialog"><button type="submit">Cancel<\/button><\/form>/);
+  assert.doesNotMatch(script.match(/function requestUpdateInstall\(\)[\s\S]*?\n\}/)?.[0], /window\.confirm/);
+  assert.match(script, /addEventListener\('click', requestUpdateInstall\)/);
+  assert.match(script, /addEventListener\('click', installAvailableUpdate\)/);
+  assert.match(script, /listen\('church-cap:\/\/update-progress', \(event\) => renderUpdate\(\{status: event\.payload\.phase, \.\.\.event\.payload\}\)\)/);
+
+  const dialog = {open: false, showModal() { this.open = true; }, close() { this.open = false; }};
+  const description = {textContent: ''};
+  const calls = [];
+  const context = {
+    invoke: async (command) => { calls.push(command); return {status: 'installing'}; },
+    updateBusy: false,
+    status: {captions_live: false},
+    updateState: {status: 'available', version: '0.9.1'},
+    $: (selector) => selector === '#updateInstallDialog' ? dialog : description,
+    renderUpdate: (state) => calls.push(['renderUpdate', state.status]),
+    render: () => {},
+    refreshSupervisorStatus: async () => {},
+    showError: (error) => { throw error; },
+  };
+  const request = script.match(/function requestUpdateInstall\(\) \{[\s\S]*?\n\}/)?.[0];
+  const install = script.match(/async function installAvailableUpdate\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(request && install);
+  runInNewContext(`${request}\n${install}\nrequestUpdateInstall();`, context);
+  assert.equal(dialog.open, true);
+  assert.match(description.textContent, /Church Cap 0\.9\.1/);
+  dialog.close();
+  await runInNewContext('installAvailableUpdate()', context);
+  assert.deepEqual(calls, [], 'cancelled dialog must not invoke the installer');
+  context.status.captions_live = true;
+  runInNewContext('requestUpdateInstall();', context);
+  assert.equal(dialog.open, false, 'live captions prevent opening consent');
+  context.status.captions_live = false;
+  runInNewContext('requestUpdateInstall();', context);
+  await runInNewContext('installAvailableUpdate()', context);
+  assert.equal(dialog.open, false);
+  assert.deepEqual(calls, [['renderUpdate', 'downloading'], 'install_update', ['renderUpdate', 'installing']]);
 });
 
 test('start-at-login and native password recovery are safely exposed', () => {
@@ -275,8 +350,16 @@ test('start-at-login and native password recovery are safely exposed', () => {
   assert.match(rustLifecycle, /crate::recovery::reset_operator_auth/);
   assert.match(rustRecovery, /AUTH_BACKUP_FILE/);
   assert.match(rustRecovery, /AUTH_PRIMARY_FILE/);
-  const recoveryProduction = rustRecovery.split('#[cfg(test)]')[0];
-  assert.doesNotMatch(recoveryProduction, /remove_dir_all|Command::new|std::process::Command/);
+  const passwordRecoveryProduction = rustRecovery
+    .split('pub fn reset_operator_auth')[1]
+    .split('fn restore_staged_items')[0];
+  assert.doesNotMatch(passwordRecoveryProduction, /remove_dir_all|Command::new|std::process::Command/);
+  assert.match(html, /id="factoryResetApplication"/);
+  assert.match(html, /id="factoryResetConfirmation"/);
+  assert.match(script, /invoke\('factory_reset_application'\)/);
+  assert.match(rustHost, /lifecycle::factory_reset_application/);
+  assert.match(rustRecovery, /FACTORY_RESET_DIRECTORIES/);
+  assert.match(rustRecovery, /FACTORY_RESET_MARKER/);
   const diagnostics = html.indexOf('>Diagnostics<');
   assert.notEqual(diagnostics, -1);
   assert.match(html.slice(Math.max(0, diagnostics - 140), diagnostics), /<button type="button" disabled>/);
@@ -298,6 +381,7 @@ test('frontend invokes only the narrow supervisor allow list', () => {
     [...new Set(invoked)].sort(),
     [
       'check_for_updates',
+      'factory_reset_application',
       'get_start_at_login',
       'get_supervisor_status',
       'install_update',
@@ -315,11 +399,15 @@ test('frontend invokes only the narrow supervisor allow list', () => {
 
 test('signed updater remains Rust-owned and protects live captions', () => {
   assert.equal(tauriConfig.bundle.createUpdaterArtifacts, true);
+  assert.deepEqual(tauriConfig.plugins.updater.endpoints, [
+    'https://raw.githubusercontent.com/Church-Cap/Live-Church-Captions/main/updates/desktop/{{target}}-{{arch}}/latest.json',
+  ]);
+  assert.equal(tauriConfig.plugins.updater.windows.installMode, 'passive');
   assert.match(tauriConfig.plugins.updater.pubkey, /^[A-Za-z0-9+/=]+$/);
   assert.equal(tauriConfig.plugins.updater.pubkey, updaterPublicKey);
   const publicKeyId = updaterPublicKeyText.match(/minisign public key: ([A-F0-9]{16})/)?.[1];
   const rustKeyId = rustUpdater.match(/UPDATER_PUBLIC_KEY_ID: &str = "([A-F0-9]{16})"/)?.[1];
-  assert.equal(publicKeyId, 'BF1E020A4490108A');
+  assert.equal(publicKeyId, '25BF3CCF4B6CBB01');
   assert.equal(rustKeyId, publicKeyId);
   assert.deepEqual(tauriConfig.plugins.updater.endpoints, [
     'https://raw.githubusercontent.com/Church-Cap/Live-Church-Captions/main/updates/desktop/{{target}}-{{arch}}/latest.json',
